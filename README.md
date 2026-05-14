@@ -96,3 +96,4 @@ supabase db push
 ## License
 
 MIT
+# GitHub integration enabled - triggering deployment
