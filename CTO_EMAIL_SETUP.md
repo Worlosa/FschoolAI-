@@ -1,17 +1,21 @@
 # CTO Email Setup - Quick Start
 
+**CTO Email:** johannaresh@gmail.com
+
 ## Step 1: Copy .env.example to .env
 ```bash
 cp .env.example .env
 ```
 
-## Step 2: Add Your Email to .env
-Open `.env` and add your email:
+## Step 2: Email Already Configured
+The `.env.example` file already has the CTO email configured:
 
 ```
 # Your email for notifications and contact
-CTO_EMAIL=your.email@company.com
+CTO_EMAIL=johannaresh@gmail.com
 ```
+
+Just copy it to `.env` - no changes needed!
 
 ## Step 3: Database Access
 Your email is now registered. You can access the database:

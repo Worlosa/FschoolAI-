@@ -1,6 +1,7 @@
 # CTO Setup Guide - FschoolAI Backend
 
 **Owned by FschoolAI Inc.**
+**CTO:** johannaresh@gmail.com
 **Complete handoff documentation for immediate takeover.**
 
 ---

@@ -9,9 +9,9 @@
 ## Ownership & Contact
 
 | Role | Details |
-|------|---------|
+|------|----------|
 | **Owner** | FschoolAI Inc. |
-| **CTO** | [Add CTO name and email in .env] |
+| **CTO** | johannaresh@gmail.com |
 | **Backend Status** | ✅ Production Ready |
 | **Version** | 1.0.0 |
 

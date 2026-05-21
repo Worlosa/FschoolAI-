@@ -1,6 +1,7 @@
 # FschoolAI Backend Deployment Guide
 
 **Owned by FschoolAI Inc.**
+**CTO:** johannaresh@gmail.com
 **For CTO Handoff** - Complete production-ready backend system.
 
 ## System Overview

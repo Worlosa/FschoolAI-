@@ -23,7 +23,7 @@
     "education",
     "canvas-lms"
   ],
-  "author": "FschoolAI Inc.",
+  "author": "FschoolAI Inc. (CTO: johannaresh@gmail.com)",
   "license": "Proprietary",
   "dependencies": {
     "express": "^4.18.2",
