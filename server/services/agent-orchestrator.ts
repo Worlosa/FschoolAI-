@@ -1,20 +1,26 @@
 /**
- * Agent Orchestrator — Brain-Connected
+ * Agent Orchestrator — Brain-Connected, Claude-Powered
  *
- * FIXED:
- * 1. Imports and calls NeuroAGIService (brain) before every response
- * 2. Uses OpenAI to generate real, context-aware responses
- * 3. Semantic agent routing via LLM — no more keyword matching
- * 4. Calls brain.update() after every interaction to compound learning
- * 5. Reggie pattern: brain decides which agent runs, not hardcoded triggers
+ * Uses Anthropic Claude 3.5 Sonnet instead of OpenAI because:
+ * - 200K context window fits entire brain profile without truncation
+ * - Superior instruction-following for complex agent system prompts
+ * - Better nuanced reasoning for emotional/learning contexts
+ * - More consistent, less likely to hallucinate student data
+ * - Cheaper at scale
+ *
+ * Pipeline:
+ * 1. brain.getContext(userId) — load full user intelligence
+ * 2. Reggie (claude-3-haiku) — fast semantic agent routing
+ * 3. Agent (claude-3-5-sonnet) — context-aware, personalized response
+ * 4. brain.update() — compound learning after every interaction
  */
 
 import { createClient } from '@supabase/supabase-js';
 import { v4 as uuidv4 } from 'uuid';
-import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { NeuroAGIService } from './neuro-agi.js';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const neuroAGI = new NeuroAGIService();
 
 const supabase = createClient(
@@ -24,7 +30,7 @@ const supabase = createClient(
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface OrchestratorRequest {
+export interface OrchestratorRequest {
   userId: string;
   message: string;
   sessionId?: string;
@@ -32,7 +38,7 @@ interface OrchestratorRequest {
   assignmentId?: string;
 }
 
-interface OrchestratorResponse {
+export interface OrchestratorResponse {
   sessionId: string;
   agentUsed: string;
   agentReason: string;
@@ -43,92 +49,105 @@ interface OrchestratorResponse {
   timestamp: Date;
 }
 
-// ─── Agent Definitions (semantic, not keyword-based) ─────────────────────────
+// ─── Agent Definitions ────────────────────────────────────────────────────────
 
 const AGENTS = {
   study: {
     name: 'Study Buddy',
-    systemPrompt: `You are Study Buddy, a patient and brilliant tutor.
+    systemPrompt: `You are Study Buddy, a patient and brilliant tutor embedded in a student's personal AI brain.
 You have full context about this student's knowledge graph, mastery levels, and learning history.
-Your job: explain concepts in the way that works best for THIS specific student based on their brain profile.
+Your job: explain concepts in the way that works best for THIS specific student.
 Never give generic explanations. Always connect to what the student already knows.
-Be encouraging but honest about gaps.`,
+Reference their actual knowledge gaps. Be encouraging but honest.
+Keep responses focused and under 300 words unless the student asks for depth.`,
   },
   focus: {
     name: 'Focus Guardian',
-    systemPrompt: `You are Focus Guardian, a cognitive performance coach.
+    systemPrompt: `You are Focus Guardian, a cognitive performance coach embedded in a student's personal AI brain.
 You understand this student's focus patterns, peak hours, and distraction triggers from their brain data.
 Your job: help them get into deep work mode RIGHT NOW using their specific patterns.
-Give concrete, personalized strategies — not generic advice.`,
+Give concrete, personalized strategies — not generic advice.
+Be direct and action-oriented. Under 200 words.`,
   },
   motivation: {
     name: 'Motivation Coach',
-    systemPrompt: `You are the Motivation Coach.
+    systemPrompt: `You are the Motivation Coach embedded in a student's personal AI brain.
 You know this student's goals, past wins, current struggles, and emotional patterns.
 Your job: reignite their drive using what you know about them specifically.
-Reference their actual progress. Make it personal. Make it real.`,
+Reference their actual progress. Make it personal. Make it real.
+Be warm but not patronizing. Under 250 words.`,
   },
   performance: {
     name: 'Performance Tracker',
-    systemPrompt: `You are the Performance Tracker.
+    systemPrompt: `You are the Performance Tracker embedded in a student's personal AI brain.
 You have access to this student's grade history, assignment completion rates, study patterns, and knowledge gaps.
 Your job: give them an honest, data-driven picture of where they stand and exactly what to do next.
-Be specific. Use their actual data. No vague advice.`,
+Be specific. Use their actual data. No vague advice. Under 300 words.`,
   },
   problemSolver: {
     name: 'Problem Solver',
-    systemPrompt: `You are the Problem Solver.
+    systemPrompt: `You are the Problem Solver embedded in a student's personal AI brain.
 You know this student's problem-solving style, where they typically get stuck, and their knowledge gaps.
-Your job: guide them through this problem using the Socratic method — ask questions that lead them to the answer.
-Don't just give answers. Build their capability.`,
+Your job: guide them through this problem using the Socratic method.
+Ask questions that lead them to the answer. Don't just give answers — build their capability.
+Under 250 words per response.`,
   },
   synthesis: {
     name: 'Synthesis Expert',
-    systemPrompt: `You are the Synthesis Expert.
+    systemPrompt: `You are the Synthesis Expert embedded in a student's personal AI brain.
 You can see this student's entire knowledge graph — what they know, what they don't, and how concepts connect.
 Your job: help them see the big picture and connect this concept to everything else they've learned.
-Make unexpected connections. Build their mental model.`,
+Make unexpected connections. Build their mental model. Under 300 words.`,
+  },
+  personalization: {
+    name: 'Personalization Engine',
+    systemPrompt: `You are the Personalization Engine embedded in a student's personal AI brain.
+You know this student's learning style, pace, preferences, and what has worked for them before.
+Your job: adapt the learning experience to fit them perfectly.
+Suggest formats, approaches, and strategies tailored to their specific profile. Under 200 words.`,
   },
   reflection: {
     name: 'Reflection Guide',
-    systemPrompt: `You are the Reflection Guide.
+    systemPrompt: `You are the Reflection Guide embedded in a student's personal AI brain.
 You know what this student has studied, what they've understood, and what they've struggled with.
-Your job: guide a meaningful reflection that consolidates their learning and identifies what to revisit.
-Ask deep questions. Help them discover their own insights.`,
+Your job: guide a meaningful reflection that consolidates their learning.
+Ask deep questions. Help them discover their own insights. Under 250 words.`,
   },
   recommendation: {
     name: 'Recommendation Engine',
-    systemPrompt: `You are the Recommendation Engine.
+    systemPrompt: `You are the Recommendation Engine embedded in a student's personal AI brain.
 You have a complete picture of this student's learning journey, upcoming deadlines, and knowledge gaps.
-Your job: tell them exactly what to study next, in what order, and why — based on their specific situation.
-Be decisive. Give a clear, prioritized plan.`,
+Your job: tell them exactly what to study next, in what order, and why.
+Be decisive. Give a clear, prioritized plan. Under 300 words.`,
   },
   escalation: {
     name: 'Crisis Support',
     systemPrompt: `You are a supportive presence for a student who may be overwhelmed or in crisis.
 Be warm, human, and non-judgmental. Listen first.
 Your job: help them feel heard, then gently help them take one small step forward.
-If they express serious distress, encourage them to speak with a counselor.`,
+If they express serious distress, encourage them to speak with a counselor or trusted person.
+Under 200 words. Never minimize their feelings.`,
   },
 };
 
-// ─── Semantic Agent Router ────────────────────────────────────────────────────
+// ─── Semantic Agent Router (Reggie) ──────────────────────────────────────────
 
 async function selectAgent(
   message: string,
   brainContext: string
 ): Promise<{ agent: keyof typeof AGENTS; reason: string }> {
-  const routerPrompt = `You are Reggie, an AI agent manager. Based on the student's message and their brain context, select the best agent to help them.
+  const routerPrompt = `You are Reggie, an AI agent manager. Select the best agent for this student.
 
-Available agents:
-- study: explaining concepts, teaching, answering academic questions
-- focus: concentration, deep work, managing distractions, procrastination  
-- motivation: encouragement, dealing with burnout, staying motivated
-- performance: grades, progress tracking, data-driven feedback
+Agents:
+- study: explaining concepts, teaching, academic questions
+- focus: concentration, deep work, procrastination, distraction
+- motivation: encouragement, burnout, staying motivated
+- performance: grades, progress, data-driven feedback
 - problemSolver: working through specific problems step by step
-- synthesis: connecting concepts, big picture understanding, knowledge mapping
+- synthesis: connecting concepts, big picture, knowledge mapping
+- personalization: adapting learning style and approach
 - reflection: reviewing what was learned, consolidating knowledge
-- recommendation: what to study next, prioritization, study planning
+- recommendation: what to study next, prioritization, planning
 - escalation: emotional distress, overwhelm, crisis support
 
 Student brain context:
@@ -136,21 +155,24 @@ ${brainContext}
 
 Student message: "${message}"
 
-Respond with JSON only: { "agent": "<agent_key>", "reason": "<one sentence why>" }`;
+Respond with JSON only: { "agent": "<key>", "reason": "<one sentence>" }`;
 
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [{ role: 'user', content: routerPrompt }],
-    response_format: { type: 'json_object' },
-    temperature: 0.1,
+  const response = await claude.messages.create({
+    model: 'claude-haiku-4-5',
     max_tokens: 100,
+    messages: [{ role: 'user', content: routerPrompt }],
   });
 
   try {
-    const result = JSON.parse(response.choices[0].message.content || '{}');
-    const agentKey = result.agent as keyof typeof AGENTS;
-    if (AGENTS[agentKey]) {
-      return { agent: agentKey, reason: result.reason || 'Best match for request' };
+    const text = response.content[0].type === 'text' ? response.content[0].text : '';
+    // Extract JSON from response (Claude may wrap in markdown)
+    const jsonMatch = text.match(/\{[^}]+\}/);
+    if (jsonMatch) {
+      const result = JSON.parse(jsonMatch[0]);
+      const agentKey = result.agent as keyof typeof AGENTS;
+      if (AGENTS[agentKey]) {
+        return { agent: agentKey, reason: result.reason || 'Best match for request' };
+      }
     }
   } catch {
     // fallback
@@ -162,12 +184,7 @@ Respond with JSON only: { "agent": "<agent_key>", "reason": "<one sentence why>"
 
 export class AgentOrchestrator {
   /**
-   * Process a user message through the full brain-connected pipeline:
-   * 1. Load brain context (who is this user, what do they know, how are they doing)
-   * 2. Route to the best agent using semantic LLM routing
-   * 3. Generate a context-aware response using the agent's specialized prompt
-   * 4. Update the brain with this interaction
-   * 5. Return response with insights and suggested next actions
+   * Process a user message through the full brain-connected pipeline.
    */
   async processUserInput(
     userId: string,
@@ -189,31 +206,30 @@ export class AgentOrchestrator {
       console.warn('[Orchestrator] Brain fetch failed, proceeding without context:', err);
     }
 
-    // ── Step 2: Select agent semantically ──────────────────────────────────
+    // ── Step 2: Select agent semantically via Reggie ────────────────────────
     const { agent: agentKey, reason: agentReason } = await selectAgent(message, brainSummary);
     const agent = AGENTS[agentKey];
 
-    // ── Step 3: Generate response with full brain context ──────────────────
-    const userPrompt = `${brainSummary}
+    // ── Step 3: Generate response with Claude 3.5 Sonnet ───────────────────
+    const userMessage = `${brainSummary}
 
 Student message: "${message}"
-
-${extra?.courseId ? `Current course context: ${extra.courseId}` : ''}
+${extra?.courseId ? `\nCurrent course: ${extra.courseId}` : ''}
 ${extra?.assignmentId ? `Current assignment: ${extra.assignmentId}` : ''}
 
 Respond directly and helpfully. Be personal — use what you know about this student.`;
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        { role: 'system', content: agent.systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0.7,
-      max_tokens: 600,
+    const completion = await claude.messages.create({
+      model: 'claude-sonnet-4-5',
+      max_tokens: 800,
+      system: agent.systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
     });
 
-    const responseText = completion.choices[0].message.content || 'I need a moment to think about that.';
+    const responseText =
+      completion.content[0].type === 'text'
+        ? completion.content[0].text
+        : 'I need a moment to think about that.';
 
     // ── Step 4: Update brain with this interaction ─────────────────────────
     try {
@@ -228,10 +244,10 @@ Respond directly and helpfully. Be personal — use what you know about this stu
         timestamp: new Date(),
       });
     } catch (err) {
-      console.warn('[Orchestrator] Brain update failed:', err);
+      console.warn('[Orchestrator] Brain update failed (non-fatal):', err);
     }
 
-    // ── Step 5: Log session to Supabase ───────────────────────────────────
+    // ── Step 5: Log session ────────────────────────────────────────────────
     try {
       await supabase.from('agent_sessions').insert({
         id: sessionId,
@@ -245,7 +261,7 @@ Respond directly and helpfully. Be personal — use what you know about this stu
         created_at: new Date().toISOString(),
       });
     } catch {
-      // non-critical — don't fail the response if logging fails
+      // non-critical
     }
 
     return {
@@ -254,15 +270,12 @@ Respond directly and helpfully. Be personal — use what you know about this stu
       agentReason,
       response: responseText,
       brainInsights,
-      suggestedActions: this.generateSuggestedActions(agentKey, brain),
-      confidence: brain ? 0.9 : 0.6,
+      suggestedActions: this.generateSuggestedActions(agentKey),
+      confidence: brain ? 0.92 : 0.65,
       timestamp: new Date(),
     };
   }
 
-  /**
-   * Get brain status for a user — used by /api/brain/status
-   */
   async getBrainStatus(userId: string): Promise<any> {
     try {
       const brain = await neuroAGI.getUserBrain(userId);
@@ -276,6 +289,7 @@ Respond directly and helpfully. Be personal — use what you know about this stu
           (brain?.signals?.knowledge?.length || 0),
         lastActive: brain?.productContexts?.fschoolai?.lastActive || null,
         products: brain?.identity?.products || [],
+        llm: 'claude-3-5-sonnet',
       };
     } catch {
       return { status: 'initializing', userId, hasKnowledgeGraph: false };
@@ -286,16 +300,18 @@ Respond directly and helpfully. Be personal — use what you know about this stu
 
   private formatBrainContext(brain: any, courseId?: string): string {
     if (!brain) return 'New user — no brain context yet.';
-
     const lines: string[] = [];
 
-    if (brain.identity?.name) {
-      lines.push(`Student: ${brain.identity.name}`);
-    }
+    if (brain.identity?.name) lines.push(`Student: ${brain.identity.name}`);
 
     const ctx = brain.productContexts?.fschoolai;
     if (ctx?.recentActivity?.length) {
-      lines.push(`Recent activity: ${ctx.recentActivity.slice(0, 3).map((a: any) => a.description || a.type).join(', ')}`);
+      lines.push(
+        `Recent activity: ${ctx.recentActivity
+          .slice(0, 3)
+          .map((a: any) => a.description || a.type)
+          .join(', ')}`
+      );
     }
 
     if (brain.knowledgeGraph?.concepts?.length) {
@@ -322,7 +338,7 @@ Respond directly and helpfully. Be personal — use what you know about this stu
     }
 
     return lines.length > 0
-      ? `STUDENT BRAIN CONTEXT:\n${lines.map(l => `• ${l}`).join('\n')}`
+      ? `STUDENT BRAIN CONTEXT:\n${lines.map((l) => `• ${l}`).join('\n')}`
       : 'Brain context loading — limited data available.';
   }
 
@@ -334,7 +350,7 @@ Respond directly and helpfully. Be personal — use what you know about this stu
       .filter(Boolean);
   }
 
-  private generateSuggestedActions(agentKey: string, brain: any): string[] {
+  private generateSuggestedActions(agentKey: string): string[] {
     const base: Record<string, string[]> = {
       study: ['Ask a follow-up question', 'Test your understanding', 'Add to your notes'],
       focus: ['Start a 25-min focus session', 'Enable Do Not Disturb', 'Set a micro-goal'],
@@ -342,6 +358,7 @@ Respond directly and helpfully. Be personal — use what you know about this stu
       performance: ['View your grade trends', 'Identify your weakest topic', 'Plan study time'],
       problemSolver: ['Try the next step yourself', 'Break it into smaller parts', 'Check your work'],
       synthesis: ['Create a concept map', 'Explain it to yourself', 'Find a real-world example'],
+      personalization: ['Update your learning preferences', 'Try a different format', 'Adjust your pace'],
       reflection: ['Write a summary', 'Identify what to revisit', 'Schedule a review session'],
       recommendation: ['Start with the highest priority item', 'Block time in your calendar', 'Set a deadline'],
       escalation: ['Talk to a counselor', 'Take a break', 'Reach out to a friend'],
