@@ -1,0 +1,576 @@
+// Study.jsx — Course picker, Flashcards / Study Guide modes.
+// Flashcard study session: fullscreen, one card at a time, 3D flip, swipe-to-judge.
+
+import { useState, useRef, useCallback, useEffect } from "react";
+import { groq } from "../api/groq";
+import { useApp } from "../context/AppContext";
+
+const FALLBACK_COURSES = [
+  "PSYC 302 — Cognitive Psychology",
+  "MATH 241 — Differential Equations",
+  "BUS 410 — Strategic Management",
+  "CS 355 — Algorithms & Complexity",
+];
+
+const SYSTEM =
+  "You are a study assistant. When generating flashcards, format EVERY card as exactly: Q: [question] | A: [answer] — one per line, no extra text. For study guides, use clear headings and concise bullet points.";
+
+function parseFlashcards(text) {
+  return text
+    .split("\n")
+    .filter((line) => line.includes("Q:") && line.includes(" | ") && line.includes("A:"))
+    .map((line, i) => {
+      const [qPart, aPart] = line.split(" | ");
+      return {
+        id:       i,
+        question: (qPart || "").replace(/^Q:\s*/i, "").trim(),
+        answer:   (aPart || "").replace(/^A:\s*/i, "").trim(),
+      };
+    })
+    .filter((c) => c.question && c.answer);
+}
+
+// ── Fullscreen study session ──────────────────────────────────────────────────
+function StudySession({ cards, onExit }) {
+  const [idx, setIdx]         = useState(0);
+  const [flipped, setFlipped] = useState(false);
+  const [results, setResults] = useState([]);
+  const [dragX, setDragX]     = useState(0);
+  const [exitDir, setExitDir] = useState(null); // "left" | "right"
+
+  const touchStartX  = useRef(null);
+  const touchStartY  = useRef(null);
+  const isDragMode   = useRef(false);
+  const judgeLock    = useRef(false);
+
+  const isDone = idx >= cards.length;
+  const card   = cards[idx];
+
+  const judge = useCallback((correct) => {
+    if (judgeLock.current || isDone) return;
+    judgeLock.current = true;
+    setExitDir(correct ? "right" : "left");
+    setTimeout(() => {
+      setResults((r) => [...r, correct]);
+      setIdx((i) => i + 1);
+      setFlipped(false);
+      setDragX(0);
+      setExitDir(null);
+      judgeLock.current = false;
+    }, 280);
+  }, [isDone]);
+
+  // Touch: tap = flip, horizontal drag (after flip) = judge
+  const onTouchStart = useCallback((e) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+    isDragMode.current  = false;
+    setDragX(0);
+  }, []);
+
+  const onTouchMove = useCallback((e) => {
+    if (touchStartX.current === null || !flipped) return;
+    const dx = e.touches[0].clientX - touchStartX.current;
+    const dy = Math.abs(e.touches[0].clientY - touchStartY.current);
+    if (Math.abs(dx) > 10 && Math.abs(dx) > dy) {
+      isDragMode.current = true;
+      e.preventDefault();
+      setDragX(dx);
+    }
+  }, [flipped]);
+
+  const onTouchEnd = useCallback((e) => {
+    const endX  = e.changedTouches[0].clientX;
+    const endY  = e.changedTouches[0].clientY;
+    const dx    = endX - (touchStartX.current ?? endX);
+    const dy    = Math.abs(endY - (touchStartY.current ?? endY));
+    touchStartX.current = null;
+    touchStartY.current = null;
+
+    if (isDragMode.current) {
+      isDragMode.current = false;
+      if (Math.abs(dragX) > 70) judge(dragX > 0);
+      else setDragX(0);
+      return;
+    }
+
+    // It's a tap — flip the card
+    if (!flipped && Math.abs(dx) < 12 && dy < 20 && !judgeLock.current) {
+      setFlipped(true);
+    }
+  }, [flipped, dragX, judge]);
+
+  // Card drag tint (only meaningful when flipped)
+  const tintOpacity = Math.min(Math.abs(dragX) / 120, 1);
+  const tintColor   = dragX > 20
+    ? `rgba(52, 199, 89, ${tintOpacity * 0.2})`
+    : dragX < -20
+    ? `rgba(255, 59, 48, ${tintOpacity * 0.18})`
+    : "transparent";
+
+  const dragTransform  = exitDir === "right"
+    ? "translateX(115%) rotate(14deg)"
+    : exitDir === "left"
+    ? "translateX(-115%) rotate(-14deg)"
+    : `translateX(${dragX}px) rotate(${dragX * 0.035}deg)`;
+
+  const dragTransition = exitDir
+    ? "transform 0.28s var(--ease-apple), opacity 0.28s"
+    : isDragMode.current
+    ? "none"
+    : "transform 0.28s var(--ease-apple)";
+
+  // ── Done screen ──────────────────────────────────────────────────────────────
+  if (isDone) {
+    const correct = results.filter(Boolean).length;
+    const pct     = Math.round((correct / cards.length) * 100);
+    return (
+      <div style={{
+        position: "fixed", inset: 0, zIndex: 800,
+        background: "var(--color-bg)", display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center", fontFamily: "var(--font-sans)",
+        padding: "32px 28px",
+      }}>
+        <div style={{ textAlign: "center", maxWidth: "320px", width: "100%" }}>
+          <div style={{ fontSize: "60px", fontWeight: "700", color: "var(--text-primary)", letterSpacing: "-2px", marginBottom: "8px" }}>
+            {pct}%
+          </div>
+          <p style={{ color: "var(--text-secondary)", fontSize: "15px", marginBottom: "32px" }}>
+            {correct} of {cards.length} correct
+          </p>
+          <div style={{ display: "flex", gap: "6px", justifyContent: "center", marginBottom: "40px", flexWrap: "wrap" }}>
+            {results.map((r, i) => (
+              <div key={i} style={{
+                width: 10, height: 10, borderRadius: "50%",
+                background: r ? "rgba(52, 199, 89, 0.85)" : "rgba(255, 59, 48, 0.7)",
+              }} />
+            ))}
+          </div>
+          <button
+            onClick={onExit}
+            style={{
+              background: "var(--color-accent)", color: "#111", border: "none",
+              borderRadius: "var(--radius-btn)", padding: "14px 32px",
+              fontSize: "15px", fontWeight: "600", cursor: "pointer",
+              fontFamily: "inherit", width: "100%", marginBottom: "12px",
+            }}
+          >
+            Done
+          </button>
+          <button
+            onClick={() => { setIdx(0); setResults([]); setFlipped(false); setDragX(0); }}
+            style={{
+              background: "rgba(255,255,255,0.06)", color: "var(--text-primary)",
+              border: "1px solid var(--color-border)", borderRadius: "var(--radius-btn)",
+              padding: "14px 32px", fontSize: "15px", cursor: "pointer",
+              fontFamily: "inherit", width: "100%",
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Active session ───────────────────────────────────────────────────────────
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 800,
+      background: "var(--color-bg)", display: "flex", flexDirection: "column",
+      fontFamily: "var(--font-sans)",
+    }}>
+      {/* Top bar */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "52px 22px 0", flexShrink: 0 }}>
+        <button
+          onClick={onExit}
+          style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: "14px", cursor: "pointer", fontFamily: "inherit", padding: 0 }}
+        >
+          ← Exit
+        </button>
+        <span style={{ color: "var(--text-dim)", fontSize: "13px", fontVariantNumeric: "tabular-nums" }}>
+          {idx + 1} / {cards.length}
+        </span>
+      </div>
+
+      {/* Progress bar */}
+      <div style={{ height: 2, background: "rgba(255,255,255,0.06)", margin: "14px 22px 0", borderRadius: 2 }}>
+        <div style={{
+          height: "100%", background: "rgba(255,255,255,0.55)", borderRadius: 2,
+          width: `${(idx / cards.length) * 100}%`,
+          transition: "width 0.3s var(--ease-apple)",
+        }} />
+      </div>
+
+      {/* Swipe hint labels */}
+      <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 28px 0", flexShrink: 0 }}>
+        <span style={{
+          fontSize: "12px", color: "rgba(255, 75, 65, 0.8)", fontWeight: "600",
+          opacity: flipped ? 1 : 0, transition: "opacity 0.22s",
+        }}>✗ Missed</span>
+        <span style={{
+          fontSize: "12px", color: "rgba(52, 199, 89, 0.85)", fontWeight: "600",
+          opacity: flipped ? 1 : 0, transition: "opacity 0.22s",
+        }}>Got it ✓</span>
+      </div>
+
+      {/* Card area */}
+      <div
+        style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 22px" }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+      >
+        <div style={{ width: "100%", maxWidth: "400px" }}>
+          {/* Drag/exit wrapper */}
+          <div
+            style={{
+              transform:  dragTransform,
+              transition: dragTransition,
+              opacity:    exitDir ? 0 : 1,
+            }}
+          >
+            {/* 3D flip container — perspective applied here so it scales with card */}
+            <div
+              onClick={() => {
+                if (!flipped && !judgeLock.current && !isDragMode.current) setFlipped(true);
+              }}
+              style={{
+                position:      "relative",
+                width:         "100%",
+                paddingBottom: "68%",
+                perspective:   "1400px",
+                cursor:        flipped ? "default" : "pointer",
+                touchAction:   "none",
+              }}
+            >
+              <div style={{
+                position:      "absolute",
+                inset:         0,
+                transformStyle: "preserve-3d",
+                transform:     flipped ? "rotateY(180deg)" : "rotateY(0deg)",
+                transition:    "transform 0.42s var(--ease-apple)",
+              }}>
+                {/* Front — question */}
+                <div style={{
+                  position:           "absolute",
+                  inset:              0,
+                  backfaceVisibility: "hidden",
+                  WebkitBackfaceVisibility: "hidden",
+                  background:         "linear-gradient(135deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.04) 100%)",
+                  border:             "1px solid rgba(255,255,255,0.09)",
+                  borderRadius:       "22px",
+                  display:            "flex",
+                  flexDirection:      "column",
+                  justifyContent:     "center",
+                  padding:            "30px 26px",
+                  boxShadow:          "0 24px 60px rgba(0,0,0,0.45)",
+                }}>
+                  <div style={{
+                    position: "absolute", inset: 0, borderRadius: "22px",
+                    background: tintColor, transition: "background 0.15s", pointerEvents: "none",
+                  }} />
+                  <p style={{ color: "rgba(255,255,255,0.28)", fontSize: "10px", letterSpacing: "2px", textTransform: "uppercase", marginBottom: "14px" }}>
+                    Question
+                  </p>
+                  <p style={{ color: "var(--text-primary)", fontSize: "18px", lineHeight: "1.65", fontWeight: "500" }}>
+                    {card.question}
+                  </p>
+                  <p style={{ color: "rgba(255,255,255,0.2)", fontSize: "12px", marginTop: "22px" }}>
+                    Tap to reveal answer
+                  </p>
+                </div>
+
+                {/* Back — answer (pre-rotated 180° so it faces user when container flips) */}
+                <div style={{
+                  position:           "absolute",
+                  inset:              0,
+                  backfaceVisibility: "hidden",
+                  WebkitBackfaceVisibility: "hidden",
+                  transform:          "rotateY(180deg)",
+                  background:         "linear-gradient(135deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.05) 100%)",
+                  border:             "1px solid rgba(255,255,255,0.12)",
+                  borderRadius:       "22px",
+                  display:            "flex",
+                  flexDirection:      "column",
+                  justifyContent:     "center",
+                  padding:            "30px 26px",
+                  boxShadow:          "0 24px 60px rgba(0,0,0,0.45)",
+                }}>
+                  <div style={{
+                    position: "absolute", inset: 0, borderRadius: "22px",
+                    background: tintColor, transition: "background 0.15s", pointerEvents: "none",
+                  }} />
+                  <p style={{ color: "rgba(255,255,255,0.35)", fontSize: "10px", letterSpacing: "2px", textTransform: "uppercase", marginBottom: "14px" }}>
+                    Answer
+                  </p>
+                  <p style={{ color: "var(--text-primary)", fontSize: "17px", lineHeight: "1.7" }}>
+                    {card.answer}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Judge buttons — slide up after flip */}
+      <div style={{
+        display:     "flex",
+        gap:         "12px",
+        padding:     "0 22px 44px",
+        flexShrink:  0,
+        opacity:     flipped && !exitDir ? 1 : 0,
+        transform:   flipped && !exitDir ? "translateY(0)" : "translateY(12px)",
+        transition:  "opacity 0.25s var(--ease-apple), transform 0.25s var(--ease-apple)",
+        pointerEvents: flipped && !exitDir ? "auto" : "none",
+      }}>
+        <button
+          onClick={() => judge(false)}
+          style={{
+            flex: 1, background: "rgba(255, 59, 48, 0.1)",
+            border: "1px solid rgba(255, 59, 48, 0.22)",
+            borderRadius: "var(--radius-btn)", padding: "16px",
+            color: "rgba(255, 85, 75, 0.9)", fontSize: "15px", fontWeight: "600",
+            cursor: "pointer", fontFamily: "inherit",
+            transition: "background var(--dur-base) var(--ease-apple)",
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255, 59, 48, 0.18)")}
+          onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255, 59, 48, 0.1)")}
+        >
+          ✗  Missed
+        </button>
+        <button
+          onClick={() => judge(true)}
+          style={{
+            flex: 1, background: "rgba(52, 199, 89, 0.08)",
+            border: "1px solid rgba(52, 199, 89, 0.22)",
+            borderRadius: "var(--radius-btn)", padding: "16px",
+            color: "rgba(72, 210, 110, 0.9)", fontSize: "15px", fontWeight: "600",
+            cursor: "pointer", fontFamily: "inherit",
+            transition: "background var(--dur-base) var(--ease-apple)",
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(52, 199, 89, 0.16)")}
+          onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(52, 199, 89, 0.08)")}
+        >
+          Got it ✓
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Compact flip card for list view ──────────────────────────────────────────
+function FlipCard({ card }) {
+  const [flipped, setFlipped] = useState(false);
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => setFlipped((f) => !f)}
+      onKeyDown={(e) => e.key === "Enter" && setFlipped((f) => !f)}
+      style={{
+        background:    "var(--color-surface)",
+        border:        "1px solid var(--color-border)",
+        borderRadius:  "var(--radius-card)",
+        padding:       "22px",
+        cursor:        "pointer",
+        minHeight:     "100px",
+        display:       "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        transition:    "background var(--dur-base) var(--ease-apple)",
+        outline:       "none",
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = "var(--color-surface-hover)")}
+      onMouseLeave={(e) => (e.currentTarget.style.background = "var(--color-surface)")}
+      onFocus={(e) => (e.currentTarget.style.outline = "2px solid rgba(255,255,255,0.3)")}
+      onBlur={(e)  => (e.currentTarget.style.outline = "none")}
+    >
+      <p style={{ color: "var(--text-dim)", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: "8px" }}>
+        {flipped ? "Answer" : "Question — tap to flip"}
+      </p>
+      <p style={{ color: "var(--text-primary)", fontSize: "15px", lineHeight: "1.6" }}>
+        {flipped ? card.answer : card.question}
+      </p>
+    </div>
+  );
+}
+
+// ── Main Study component ──────────────────────────────────────────────────────
+export default function Study() {
+  const { courses: liveCourses, studyConfig, setStudyConfig } = useApp();
+
+  // Use live Canvas courses when available, otherwise fall back to hardcoded list
+  const COURSES = liveCourses.length > 0
+    ? liveCourses.map(c => `${c.courseCode} — ${c.name}`)
+    : FALLBACK_COURSES;
+
+  const [course,     setCourse]     = useState(COURSES[0]);
+  const [mode,       setMode]       = useState("flashcards");
+  const [loading,    setLoading]    = useState(false);
+  const [flashcards, setFlashcards] = useState([]);
+  const [guide,      setGuide]      = useState("");
+  const [inSession,  setInSession]  = useState(false);
+
+  // Hold the pending nav config in a ref so it survives async course-loading
+  const pendingConfig = useRef(null);
+  // Incrementing this forces Effect 2 to re-run even when liveCourses hasn't changed
+  // (e.g. same-page Study→Study navigation where currentPage doesn't actually change)
+  const [configTick, setConfigTick] = useState(0);
+
+  // Step 1: capture incoming studyConfig into ref and signal Effect 2 to run
+  useEffect(() => {
+    if (studyConfig) {
+      pendingConfig.current = studyConfig;
+      setStudyConfig(null);
+      setConfigTick(t => t + 1);
+    }
+  }, [studyConfig, setStudyConfig]);
+
+  // Step 2: apply config whenever it arrives (configTick) or courses change (liveCourses)
+  useEffect(() => {
+    const cfg = pendingConfig.current;
+    if (!cfg) return;
+    pendingConfig.current = null;
+
+    const available = liveCourses.length > 0
+      ? liveCourses.map(c => `${c.courseCode} — ${c.name}`)
+      : FALLBACK_COURSES;
+
+    if (cfg.course) {
+      const query    = cfg.course.toLowerCase();
+      const keywords = query.split(/[\s\-—:,]+/).filter(w => w.length > 2);
+      const match =
+        available.find(c => c.toLowerCase() === query) ??
+        available.find(c => c.toLowerCase().includes(query)) ??
+        available.find(c => query.includes(c.toLowerCase())) ??
+        available.find(c => keywords.some(w => c.toLowerCase().includes(w))) ??
+        available[0];
+      setCourse(match);
+      setFlashcards([]);
+      setGuide("");
+    }
+    if (cfg.mode) {
+      setMode(cfg.mode === "guide" ? "guide" : "flashcards");
+    }
+  }, [liveCourses, configTick]);
+
+  const generate = async () => {
+    setLoading(true);
+    setFlashcards([]);
+    setGuide("");
+
+    const prompt =
+      mode === "flashcards"
+        ? `Create exactly 8 study flashcards for ${course}. Format each card as: Q: [question] | A: [answer] — one per line. No numbering, no extra text.`
+        : `Write a clear study guide for ${course}. Use short headings and concise bullet points. Cover key concepts, definitions, and common exam topics.`;
+
+    const result = await groq([{ role: "user", content: prompt }], SYSTEM);
+    if (mode === "flashcards") setFlashcards(parseFlashcards(result));
+    else setGuide(result);
+    setLoading(false);
+  };
+
+  if (inSession && flashcards.length > 0) {
+    return <StudySession cards={flashcards} onExit={() => setInSession(false)} />;
+  }
+
+  return (
+    <div>
+      <h1 style={{ fontSize: "26px", fontWeight: "600", color: "var(--text-primary)", marginBottom: "24px", letterSpacing: "-0.3px" }}>
+        Study
+      </h1>
+
+      <select
+        value={course}
+        onChange={e => { setCourse(e.target.value); setFlashcards([]); setGuide(""); }}
+        style={{
+          width: "100%", background: "var(--color-surface)",
+          border: "1px solid var(--color-border)", borderRadius: "var(--radius-btn)",
+          padding: "12px 36px 12px 14px", color: "var(--text-primary)",
+          fontSize: "14px", outline: "none", fontFamily: "inherit",
+          marginBottom: "14px", cursor: "pointer", appearance: "none", WebkitAppearance: "none",
+          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='rgba(255,255,255,0.35)' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
+          backgroundRepeat: "no-repeat", backgroundPosition: "right 14px center",
+        }}
+      >
+        {COURSES.map((c) => <option key={c} value={c} style={{ background: "#1a1a1a" }}>{c}</option>)}
+      </select>
+
+      {/* Mode toggle */}
+      <div style={{
+        display: "flex", gap: "6px", marginBottom: "20px",
+        background: "rgba(255,255,255,0.04)", border: "1px solid var(--color-border)",
+        borderRadius: "var(--radius-btn)", padding: "4px",
+      }}>
+        {["flashcards", "guide"].map((m) => (
+          <button
+            key={m}
+            onClick={() => { setMode(m); setFlashcards([]); setGuide(""); }}
+            style={{
+              flex: 1,
+              background: mode === m ? "var(--color-surface-hover)" : "transparent",
+              border:     mode === m ? "1px solid var(--color-border-strong)" : "1px solid transparent",
+              borderRadius: "9px", padding: "8px",
+              color:      mode === m ? "var(--text-primary)" : "var(--text-secondary)",
+              fontSize:   "13px", fontWeight: mode === m ? "600" : "400",
+              cursor:     "pointer", fontFamily: "inherit",
+              transition: "all var(--dur-fast) var(--ease-apple)",
+            }}
+          >
+            {m === "guide" ? "Study Guide" : "Flashcards"}
+          </button>
+        ))}
+      </div>
+
+      <button
+        onClick={generate}
+        disabled={loading}
+        style={{
+          width: "100%",
+          background: loading ? "rgba(255,255,255,0.5)" : "var(--color-accent)",
+          color: "#111111", border: "none", borderRadius: "var(--radius-btn)",
+          padding: "13px", fontSize: "15px", fontWeight: "600",
+          cursor: loading ? "not-allowed" : "pointer", fontFamily: "inherit",
+          marginBottom: "24px", transition: "background var(--dur-base) var(--ease-apple)",
+        }}
+      >
+        {loading ? "Generating…" : mode === "guide" ? "Generate Study Guide" : "Generate Flashcards"}
+      </button>
+
+      {flashcards.length > 0 && (
+        <>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+            <p style={{ color: "var(--text-dim)", fontSize: "12px" }}>
+              {flashcards.length} cards — tap any card to preview
+            </p>
+            <button
+              onClick={() => setInSession(true)}
+              style={{
+                background: "var(--color-accent)", color: "#111", border: "none",
+                borderRadius: "var(--radius-btn)", padding: "9px 18px",
+                fontSize: "13px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit",
+              }}
+            >
+              Study Now →
+            </button>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            {flashcards.map((card) => <FlipCard key={card.id} card={card} />)}
+          </div>
+        </>
+      )}
+
+      {guide && (
+        <div style={{
+          background: "var(--color-surface)", border: "1px solid var(--color-border)",
+          borderRadius: "var(--radius-card)", padding: "20px",
+          color: "var(--text-primary)", fontSize: "14px", lineHeight: "1.8", whiteSpace: "pre-wrap",
+        }}>
+          {guide}
+        </div>
+      )}
+    </div>
+  );
+}
