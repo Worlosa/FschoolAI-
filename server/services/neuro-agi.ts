@@ -511,6 +511,40 @@ export class NeuroAGIService {
       throw error;
     }
   }
+
+  /**
+   * Update brain with a new interaction signal.
+   * Called by the orchestrator after every user interaction.
+   */
+  async updateBrainSignal(userId: string, signal: {
+    type: string;
+    product: string;
+    agentUsed?: string;
+    message?: string;
+    response?: string;
+    courseId?: string;
+    assignmentId?: string;
+    timestamp: Date;
+    [key: string]: any;
+  }): Promise<void> {
+    try {
+      await this.supabase.from('brain_signals').insert({
+        user_id: userId,
+        signal_type: signal.type,
+        product: signal.product,
+        agent_used: signal.agentUsed || null,
+        message_content: signal.message ? signal.message.slice(0, 1000) : null,
+        response_content: signal.response ? signal.response.slice(0, 2000) : null,
+        course_id: signal.courseId || null,
+        assignment_id: signal.assignmentId || null,
+        created_at: signal.timestamp.toISOString(),
+        metadata: JSON.stringify({ ...signal, message: undefined, response: undefined }),
+      });
+    } catch (err) {
+      console.warn('[NeuroAGI] Brain signal update failed (non-fatal):', err);
+    }
+  }
+
 }
 
 export default NeuroAGIService;
