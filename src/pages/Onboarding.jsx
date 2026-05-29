@@ -239,6 +239,9 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
       schoolCountry:     school.country || "",
       schoolContinent:   school.continent || "",
       isCustomSchool:    !!school.isCustom,
+      // Auto-fill Canvas URL from the school's known loginUrl so the user
+      // doesn't have to type it manually — covers supported + needsApplication schools
+      manualCanvasUrl:   school.loginUrl || d.manualCanvasUrl || "",
     }));
     setShowDropdown(false);
   }
@@ -564,7 +567,7 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
                   </div>
                 )}
 
-                {/* Manual Canvas URL */}
+                {/* Manual Canvas URL — shown for custom/unverified schools OR as read-only hint for auto-filled ones */}
                 {needsManualUrl() && (
                   <input
                     placeholder="Canvas URL — e.g. canvas.youruni.edu"
@@ -572,6 +575,18 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
                     onChange={e => setDraft(d => ({ ...d, manualCanvasUrl: e.target.value }))}
                     style={{ ...inputStyle, marginBottom: "12px" }}
                   />
+                )}
+                {!needsManualUrl() && draft.manualCanvasUrl && (
+                  <div style={{
+                    ...inputStyle,
+                    marginBottom: "12px",
+                    color: "rgba(255,255,255,0.35)",
+                    fontSize: "13px",
+                    cursor: "default",
+                    userSelect: "none",
+                  }}>
+                    {draft.manualCanvasUrl}
+                  </div>
                 )}
 
                 {/* Canvas token */}

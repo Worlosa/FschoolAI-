@@ -104,11 +104,44 @@ export function AppProvider({ children }) {
     setCanvasBaseUrl(baseUrl);
   }, [userId]);
 
-  /** Merge a manually-uploaded course + its assignments into local state. */
-  const addManualCourse = useCallback((course, newAssignments) => {
+  /** Merge a manually-uploaded course + its assignments into local state AND persist to Supabase. */
+  const addManualCourse = useCallback(async (course, newAssignments) => {
+    // Optimistically update local state immediately
     setCourses(prev => [...prev, course]);
     setAssignments(prev => [...prev, ...newAssignments]);
-  }, []);
+
+    // Persist course to Supabase
+    try {
+      await supabase.from("courses").upsert(
+        {
+          id:           course.id,
+          user_id:      userId,
+          name:         course.name,
+          course_code:  course.courseCode ?? course.course_code ?? null,
+          current_score: course.currentScore ?? course.current_score ?? null,
+          final_score:  course.finalScore ?? course.final_score ?? null,
+          is_manual:    true,
+        },
+        { onConflict: "id" }
+      );
+
+      // Persist assignments to Supabase
+      if (newAssignments.length > 0) {
+        const rows = newAssignments.map(a => ({
+          id:          a.id,
+          user_id:     userId,
+          course_id:   course.id,
+          name:        a.name,
+          due_at:      a.dueAt ?? a.due_at ?? null,
+          points_possible: a.pointsPossible ?? a.points_possible ?? null,
+          is_manual:   true,
+        }));
+        await supabase.from("assignments").upsert(rows, { onConflict: "id" });
+      }
+    } catch (err) {
+      console.warn("Failed to persist manual course to Supabase:", err.message);
+    }
+  }, [userId]);
 
   /** Force a fresh Canvas sync, bypassing the 1-hour cache. */
   const forceSync = useCallback(async () => {

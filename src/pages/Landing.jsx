@@ -45,7 +45,7 @@ const inputBase = {
   transition: "border-color 0.15s",
 };
 
-function AuthModal({ mode, onClose, onEnter }) {
+function AuthModal({ mode, onClose, onEnter, onSwitchMode }) {
   const [name,      setName]      = useState("");
   const [email,     setEmail]     = useState("");
   const [password,  setPassword]  = useState("");
@@ -161,7 +161,17 @@ function AuthModal({ mode, onClose, onEnter }) {
         </button>
 
         <p style={{ color: "rgba(255,255,255,0.18)", fontSize: "12px", textAlign: "center", marginTop: "10px" }}>
-          {isSignup ? "You'll set up Canvas in the next step." : "Don't have an account? Tap Get started."}
+          {isSignup
+            ? "You'll set up Canvas in the next step."
+            : <>Don't have an account?{" "}
+                <span
+                  onClick={() => { onClose(); setTimeout(() => onSwitchMode("signup"), 50); }}
+                  style={{ color: "rgba(255,255,255,0.45)", textDecoration: "underline", cursor: "pointer" }}
+                >
+                  Sign up free
+                </span>
+              </>
+          }
         </p>
       </div>
     </div>
@@ -459,7 +469,12 @@ export default function Landing({ onEnter }) {
 
       {/* ── Auth modal ───────────────────────────────────────────────────── */}
       {authMode && (
-        <AuthModal mode={authMode} onClose={() => setAuthMode(null)} onEnter={onEnter} />
+        <AuthModal
+          mode={authMode}
+          onClose={() => setAuthMode(null)}
+          onEnter={onEnter}
+          onSwitchMode={setAuthMode}
+        />
       )}
     </div>
   );
