@@ -11,16 +11,22 @@ async function sha256(str) {
 /** Create a new user row. Throws if email is already taken. */
 export async function signUp(userId, { name, email, password }) {
   const password_hash = await sha256(password);
+
+  // Check if email already exists
+  const { data: existing } = await supabase
+    .from('users')
+    .select('id')
+    .eq('email', email.toLowerCase().trim())
+    .maybeSingle();
+
+  if (existing) throw new Error('An account with this email already exists.');
+
   const { error } = await supabase.from('users').upsert(
     {
       id: userId,
       name,
-      email:      email.toLowerCase().trim(),
+      email:        email.toLowerCase().trim(),
       password_hash,
-      school:    "University of Toronto",
-      city:      "Toronto",
-      country:   "Canada",
-      continent: "North America",
     },
     { onConflict: 'id' }
   );
