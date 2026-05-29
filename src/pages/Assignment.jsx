@@ -119,34 +119,60 @@ export default function Assignment() {
     if (!text) return;
     setSelection({ text, start, end });
 
+    // Mirror-div technique: browsers don't expose pixel coords for textarea
+    // selections via window.getSelection(), so we clone the textarea's styles
+    // into a hidden div, insert a marker span at the midpoint of the selection,
+    // and read that span's bounding rect to get the exact screen position.
+    const computed = window.getComputedStyle(ta);
+    const mirror = document.createElement("div");
+
+    // Copy every layout-affecting style from the textarea
+    const copyProps = [
+      "boxSizing","width","height","paddingTop","paddingRight","paddingBottom","paddingLeft",
+      "borderTopWidth","borderRightWidth","borderBottomWidth","borderLeftWidth",
+      "fontFamily","fontSize","fontWeight","fontStyle","letterSpacing","lineHeight",
+      "textTransform","wordBreak","overflowWrap","whiteSpace","tabSize",
+    ];
+    copyProps.forEach(p => { mirror.style[p] = computed[p]; });
+    mirror.style.position   = "absolute";
+    mirror.style.top        = "0";
+    mirror.style.left       = "-9999px";
+    mirror.style.visibility = "hidden";
+    mirror.style.overflow   = "hidden";
+
+    // Replicate the text up to the midpoint of the selection, then add a marker
+    const mid = Math.floor((start + end) / 2);
+    const before = document.createTextNode(ta.value.slice(0, mid));
+    const marker = document.createElement("span");
+    marker.textContent = ta.value.slice(mid, mid + 1) || "|";
+    mirror.appendChild(before);
+    mirror.appendChild(marker);
+    document.body.appendChild(mirror);
+
+    const taRect     = ta.getBoundingClientRect();
+    const markerRect = marker.getBoundingClientRect();
+    // mirror is at left:-9999px so we need its rect relative to the textarea
+    const mirrorRect = mirror.getBoundingClientRect();
+    const relX = markerRect.left - mirrorRect.left;
+    const relY = markerRect.top  - mirrorRect.top;
+
+    document.body.removeChild(mirror);
+
+    // Now position relative to the textarea's viewport position,
+    // then subtract how far the user has scrolled inside the textarea
     const TOOLBAR_WIDTH = 320;
+    const TOOLBAR_H     = 44;
     const vw = window.innerWidth;
     const vh = window.visualViewport?.height ?? window.innerHeight;
 
-    // Try DOM selection rect first (works on desktop/iOS)
-    const sel = window.getSelection();
-    if (sel && sel.rangeCount > 0) {
-      const rect = sel.getRangeAt(0).getBoundingClientRect();
-      if (rect.width > 0 || rect.height > 0) {
-        const left  = Math.max(TOOLBAR_WIDTH / 2 + 8, Math.min(vw - TOOLBAR_WIDTH / 2 - 8, rect.left + rect.width / 2));
-        const above = rect.top - 52;
-        const top   = above >= 70 ? Math.min(above, vh - 60) : Math.min(rect.bottom + 8, vh - 60);
-        setToolbarPos({ top, left });
-        return;
-      }
-    }
+    const rawX = taRect.left + relX - ta.scrollLeft;
+    const rawY = taRect.top  + relY - ta.scrollTop;
 
-    // Android fallback: estimate Y from line number inside textarea
-    const taRect   = ta.getBoundingClientRect();
-    const computed = window.getComputedStyle(ta);
-    const lineH    = parseFloat(computed.lineHeight) || 20;
-    const padTop   = parseFloat(computed.paddingTop)  || 0;
-    const midOffset = Math.floor((start + end) / 2);
-    const linesBefore = ta.value.slice(0, midOffset).split('\n').length - 1;
-    const estimatedY = taRect.top + padTop + linesBefore * lineH + lineH / 2;
-    const left = Math.max(TOOLBAR_WIDTH / 2 + 8, Math.min(vw - TOOLBAR_WIDTH / 2 - 8, vw / 2));
-    const above = estimatedY - 52;
-    const top   = above >= 70 ? Math.min(above, vh - 60) : Math.min(estimatedY + lineH + 8, vh - 60);
+    const left  = Math.max(TOOLBAR_WIDTH / 2 + 8, Math.min(vw - TOOLBAR_WIDTH / 2 - 8, rawX));
+    const above = rawY - TOOLBAR_H - 8;
+    const below = rawY + parseFloat(computed.lineHeight || "20") + 8;
+    const top   = above >= 8 ? Math.min(above, vh - TOOLBAR_H - 8) : Math.min(below, vh - TOOLBAR_H - 8);
+
     setToolbarPos({ top, left });
   }, []);
 
