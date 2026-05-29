@@ -41,8 +41,9 @@ export function AppProvider({ children }) {
   // to the relevant state setters. Only overwrites when the array is non-empty
   // so a partial result never clears previously-loaded data.
   function applyCanvasResult(result) {
-    if (result.courses?.length)          setCourses(result.courses);
-    if (result.assignments?.length)      setAssignments(result.assignments);
+    // Always apply courses + assignments (even empty) so manual-only users load correctly
+    if (result.courses     !== undefined) setCourses(result.courses);
+    if (result.assignments !== undefined) setAssignments(result.assignments);
     if (result.announcements?.length)    setAnnouncements(result.announcements);
     if (result.modules?.length)          setModules(result.modules);
     if (result.assignmentGroups?.length) setAssignmentGroups(result.assignmentGroups);
@@ -106,40 +107,76 @@ export function AppProvider({ children }) {
 
   /** Merge a manually-uploaded course + its assignments into local state AND persist to Supabase. */
   const addManualCourse = useCallback(async (course, newAssignments) => {
-    // Optimistically update local state immediately
-    setCourses(prev => [...prev, course]);
-    setAssignments(prev => [...prev, ...newAssignments]);
-
-    // Persist course to Supabase
     try {
-      await supabase.from("courses").upsert(
-        {
-          id:           course.id,
+      // Insert course first — let Supabase generate a real UUID as the PK
+      const { data: insertedCourse, error: courseErr } = await supabase
+        .from("courses")
+        .insert({
           user_id:      userId,
           name:         course.name,
           course_code:  course.courseCode ?? course.course_code ?? null,
-          current_score: course.currentScore ?? course.current_score ?? null,
-          final_score:  course.finalScore ?? course.final_score ?? null,
+          current_score: null,
+          final_score:  null,
+          source:       "manual",
           is_manual:    true,
-        },
-        { onConflict: "id" }
-      );
+        })
+        .select("id")
+        .single();
 
-      // Persist assignments to Supabase
+      if (courseErr) throw courseErr;
+
+      const dbCourseId = insertedCourse.id; // real UUID from Supabase
+
+      // Build the course object for local state using the real DB id
+      const localCourse = {
+        ...course,
+        id:       dbCourseId,  // use DB UUID so loadCanvasData matches correctly
+        dbId:     dbCourseId,
+        isManual: true,
+        source:   "manual",
+      };
+
+      // Persist assignments referencing the real course UUID
+      let localAssignments = [];
       if (newAssignments.length > 0) {
         const rows = newAssignments.map(a => ({
-          id:          a.id,
-          user_id:     userId,
-          course_id:   course.id,
-          name:        a.name,
-          due_at:      a.dueAt ?? a.due_at ?? null,
+          user_id:         userId,
+          course_id:       dbCourseId,
+          title:           a.name,
+          due_at:          a.dueAt ?? a.due_at ?? null,
           points_possible: a.pointsPossible ?? a.points_possible ?? null,
-          is_manual:   true,
+          source:          "manual",
+          is_manual:       true,
         }));
-        await supabase.from("assignments").upsert(rows, { onConflict: "id" });
+
+        const { data: insertedAssignments, error: assignErr } = await supabase
+          .from("assignments")
+          .insert(rows)
+          .select("id, title, due_at, points_possible, course_id");
+
+        if (assignErr) throw assignErr;
+
+        localAssignments = (insertedAssignments || []).map(a => ({
+          id:             a.id,
+          name:           a.title,
+          dueAt:          a.due_at,
+          pointsPossible: a.points_possible,
+          courseId:       dbCourseId,
+          isManual:       true,
+          source:         "manual",
+          submission:     { score: null, submittedAt: null, late: false, missing: false },
+        }));
       }
+
+      // Update local state with DB-backed ids
+      setCourses(prev => [...prev, localCourse]);
+      setAssignments(prev => [...prev, ...localAssignments]);
+
     } catch (err) {
       console.warn("Failed to persist manual course to Supabase:", err.message);
+      // Fallback: still show in UI even if DB write failed
+      setCourses(prev => [...prev, course]);
+      setAssignments(prev => [...prev, ...newAssignments]);
     }
   }, [userId]);
 

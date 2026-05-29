@@ -235,7 +235,8 @@ export async function loadCanvasData(userId) {
   ]);
 
   const courses = (cResult.data || []).map(c => ({
-    // FIX: Canvas courses use canvas_course_id; manual courses use DB id
+    // Canvas courses: expose canvas_course_id as the id (used for assignment matching)
+    // Manual courses: canvas_course_id is null, so use the DB UUID (matches course_id on assignments)
     id:               c.canvas_course_id ?? c.id,
     dbId:             c.id,
     name:             c.name,
@@ -244,35 +245,40 @@ export async function loadCanvasData(userId) {
     finalScore:       c.final_score,
     imageUrl:         c.image_url,
     source:           c.source,
-    isManual:         c.is_manual ?? false,
+    isManual:         c.source === 'manual' || c.is_manual === true,
     enrollmentState:  'active',
     accessRestricted: false,
     assignmentGroups: null,
   }));
 
-  const assignments = (aResult.data || []).map(a => ({
-    // FIX: Canvas assignments use canvas_assignment_id; manual ones use DB id
-    id:             a.canvas_assignment_id ?? a.id,
-    name:           a.title ?? a.name,
-    description:    a.description,
-    dueAt:          a.due_at,
-    pointsPossible: a.points_possible,
-    // FIX: manual assignments — courseId must match the course id we set above
-    // Canvas: use canvas_course_id from joined courses row
-    // Manual: use course_id directly (which is the DB id, matching c.id above)
-    courseId:       a.courses?.canvas_course_id ?? a.course_id ?? null,
-    courseCode:     a.courses?.course_code      ?? '',
-    courseName:     a.courses?.name             ?? '',
-    source:         a.source,
-    isManual:       a.is_manual ?? false,
-    submission: {
-      score:          a.score,
-      submittedAt:    a.submitted_at,
-      submissionType: a.submission_type,
-      late:           a.late   ?? false,
-      missing:        a.missing ?? false,
-    },
-  }));
+  const assignments = (aResult.data || []).map(a => {
+    const isManual = a.source === 'manual' || a.is_manual === true;
+    // Canvas: courseId = canvas_course_id from the joined course row
+    // Manual: courseId = course_id (DB UUID), which matches c.canvas_course_id ?? c.id above
+    const courseId = isManual
+      ? (a.course_id ?? null)
+      : (a.courses?.canvas_course_id ?? a.course_id ?? null);
+
+    return {
+      id:             a.canvas_assignment_id ?? a.id,
+      name:           a.title ?? a.name,
+      description:    a.description,
+      dueAt:          a.due_at,
+      pointsPossible: a.points_possible,
+      courseId,
+      courseCode:     a.courses?.course_code ?? '',
+      courseName:     a.courses?.name        ?? '',
+      source:         a.source,
+      isManual,
+      submission: {
+        score:          a.score,
+        submittedAt:    a.submitted_at,
+        submissionType: a.submission_type,
+        late:           a.late    ?? false,
+        missing:        a.missing ?? false,
+      },
+    };
+  });
 
   return {
     courses,
