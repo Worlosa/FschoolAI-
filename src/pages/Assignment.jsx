@@ -3,7 +3,7 @@
 // Falls back to placeholder cards when Canvas is not connected.
 // Draft supports text-selection toolbar (Shorten / Expand / Change Direction / Suggest / Copy).
 
-import { useState, useRef, useCallback, useMemo, useEffect, useRef as useTimerRef } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { groq } from "../api/groq";
 import { buildStudentContext } from "../data/mockData";
 import { useApp } from "../context/AppContext";
@@ -126,63 +126,61 @@ export default function Assignment() {
     const padTop   = parseFloat(computed.paddingTop)  || 0;
     const midOffset = Math.floor((start + end) / 2);
     const linesBefore = ta.value.slice(0, midOffset).split('\n').length - 1;
-    const estimatedY  = taRect.top + padTop + linesBefore * lineH - ta.scrollTop + lineH / 2;
-    const clampedY    = Math.max(0, Math.min(estimatedY, vh));
-    const top  = clampedY - 52 >= 70 ? clampedY - 52 : Math.min(clampedY + lineH + 8, vh - 60);
-    const left = Math.max(TOOLBAR_WIDTH / 2 + 8, Math.min(vw - TOOLBAR_WIDTH / 2 - 8, taRect.left + taRect.width / 2));
+    const estimatedY = taRect.top + padTop + linesBefore * lineH + lineH / 2;
+    const left = Math.max(TOOLBAR_WIDTH / 2 + 8, Math.min(vw - TOOLBAR_WIDTH / 2 - 8, vw / 2));
+    const above = estimatedY - 52;
+    const top   = above >= 70 ? Math.min(above, vh - 60) : Math.min(estimatedY + lineH + 8, vh - 60);
     setToolbarPos({ top, left });
   }, []);
 
-  // Android fix: selectionchange fires reliably after native long-press selection
-  useEffect(() => {
-    const ta = draftRef.current;
-    if (!ta) return;
-    let timer;
-    const onSelectionChange = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        if (document.activeElement === ta) {
-          handleTextSelect();
-        }
-      }, 100);
-    };
-    document.addEventListener('selectionchange', onSelectionChange);
-    return () => {
-      document.removeEventListener('selectionchange', onSelectionChange);
-      clearTimeout(timer);
-    };
-  }, [handleTextSelect]);
-
-  const applyEdit = useCallback(async (instruction, actionIdx = null) => {
-    if (!selection?.text || !draft) return;
-    if (actionIdx !== null) setEditingIdx(actionIdx);
-    const result = await groq(
-      [{ role: "user", content: `Text to edit:\n"${selection.text}"\n\nInstruction: ${instruction}` }],
-      EDIT_SYSTEM
-    );
-    setDraft((prev) => prev.slice(0, selection.start) + result + prev.slice(selection.end));
-    setSelection(null);
-    setToolbarPos(null);
+  const applyEdit = useCallback(async (instruction) => {
+    if (!selection || !instruction.trim()) return;
+    const idx = TOOLBAR_ACTIONS.indexOf("Suggest");
+    setEditingIdx(idx);
     setSuggestMode(false);
     setSuggestInput("");
+    const edited = await groq(
+      [{ role: "user", content: `Original text: "${selection.text}"\n\nInstruction: ${instruction}` }],
+      EDIT_SYSTEM
+    );
+    setDraft(prev => prev.slice(0, selection.start) + edited + prev.slice(selection.end));
+    setSelection(null);
+    setToolbarPos(null);
     setEditingIdx(null);
-  }, [selection, draft]);
+  }, [selection]);
 
-  const handleToolbarAction = async (action, idx) => {
-    if (action === "Copy") { navigator.clipboard.writeText(selection?.text ?? ""); setToolbarPos(null); return; }
-    if (action === "Suggest") { setSuggestMode(true); return; }
+  const handleToolbarAction = useCallback(async (action, idx) => {
+    if (!selection) return;
+    if (action === "Copy") {
+      navigator.clipboard.writeText(selection.text);
+      setSelection(null);
+      setToolbarPos(null);
+      return;
+    }
+    if (action === "Suggest") {
+      setSuggestMode(true);
+      return;
+    }
     const instructionMap = {
-      Shorten:            "Shorten this text while keeping the key information.",
-      Expand:             "Expand this text with more detail and supporting evidence.",
-      "Change Direction": "Rewrite this from a different angle or perspective.",
+      "Shorten":          "Make this shorter and more concise while preserving meaning.",
+      "Expand":           "Expand this with more detail and elaboration.",
+      "Change Direction": "Rewrite this with a different approach or perspective.",
     };
-    await applyEdit(instructionMap[action], idx);
-  };
+    setEditingIdx(idx);
+    const edited = await groq(
+      [{ role: "user", content: `Original text: "${selection.text}"\n\nInstruction: ${instructionMap[action]}` }],
+      EDIT_SYSTEM
+    );
+    setDraft(prev => prev.slice(0, selection.start) + edited + prev.slice(selection.end));
+    setSelection(null);
+    setToolbarPos(null);
+    setEditingIdx(null);
+  }, [selection]);
 
   // ── Detail view ──────────────────────────────────────────────────────────────
   if (selected) {
     return (
-      <div style={{ position: "relative" }}>
+      <div>
         <button
           onClick={() => { setSelected(null); setDraft(""); setSelection(null); setToolbarPos(null); setSuggestMode(false); }}
           style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: "14px", cursor: "pointer", padding: "0 0 16px", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "6px" }}
@@ -197,9 +195,9 @@ export default function Assignment() {
 
         <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "12px", padding: "14px", marginBottom: "20px" }}>
           <div
-  dangerouslySetInnerHTML={{ __html: selectedPrompt }}
-  style={{ color: "var(--text-secondary)", fontSize: "13px", lineHeight: "1.65" }}
-/>
+            dangerouslySetInnerHTML={{ __html: selectedPrompt }}
+            style={{ color: "var(--text-secondary)", fontSize: "13px", lineHeight: "1.65" }}
+          />
         </div>
 
         {!draft && (

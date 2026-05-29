@@ -43,6 +43,23 @@ function StudySession({ cards, onExit }) {
   const isDragMode   = useRef(false);
   const judgeLock    = useRef(false);
 
+  const isDone = idx >= cards.length;
+  const card   = cards[idx];
+
+  const judge = useCallback((correct) => {
+    if (judgeLock.current || isDone) return;
+    judgeLock.current = true;
+    setExitDir(correct ? "right" : "left");
+    setTimeout(() => {
+      setResults((r) => [...r, correct]);
+      setIdx((i) => i + 1);
+      setFlipped(false);
+      setDragX(0);
+      setExitDir(null);
+      judgeLock.current = false;
+    }, 280);
+  }, [isDone]);
+
   // Keyboard controls: Space = flip, ArrowRight = got it, ArrowLeft = missed
   useEffect(() => {
     function handleKey(e) {
@@ -61,23 +78,6 @@ function StudySession({ cards, onExit }) {
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [flipped, isDone, judge]);
-
-  const isDone = idx >= cards.length;
-  const card   = cards[idx];
-
-  const judge = useCallback((correct) => {
-    if (judgeLock.current || isDone) return;
-    judgeLock.current = true;
-    setExitDir(correct ? "right" : "left");
-    setTimeout(() => {
-      setResults((r) => [...r, correct]);
-      setIdx((i) => i + 1);
-      setFlipped(false);
-      setDragX(0);
-      setExitDir(null);
-      judgeLock.current = false;
-    }, 280);
-  }, [isDone]);
 
   // Touch: tap = flip, horizontal drag (after flip) = judge
   const onTouchStart = useCallback((e) => {
