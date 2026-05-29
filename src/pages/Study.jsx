@@ -31,7 +31,7 @@ function parseFlashcards(text) {
 }
 
 // ── Fullscreen study session ──────────────────────────────────────────────────
-function StudySession({ cards, onExit }) {
+function StudySession({ cards, onExit, updateUserField, userData }) {
   const [idx, setIdx]         = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [results, setResults] = useState([]);
@@ -43,11 +43,46 @@ function StudySession({ cards, onExit }) {
   const isDragMode   = useRef(false);
   const judgeLock    = useRef(false);
 
+  // Timer refs
+  const sessionStart = useRef(Date.now());   // when session began
+  const idleTimer    = useRef(null);          // 2-min idle timeout handle
+  const savedRef     = useRef(false);         // prevent double-save
+
+  const IDLE_MS = 2 * 60 * 1000; // 2 minutes
+
+  // Save elapsed study time to Supabase (accumulates on top of existing total)
+  const saveStudyTime = useCallback(async (exitCallback) => {
+    if (savedRef.current) { exitCallback?.(); return; }
+    savedRef.current = true;
+    clearTimeout(idleTimer.current);
+    const elapsedMinutes = Math.round((Date.now() - sessionStart.current) / 60000);
+    if (elapsedMinutes > 0 && updateUserField) {
+      const prev = userData?.study_time ?? 0;
+      await updateUserField("study_time", prev + elapsedMinutes);
+    }
+    exitCallback?.();
+  }, [updateUserField, userData]);
+
+  // Reset idle timer on any activity
+  const resetIdle = useCallback(() => {
+    clearTimeout(idleTimer.current);
+    idleTimer.current = setTimeout(() => {
+      saveStudyTime(onExit);
+    }, IDLE_MS);
+  }, [saveStudyTime, onExit]);
+
+  // Start idle timer on mount, clear on unmount
+  useEffect(() => {
+    resetIdle();
+    return () => clearTimeout(idleTimer.current);
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+
   const isDone = idx >= cards.length;
   const card   = cards[idx];
 
   const judge = useCallback((correct) => {
     if (judgeLock.current || isDone) return;
+    resetIdle(); // reset idle on every judge action
     judgeLock.current = true;
     setExitDir(correct ? "right" : "left");
     setTimeout(() => {
@@ -58,7 +93,7 @@ function StudySession({ cards, onExit }) {
       setExitDir(null);
       judgeLock.current = false;
     }, 280);
-  }, [isDone]);
+  }, [isDone, resetIdle]);
 
   // Keyboard controls: Space = flip, ArrowRight = got it, ArrowLeft = missed
   useEffect(() => {
@@ -66,7 +101,7 @@ function StudySession({ cards, onExit }) {
       if (isDone) return;
       if (e.key === " " || e.code === "Space") {
         e.preventDefault();
-        if (!flipped && !judgeLock.current) setFlipped(true);
+        if (!flipped && !judgeLock.current) { resetIdle(); setFlipped(true); }
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
         if (flipped) judge(true);
@@ -77,15 +112,16 @@ function StudySession({ cards, onExit }) {
     }
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [flipped, isDone, judge]);
+  }, [flipped, isDone, judge, resetIdle]);
 
   // Touch: tap = flip, horizontal drag (after flip) = judge
   const onTouchStart = useCallback((e) => {
+    resetIdle();
     touchStartX.current = e.touches[0].clientX;
     touchStartY.current = e.touches[0].clientY;
     isDragMode.current  = false;
     setDragX(0);
-  }, []);
+  }, [resetIdle]);
 
   const onTouchMove = useCallback((e) => {
     if (touchStartX.current === null || !flipped) return;
@@ -166,7 +202,7 @@ function StudySession({ cards, onExit }) {
             ))}
           </div>
           <button
-            onClick={onExit}
+            onClick={() => saveStudyTime(onExit)}
             style={{
               background: "var(--color-accent)", color: "#111", border: "none",
               borderRadius: "var(--radius-btn)", padding: "14px 32px",
@@ -202,7 +238,7 @@ function StudySession({ cards, onExit }) {
       {/* Top bar */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "52px 22px 0", flexShrink: 0 }}>
         <button
-          onClick={onExit}
+          onClick={() => saveStudyTime(onExit)}
           style={{ background: "none", border: "none", color: "var(--text-secondary)", fontSize: "14px", cursor: "pointer", fontFamily: "inherit", padding: 0 }}
         >
           ← Exit
@@ -252,7 +288,10 @@ function StudySession({ cards, onExit }) {
             {/* 3D flip container — perspective applied here so it scales with card */}
             <div
               onClick={() => {
-                if (!flipped && !judgeLock.current && !isDragMode.current) setFlipped(true);
+                if (!flipped && !judgeLock.current && !isDragMode.current) {
+                  resetIdle();
+                  setFlipped(true);
+                }
               }}
               style={{
                 position:      "relative",
@@ -481,7 +520,7 @@ function MarkdownGuide({ text }) {
 
 // ── Main Study component ──────────────────────────────────────────────────────
 export default function Study() {
-  const { courses: liveCourses, studyConfig, setStudyConfig } = useApp();
+  const { courses: liveCourses, studyConfig, setStudyConfig, updateUserField, userData } = useApp();
 
   // Use live Canvas courses when available, otherwise fall back to hardcoded list
   const COURSES = liveCourses.length > 0
@@ -555,7 +594,7 @@ export default function Study() {
   };
 
   if (inSession && flashcards.length > 0) {
-    return <StudySession cards={flashcards} onExit={() => setInSession(false)} />;
+    return <StudySession cards={flashcards} onExit={() => setInSession(false)} updateUserField={updateUserField} userData={userData} />;
   }
 
   return (
