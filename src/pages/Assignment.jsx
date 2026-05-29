@@ -3,7 +3,8 @@
 // Shows empty state when Canvas is not connected.
 // Draft supports text-selection toolbar (Shorten / Expand / Change Direction / Suggest / Copy).
 
-import { useState, useRef, useCallback, useMemo, useEffect, createPortal } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { groq } from "../api/groq";
 import { buildStudentContext } from "../data/mockData";
 import { useApp } from "../context/AppContext";
