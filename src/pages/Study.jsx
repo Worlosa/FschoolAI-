@@ -5,12 +5,6 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { groq } from "../api/groq";
 import { useApp } from "../context/AppContext";
 
-const FALLBACK_COURSES = [
-  "PSYC 302 — Cognitive Psychology",
-  "MATH 241 — Differential Equations",
-  "BUS 410 — Strategic Management",
-  "CS 355 — Algorithms & Complexity",
-];
 
 const SYSTEM =
   "You are a study assistant. When generating flashcards, format EVERY card as exactly: Q: [question] | A: [answer] — one per line, no extra text. For study guides, use clear headings and concise bullet points.";
@@ -522,22 +516,26 @@ function MarkdownGuide({ text }) {
 export default function Study() {
   const { courses: liveCourses, studyConfig, setStudyConfig, updateUserField, userData } = useApp();
 
-  // Use live Canvas courses when available, otherwise fall back to hardcoded list
-  const COURSES = liveCourses.length > 0
-    ? liveCourses.map(c => `${c.courseCode} — ${c.name}`)
-    : FALLBACK_COURSES;
 
-  const [course,     setCourse]     = useState(COURSES[0]);
+  // Use live Canvas courses only
+  const COURSES = liveCourses.map(c => `${c.courseCode} — ${c.name}`);
+  const hasCanvasCourses = COURSES.length > 0;
+
+  const [course,     setCourse]     = useState(COURSES[0] ?? "");
   const [mode,       setMode]       = useState("flashcards");
   const [loading,    setLoading]    = useState(false);
   const [flashcards, setFlashcards] = useState([]);
   const [guide,      setGuide]      = useState("");
   const [inSession,  setInSession]  = useState(false);
 
+  // Sync selected course when live courses load in
+  useEffect(() => {
+    if (COURSES.length > 0 && !course) setCourse(COURSES[0]);
+  }, [liveCourses]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Hold the pending nav config in a ref so it survives async course-loading
   const pendingConfig = useRef(null);
   // Incrementing this forces Effect 2 to re-run even when liveCourses hasn't changed
-  // (e.g. same-page Study→Study navigation where currentPage doesn't actually change)
   const [configTick, setConfigTick] = useState(0);
 
   // Step 1: capture incoming studyConfig into ref and signal Effect 2 to run
@@ -555,9 +553,8 @@ export default function Study() {
     if (!cfg) return;
     pendingConfig.current = null;
 
-    const available = liveCourses.length > 0
-      ? liveCourses.map(c => `${c.courseCode} — ${c.name}`)
-      : FALLBACK_COURSES;
+    const available = liveCourses.map(c => `${c.courseCode} — ${c.name}`);
+    if (!available.length) return;
 
     if (cfg.course) {
       const query    = cfg.course.toLowerCase();
@@ -595,6 +592,23 @@ export default function Study() {
 
   if (inSession && flashcards.length > 0) {
     return <StudySession cards={flashcards} onExit={() => setInSession(false)} updateUserField={updateUserField} userData={userData} />;
+  }
+
+  // No Canvas connected yet
+  if (!hasCanvasCourses) {
+    return (
+      <div>
+        <h1 style={{ fontSize: "26px", fontWeight: "600", color: "var(--text-primary)", marginBottom: "24px", letterSpacing: "-0.3px" }}>
+          Study
+        </h1>
+        <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-card)", boxShadow: "var(--depth-line)", padding: "24px" }}>
+          <p style={{ color: "var(--text-secondary)", fontSize: "14px", marginBottom: "4px" }}>No courses found</p>
+          <p style={{ color: "var(--text-dim)", fontSize: "12px", lineHeight: "1.6" }}>
+            Connect Canvas on the Canvas page to load your real courses here.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -1,6 +1,6 @@
 // Assignment.jsx — Assignment list → detail view with AI draft generation.
-// Reads live assignments from Supabase (synced from Canvas).
-// Falls back to placeholder cards when Canvas is not connected.
+// Reads live assignments from Canvas via AppContext.
+// Shows empty state when Canvas is not connected.
 // Draft supports text-selection toolbar (Shorten / Expand / Change Direction / Suggest / Copy).
 
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
@@ -16,13 +16,31 @@ const EDIT_SYSTEM =
 
 const TOOLBAR_ACTIONS = ["Shorten", "Expand", "Change Direction", "Suggest", "Copy"];
 
-// Shown when Canvas is not yet connected
-const PLACEHOLDER_ASSIGNMENTS = [
-  { id: "p1", name: "Research Paper: Cognitive Load Theory",  courseCode: "PSYC 302", description: "Analyze how cognitive load theory applies to modern digital learning environments. Include empirical evidence and practical implications for instructional design. Minimum 1,500 words." },
-  { id: "p2", name: "Problem Set 4 — Differential Equations", courseCode: "MATH 241", description: "Solve problems 4.1–4.8 from Chapter 4. Show all working and verify solutions using an appropriate method." },
-  { id: "p3", name: "Case Study: Market Entry Strategy",      courseCode: "BUS 410",  description: "Analyze Apple's 2007 iPhone market entry using Porter's Five Forces. 800–1,000 words." },
-  { id: "p4", name: "Algorithm Analysis — Sorting Comparison", courseCode: "CS 355",  description: "Compare time and space complexity of merge sort, quick sort, and heap sort. Include empirical benchmarks." },
-];
+const card = {
+  background: "var(--color-surface)",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-card)",
+  boxShadow: "var(--depth-line)",
+};
+
+function NoCanvasState() {
+  return (
+    <div style={{ ...card, padding: "24px" }}>
+      <p style={{ color: "var(--text-secondary)", fontSize: "14px", marginBottom: "4px" }}>No Canvas connected</p>
+      <p style={{ color: "var(--text-dim)", fontSize: "12px", lineHeight: "1.6" }}>
+        Head to the Canvas page to connect your account and see your real assignments here.
+      </p>
+    </div>
+  );
+}
+
+function AllDoneState() {
+  return (
+    <div style={{ ...card, padding: "24px", textAlign: "center" }}>
+      <p style={{ color: "var(--text-secondary)", fontSize: "14px" }}>No pending assignments 🎉</p>
+    </div>
+  );
+}
 
 function formatDue(dueAt) {
   if (!dueAt) return null;
@@ -39,12 +57,11 @@ function formatDue(dueAt) {
 export default function Assignment() {
   const { assignments: liveAssignments, canvasToken } = useApp();
 
-  // Use live data if available, else placeholder
+  // Real assignments only — sorted by due date, unsubmitted
   const assignments = useMemo(() => {
-    if (!canvasToken || !liveAssignments.length) return PLACEHOLDER_ASSIGNMENTS;
-    // Sort: upcoming first, then by due date
+    if (!canvasToken || !liveAssignments.length) return [];
     return [...liveAssignments]
-      .filter(a => !a.submission?.submittedAt)           // not yet submitted
+      .filter(a => !a.submission?.submittedAt)
       .sort((a, b) => {
         if (!a.dueAt && !b.dueAt) return 0;
         if (!a.dueAt) return 1;
@@ -272,40 +289,49 @@ export default function Assignment() {
         Assignments
       </h1>
       <p style={{ color: "var(--text-dim)", fontSize: "14px", marginBottom: "28px" }}>
-        {assignments.length} {canvasToken && liveAssignments.length ? "pending" : "active"} assignment{assignments.length !== 1 ? "s" : ""}
-        {!canvasToken && <span style={{ color: "rgba(255,255,255,0.18)" }}> · placeholder</span>}
+        {!canvasToken
+          ? "Connect Canvas to see your assignments"
+          : assignments.length > 0
+          ? `${assignments.length} pending assignment${assignments.length !== 1 ? "s" : ""}`
+          : "You're all caught up"}
       </p>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-        {assignments.map((a) => {
-          const due = formatDue(a.dueAt);
-          const isLate = a.submission?.missing || (a.dueAt && new Date(a.dueAt) < new Date() && !a.submission?.submittedAt);
-          return (
-            <button
-              key={a.id}
-              onClick={() => { setSelected(a); setDraft(""); generateDraftFor(a); }}
-              style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-card)", boxShadow: "var(--depth-line)", padding: "18px", cursor: "pointer", textAlign: "left", width: "100%", fontFamily: "inherit", transition: "background var(--dur-base) var(--ease-apple)" }}
-              onMouseEnter={e => (e.currentTarget.style.background = "var(--color-surface-hover)")}
-              onMouseLeave={e => (e.currentTarget.style.background = "var(--color-surface)")}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
-                <p style={{ color: "var(--text-primary)", fontSize: "15px", fontWeight: "500", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {a.name || a.title}
+      {!canvasToken ? (
+        <NoCanvasState />
+      ) : assignments.length === 0 ? (
+        <AllDoneState />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          {assignments.map((a) => {
+            const due = formatDue(a.dueAt);
+            const isLate = a.submission?.missing || (a.dueAt && new Date(a.dueAt) < new Date() && !a.submission?.submittedAt);
+            return (
+              <button
+                key={a.id}
+                onClick={() => { setSelected(a); setDraft(""); generateDraftFor(a); }}
+                style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-card)", boxShadow: "var(--depth-line)", padding: "18px", cursor: "pointer", textAlign: "left", width: "100%", fontFamily: "inherit", transition: "background var(--dur-base) var(--ease-apple)" }}
+                onMouseEnter={e => (e.currentTarget.style.background = "var(--color-surface-hover)")}
+                onMouseLeave={e => (e.currentTarget.style.background = "var(--color-surface)")}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
+                  <p style={{ color: "var(--text-primary)", fontSize: "15px", fontWeight: "500", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {a.name || a.title}
+                  </p>
+                  {due && (
+                    <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "20px", background: isLate ? "rgba(255,59,48,0.1)" : "rgba(255,255,255,0.06)", color: isLate ? "rgba(255,100,90,0.85)" : "var(--text-dim)", flexShrink: 0 }}>
+                      {due}
+                    </span>
+                  )}
+                </div>
+                <p style={{ color: "var(--text-secondary)", fontSize: "12px", marginTop: "4px" }}>
+                  {a.courseCode || a.course}
+                  {a.pointsPossible > 0 && <span style={{ color: "var(--text-dim)", marginLeft: "8px" }}>{a.pointsPossible} pts</span>}
                 </p>
-                {due && (
-                  <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "20px", background: isLate ? "rgba(255,59,48,0.1)" : "rgba(255,255,255,0.06)", color: isLate ? "rgba(255,100,90,0.85)" : "var(--text-dim)", flexShrink: 0 }}>
-                    {due}
-                  </span>
-                )}
-              </div>
-              <p style={{ color: "var(--text-secondary)", fontSize: "12px", marginTop: "4px" }}>
-                {a.courseCode || a.course}
-                {a.pointsPossible > 0 && <span style={{ color: "var(--text-dim)", marginLeft: "8px" }}>{a.pointsPossible} pts</span>}
-              </p>
-            </button>
-          );
-        })}
-      </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
