@@ -220,12 +220,14 @@ export async function syncCanvasData(userId, canvasToken, canvasBaseUrl) {
 }
 
 /**
- * Load all synced Canvas data from Supabase.
+ * Load all synced Canvas data from Supabase (Canvas + manual courses).
+ * FIX: manual courses have no canvas_course_id — use DB id as fallback.
  */
 export async function loadCanvasData(userId) {
   const [cResult, aResult, annResult, modResult, agResult, dtResult] = await Promise.all([
     supabase.from('courses').select('*').eq('user_id', userId),
-    supabase.from('assignments').select('*, courses(canvas_course_id, course_code, name)').eq('user_id', userId),
+    // FIX: select courses(id, ...) so we have the DB id for manual course matching
+    supabase.from('assignments').select('*, courses(id, canvas_course_id, course_code, name)').eq('user_id', userId),
     supabase.from('canvas_data').select('payload').eq('user_id', userId).eq('data_type', 'announcements').maybeSingle(),
     supabase.from('canvas_data').select('payload').eq('user_id', userId).eq('data_type', 'modules').maybeSingle(),
     supabase.from('canvas_data').select('payload').eq('user_id', userId).eq('data_type', 'assignment_groups').maybeSingle(),
@@ -233,34 +235,42 @@ export async function loadCanvasData(userId) {
   ]);
 
   const courses = (cResult.data || []).map(c => ({
-    id:               c.canvas_course_id,
+    // FIX: Canvas courses use canvas_course_id; manual courses use DB id
+    id:               c.canvas_course_id ?? c.id,
+    dbId:             c.id,
     name:             c.name,
     courseCode:       c.course_code,
     currentScore:     c.current_score,
     finalScore:       c.final_score,
     imageUrl:         c.image_url,
     source:           c.source,
+    isManual:         c.is_manual ?? false,
     enrollmentState:  'active',
     accessRestricted: false,
     assignmentGroups: null,
   }));
 
   const assignments = (aResult.data || []).map(a => ({
-    id:             a.canvas_assignment_id,
-    name:           a.title,
+    // FIX: Canvas assignments use canvas_assignment_id; manual ones use DB id
+    id:             a.canvas_assignment_id ?? a.id,
+    name:           a.title ?? a.name,
     description:    a.description,
     dueAt:          a.due_at,
     pointsPossible: a.points_possible,
-    courseId:       a.courses?.canvas_course_id ?? null,
+    // FIX: manual assignments — courseId must match the course id we set above
+    // Canvas: use canvas_course_id from joined courses row
+    // Manual: use course_id directly (which is the DB id, matching c.id above)
+    courseId:       a.courses?.canvas_course_id ?? a.course_id ?? null,
     courseCode:     a.courses?.course_code      ?? '',
     courseName:     a.courses?.name             ?? '',
     source:         a.source,
+    isManual:       a.is_manual ?? false,
     submission: {
       score:          a.score,
       submittedAt:    a.submitted_at,
       submissionType: a.submission_type,
-      late:           a.late,
-      missing:        a.missing,
+      late:           a.late   ?? false,
+      missing:        a.missing ?? false,
     },
   }));
 
