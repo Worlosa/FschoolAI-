@@ -1,6 +1,6 @@
 // ShareCard.jsx — Social profile card with leaderboard opt-in + share action.
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useApp } from "../context/AppContext";
 
 /* Hallmark · component: card · genre: atmospheric · theme: App Shell (studied-DNA)
@@ -50,6 +50,7 @@ function StatPill({ label, value }) {
 
 export default function ShareCard() {
   const { userData, updateUserField } = useApp();
+  const cardRef = useRef(null);
 
   const [song,        setSong]        = useState(userData?.favorite_song ?? "");
   const [songEditing, setSongEditing] = useState(false);
@@ -87,19 +88,47 @@ export default function ShareCard() {
     await updateUserField("leaderboard_opt_in", next);
   }
 
-  function handleShare() {
-    const text = [
-      `📚 ${name} · ${school}`,
-      location ? `📍 ${location}` : null,
-      `GPA ${gpa}  ·  ${streak} streak  ·  ${studyTime} studied`,
-      song ? `🎵 ${song}` : null,
-      `via FSchool AI`,
-    ].filter(Boolean).join("\n");
+  async function handleShare() {
+    try {
+      const html2canvas = (await import("html2canvas")).default;
+      const canvas = await html2canvas(cardRef.current, {
+        backgroundColor: "#0d0d0d",
+        scale: 3,
+        useCORS: true,
+        logging: false,
+      });
 
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+      const blob = await new Promise(res => canvas.toBlob(res, "image/png"));
+      const file = new File([blob], "my-neuroagi-card.png", { type: "image/png" });
+
+      // Use native share sheet if available (mobile), else download
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: `${name} · NeuroAGI` });
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "my-neuroagi-card.png";
+        a.click();
+        URL.revokeObjectURL(url);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
+    } catch (err) {
+      console.error("Share failed:", err);
+      // Fallback to text copy
+      const text = [
+        `📚 ${name} · ${school}`,
+        location ? `📍 ${location}` : null,
+        `GPA ${gpa}  ·  ${streak} streak  ·  ${studyTime} studied`,
+        song ? `🎵 ${song}` : null,
+        `via NeuroAGI`,
+      ].filter(Boolean).join("\n");
+      navigator.clipboard.writeText(text).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      });
+    }
   }
 
   return (
@@ -111,7 +140,7 @@ export default function ShareCard() {
         Your Card
       </p>
 
-      <div style={{
+      <div ref={cardRef} style={{
         background: "rgba(255,255,255,0.04)",
         backdropFilter: "blur(32px)",
         WebkitBackdropFilter: "blur(32px)",
@@ -267,7 +296,7 @@ export default function ShareCard() {
             transition: "background 0.2s, color 0.2s, border-color 0.2s",
           }}
         >
-          {copied ? "Copied to clipboard!" : "Share Card"}
+          {copied ? "Saved!" : "Share Card 🖼️"}
         </button>
       </div>
     </div>
