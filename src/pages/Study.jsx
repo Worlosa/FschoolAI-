@@ -48,15 +48,15 @@ function StudySession({ cards, onExit, updateUserField, userData }) {
   const idleTimer    = useRef(null);          // 2-min idle timeout handle
   const savedRef     = useRef(false);         // prevent double-save
 
-  const IDLE_MS = 10 * 1000; // 10 seconds — TESTING ONLY
+  const IDLE_MS = 2 * 60 * 1000; // 2 minutes
 
   // Save elapsed study time to Supabase (accumulates on top of existing total)
   const saveStudyTime = useCallback(async (exitCallback) => {
     if (savedRef.current) { exitCallback?.(); return; }
     savedRef.current = true;
     clearTimeout(idleTimer.current);
-    const elapsedMinutes = Math.ceil((Date.now() - sessionStart.current) / 60000);
-    if (elapsedMinutes >= 0 && updateUserField) {
+    const elapsedMinutes = Math.round((Date.now() - sessionStart.current) / 60000);
+    if (elapsedMinutes > 0 && updateUserField) {
       const prev = userData?.study_time ?? 0;
       await updateUserField("study_time", prev + elapsedMinutes);
     }
