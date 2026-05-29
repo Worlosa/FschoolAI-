@@ -110,6 +110,28 @@ export function AppProvider({ children }) {
     setAssignments(prev => [...prev, ...newAssignments]);
   }, []);
 
+  /** Force a fresh Canvas sync, bypassing the 1-hour cache. */
+  const forceSync = useCallback(async () => {
+    if (!canvasToken || !canvasBaseUrl) return;
+    await supabase
+      .from("users")
+      .upsert({ id: userId, canvas_synced_at: null }, { onConflict: "id" });
+
+    setSyncStatus("syncing");
+    try {
+      const result = await syncCanvasData(userId, canvasToken, canvasBaseUrl);
+      if (!result.cached) {
+        applyCanvasResult(result);
+        if (result.gpa != null) setUserData(prev => ({ ...prev, gpa: result.gpa }));
+      }
+      setSyncStatus("synced");
+    } catch (err) {
+      const isCors = err instanceof TypeError && err.message.includes("fetch");
+      setSyncStatus(isCors ? "cors-error" : "error");
+      console.error("Canvas force-sync failed:", err);
+    }
+  }, [userId, canvasToken, canvasBaseUrl]);
+
   /** Upsert one field (field, value) or multiple fields (object) on the users table. */
   const updateUserField = useCallback(async (fieldOrPatch, value) => {
     const patch = typeof fieldOrPatch === "object"
@@ -138,6 +160,7 @@ export function AppProvider({ children }) {
       saveCanvasCredentials,
       updateUserField,
       addManualCourse,
+      forceSync,
       pendingNav,
       setPendingNav,
       studyConfig,

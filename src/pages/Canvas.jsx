@@ -371,6 +371,7 @@ export default function Canvas() {
     modules, assignmentGroups,
     canvasToken, syncStatus, saveCanvasCredentials,
     addManualCourse,
+    forceSync,
   } = useApp();
 
   const [showUpload, setShowUpload] = useState(false);
@@ -403,6 +404,31 @@ export default function Canvas() {
           {courses.length > 0 ? `${courses.length} course${courses.length !== 1 ? "s" : ""}` : "Syncing courses…"}
         </p>
         <SyncBadge status={syncStatus} />
+        <button
+          onClick={forceSync}
+          disabled={syncStatus === "syncing"}
+          style={{
+            marginLeft: "auto",
+            background: "none",
+            border: "1px solid rgba(255,255,255,0.1)",
+            borderRadius: "20px",
+            padding: "4px 12px",
+            color: syncStatus === "syncing" ? "var(--text-dim)" : "var(--text-secondary)",
+            fontSize: "11px",
+            fontWeight: "500",
+            cursor: syncStatus === "syncing" ? "not-allowed" : "pointer",
+            fontFamily: "inherit",
+            transition: "border-color 0.15s, color 0.15s",
+          }}
+          onMouseEnter={e => {
+            if (syncStatus !== "syncing") e.currentTarget.style.borderColor = "rgba(255,255,255,0.25)";
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)";
+          }}
+        >
+          {syncStatus === "syncing" ? "Syncing…" : "↻ Refresh"}
+        </button>
       </div>
 
       {syncStatus === "cors-error" && (
