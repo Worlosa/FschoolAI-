@@ -136,9 +136,9 @@ export default function Leaderboard() {
     city:       loc.city,
     country:    loc.country,
     continent:  loc.continent,
-    gpa:        userData?.gpa        ?? 3.87,
-    streak:     userData?.streak     || 14,
-    study_time: userData?.study_time || 48,
+    gpa:        userData?.gpa        ?? null,
+    streak:     userData?.streak     ?? 0,
+    study_time: userData?.study_time ?? 0,
   } : null;
 
   const filterVal = filterCol ? loc[filterCol] : null;

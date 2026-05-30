@@ -62,21 +62,49 @@ function parseSong(raw) {
 }
 
 // iTunes Search API — no key needed
+// iOS Safari blocks direct cross-origin fetch to itunes.apple.com from PWAs,
+// so we try the direct URL first and fall back to a CORS proxy on failure.
 async function searchiTunes(term) {
   if (!term || term.trim().length < 2) return [];
-  const base = import.meta.env.DEV
-    ? "/itunes-search"
-    : "https://itunes.apple.com/search";
-  const url = `${base}?term=${encodeURIComponent(term)}&media=music&entity=song&limit=8&lang=en_us`;
-  const res = await fetch(url);
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data.results || []).map(t => ({
-    title: t.trackName,
-    artist: t.artistName,
-    artworkUrl: t.artworkUrl100?.replace("100x100", "60x60") ?? t.artworkUrl60,
-    artworkUrlLarge: t.artworkUrl100,
-  }));
+
+  const params = `?term=${encodeURIComponent(term)}&media=music&entity=song&limit=8&lang=en_us`;
+  const devBase   = "/itunes-search";
+  const directUrl = `https://itunes.apple.com/search${params}`;
+  const proxyUrl  = `https://corsproxy.io/?${encodeURIComponent("https://itunes.apple.com/search" + params)}`;
+
+  async function parseResponse(res) {
+    if (!res.ok) return null;
+    try {
+      const data = await res.json();
+      return (data.results || []).map(t => ({
+        title:          t.trackName,
+        artist:         t.artistName,
+        artworkUrl:     t.artworkUrl100?.replace("100x100", "60x60") ?? t.artworkUrl60,
+        artworkUrlLarge: t.artworkUrl100,
+      }));
+    } catch (_) { return null; }
+  }
+
+  if (import.meta.env.DEV) {
+    const res = await fetch(`${devBase}${params}`).catch(() => null);
+    return (res && await parseResponse(res)) ?? [];
+  }
+
+  // Prod: try direct first, fall back to proxy (handles iOS Safari CORS block)
+  try {
+    const res = await Promise.race([
+      fetch(directUrl, { mode: "cors" }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 4000)),
+    ]);
+    const results = await parseResponse(res);
+    if (results) return results;
+  } catch (_) {}
+
+  // Fallback to CORS proxy
+  try {
+    const res = await fetch(proxyUrl);
+    return (await parseResponse(res)) ?? [];
+  } catch (_) { return []; }
 }
 
 export default function ShareCard() {
