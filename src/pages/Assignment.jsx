@@ -110,6 +110,22 @@ export default function Assignment() {
     if (selected) generateDraftFor(selected);
   }, [selected, generateDraftFor]);
 
+  // Dismiss toolbar when tapping outside textarea
+  useEffect(() => {
+    function onTap(e) {
+      if (!toolbarPos) return;
+      if (draftRef.current && draftRef.current.contains(e.target)) return;
+      setSelection(null);
+      setToolbarPos(null);
+    }
+    document.addEventListener("touchstart", onTap, { passive: true });
+    document.addEventListener("mousedown", onTap);
+    return () => {
+      document.removeEventListener("touchstart", onTap);
+      document.removeEventListener("mousedown", onTap);
+    };
+  }, [toolbarPos]);
+
   const handleTextSelect = useCallback(() => {
     const ta = draftRef.current;
     if (!ta) return;
@@ -286,6 +302,7 @@ export default function Assignment() {
               onMouseUp={handleTextSelect}
               onTouchEnd={() => setTimeout(handleTextSelect, 150)}
               onSelect={handleTextSelect}
+              style={{ WebkitTouchCallout: "none" }}
               style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-card)", padding: "20px", color: "var(--text-primary)", fontSize: "14px", lineHeight: "1.85", whiteSpace: "pre-wrap", marginBottom: "14px", outline: "none", cursor: "text", minHeight: "320px", width: "100%", boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }}
             />
 

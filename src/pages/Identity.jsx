@@ -29,9 +29,9 @@ export default function Identity() {
     await updateUserField("name", trimmed);
   }, [nameInput, currentName, updateUserField]);
 
-  const gpa         = userData?.gpa        != null ? userData.gpa.toFixed(2) : "3.87";
-  const streak      = `${userData?.streak     || 14}d`;
-  const studyTime   = `${userData?.study_time || 48}h`;
+  const gpa         = userData?.gpa        != null ? userData.gpa.toFixed(2) : "—";
+  const streak      = `${userData?.streak     ?? 0}d`;
+  const studyTime   = `${userData?.study_time ?? 0}h`;
   const totalDone   = assignments.filter(a => a.submission?.submittedAt).length || 0;
 
   const STATS = [

@@ -81,7 +81,8 @@ async function searchiTunes(term) {
 
 export default function ShareCard() {
   const { userData, updateUserField } = useApp();
-  const cardRef = useRef(null);
+  const cardRef    = useRef(null);  // full component (not exported)
+  const exportRef  = useRef(null);  // clean card only (no button/toggle)
 
   // ── Song state ────────────────────────────────────────────────────
   const [songData,    setSongData]    = useState(null);       // { title, artist, artworkUrl } | null
@@ -176,7 +177,7 @@ export default function ShareCard() {
   async function handleShare() {
     try {
       const html2canvas = (await import("html2canvas")).default;
-      const canvas = await html2canvas(cardRef.current, {
+      const canvas = await html2canvas(exportRef.current, {
         backgroundColor: "#0d0d0d",
         scale: 3,
         useCORS: true,
@@ -431,6 +432,9 @@ export default function ShareCard() {
           pointerEvents: "none",
         }} />
 
+        {/* ── Exportable card content ── */}
+        <div ref={exportRef}>
+
         {/* Header row */}
         <div style={{
           display: "flex", justifyContent: "space-between",
@@ -527,6 +531,8 @@ export default function ShareCard() {
             <NowPlaying />
           )}
         </div>
+
+        </div>{/* end exportRef */}
 
         {/* Leaderboard opt-in */}
         <div style={{
