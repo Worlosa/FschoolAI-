@@ -14,49 +14,80 @@ import { createPortal } from "react-dom";
 import { groq } from "../api/groq";
 import { useApp } from "../context/AppContext";
 
-const NAV_REGEX = /<nav>([\s\S]*?)<\/nav>/;
+// Matches <nav>...</nav> — also catches malformed <n nav>, < nav>, etc.
+const NAV_REGEX = /<\s*n?\s*nav[^>]*>([\s\S]*?)<\/\s*n?\s*nav\s*>/i;
+// Strips any leftover nav-like tag fragment from display text (catches partial matches)
+const NAV_STRIP_REGEX = /<\s*n?\s*nav[\s\S]*$/i;
 
-// Build system prompt dynamically so the AI knows what pages and courses exist
-function buildChatSystem(courseOptions) {
+// Build system prompt with full user context — course names, GPA, streak, upcoming dues
+function buildChatSystem(courseOptions, userData, assignments) {
   const courseList = courseOptions.length
     ? courseOptions.join("\n- ")
-    : "PSYC 302 — Cognitive Psychology\n- MATH 241 — Differential Equations\n- BUS 410 — Strategic Management\n- CS 355 — Algorithms & Complexity";
+    : "No courses loaded yet";
 
-  return `You are a personal academic AI assistant. Be concise and genuinely useful.
+  // Top 5 upcoming assignments
+  const now = Date.now();
+  const upcoming = (assignments || [])
+    .filter(a => a.dueAt && new Date(a.dueAt).getTime() > now)
+    .sort((a, b) => new Date(a.dueAt) - new Date(b.dueAt))
+    .slice(0, 5)
+    .map(a => `- ${a.name} (${a.courseName || a.courseCode || ""}) — due ${new Date(a.dueAt).toLocaleDateString()}`)
+    .join("\n");
 
-Available pages: work, canvas, assignment, study, identity, leaderboard, toolkit
-Available courses:
+  const userContext = userData ? [
+    userData.name     ? `Student name: ${userData.name}` : null,
+    userData.gpa      ? `GPA: ${userData.gpa}` : null,
+    userData.streak   ? `Study streak: ${userData.streak} days` : null,
+    userData.study_time ? `Total study time: ${userData.study_time} mins` : null,
+    userData.school   ? `School: ${userData.school}` : null,
+  ].filter(Boolean).join("\n") : "";
+
+  return `You are a concise academic AI assistant. Answer in 1-3 sentences. Use the student's real data below to give specific, helpful answers.
+
+STUDENT DATA:
+${userContext || "No user data yet"}
+
+UPCOMING ASSIGNMENTS:
+${upcoming || "None"}
+
+COURSES (internal reference — never list these back verbatim):
 - ${courseList}
 
-NAVIGATION RULE: When the user clearly wants to navigate or study something, you MUST append a navigation command at the very end of your reply using this EXACT format — the JSON must be wrapped in <nav> and </nav> tags, nothing else after it:
-<nav>{"page":"pagename","course":"EXACT course string from the list","mode":"flashcards or guide"}</nav>
+PAGES: work, canvas, assignment, study, identity, leaderboard, toolkit
 
-CRITICAL: Always use the <nav> XML tags. Never output raw JSON. Never skip the tags.
+NAVIGATION: When the user wants to go somewhere or study a course, append this EXACTLY at the end of your reply — nothing after it:
+<nav>{"page":"pagename","course":"EXACT course string","mode":"flashcards or guide"}</nav>
+Omit "course"/"mode" when not relevant. Only use <nav> for clear navigation intent.
 
-Examples:
-- "study contracts" → On it! <nav>{"page":"study","course":"VPAC16H3 — Contracts and Copyright","mode":"guide"}</nav>
-- "quiz me on psych" → <nav>{"page":"study","course":"PSYC 302 — Cognitive Psychology","mode":"flashcards"}</nav>
-- "show assignments" → <nav>{"page":"assignment"}</nav>
-- "go to toolkit" → <nav>{"page":"toolkit"}</nav>
-Omit "course" and "mode" when not relevant. Only append <nav> when navigation is the clear intent.`;
+RULES:
+- Never dump the full course list. If asked, summarize (e.g. "You have 6 courses including Physics and Media Studies")
+- Use the student's real GPA/streak/assignments when answering
+- Be direct and specific, not generic`;
 }
 
 function parseNav(raw) {
-  // Primary: <nav>...</nav> tags
+  // Primary: proper or malformed <nav> tags
   const tagMatch = raw.match(NAV_REGEX);
   if (tagMatch) {
-    try { return { cmd: JSON.parse(tagMatch[1].trim()), text: raw.replace(NAV_REGEX, "").trim() }; } catch {}
+    try {
+      const cmd  = JSON.parse(tagMatch[1].trim());
+      // Strip the entire nav tag + anything after it from display text
+      const text = raw.replace(NAV_REGEX, "").replace(NAV_STRIP_REGEX, "").trim();
+      return { cmd, text };
+    } catch {}
   }
   // Fallback: bare JSON object ending the response that contains "page"
   const bareMatch = raw.match(/(\{[^{}]*"page"\s*:[^{}]*\})\s*$/);
   if (bareMatch) {
     try {
       const cmd = JSON.parse(bareMatch[1]);
-      if (cmd.page) return { cmd, text: raw.slice(0, raw.lastIndexOf(bareMatch[1])).trim() };
+      if (cmd.page) return { cmd, text: raw.slice(0, raw.lastIndexOf(bareMatch[1])).replace(NAV_STRIP_REGEX, "").trim() };
     } catch {}
   }
-  return { cmd: null, text: raw };
+  // Last resort: strip any nav-like tag fragment that leaked through
+  return { cmd: null, text: raw.replace(NAV_STRIP_REGEX, "").trim() };
 }
+
 
 const SIZE   = 68;
 const RADIUS = 24;
@@ -93,7 +124,7 @@ function clamp(pos) {
 }
 
 export default function NeuralRing() {
-  const { userData, updateUserField, courses, setPendingNav, setStudyConfig } = useApp();
+  const { userData, updateUserField, courses, assignments, setPendingNav, setStudyConfig } = useApp();
 
   // Build course option strings once, matching the format Study.jsx uses
   const courseOptions = courses.length
@@ -257,7 +288,7 @@ export default function NeuralRing() {
     setInput("");
     setLoading(true);
     try {
-      const raw = await groq([...messages, userMsg], buildChatSystem(courseOptions));
+      const raw = await groq([...messages, userMsg], buildChatSystem(courseOptions, userData, assignments));
 
       const { cmd, text: displayText } = parseNav(raw);
 
