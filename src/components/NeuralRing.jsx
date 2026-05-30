@@ -14,6 +14,7 @@ import { createPortal } from "react-dom";
 import { groq } from "../api/groq";
 import { useApp } from "../context/AppContext";
 import { supabase } from "../api/supabase";
+import { isThemeRequest, generateAndApplyTheme } from "../utils/themeEngine";
 
 // Matches <nav>...</nav> — also catches malformed <n nav>, < nav>, etc.
 const NAV_REGEX = /<\s*n?\s*nav[^>]*>([\s\S]*?)<\/\s*n?\s*nav\s*>/i;
@@ -80,6 +81,8 @@ PAGES: work, canvas, assignment, study, identity, leaderboard, toolkit
 NAVIGATION: When the user wants to go somewhere or study a course, append this EXACTLY at the end of your reply — nothing after it:
 <nav>{"page":"pagename","course":"EXACT course string","mode":"flashcards or guide"}</nav>
 Omit "course"/"mode" when not relevant. Only use <nav> for clear navigation intent.
+
+THEME: If the user asks to change the theme, colors, vibe, or appearance, acknowledge it naturally in 1 sentence (e.g. "Done! Mango sunset activated." or "Switched to ocean vibes!"). Do NOT describe what you changed — the app handles that automatically.
 
 RULES:
 - Never dump the full course list. If asked, summarize (e.g. "You have 6 courses including Physics and Media Studies")
@@ -176,6 +179,9 @@ export default function NeuralRing() {
   const [loading, setLoading]   = useState(false);
   const messagesEndRef          = useRef(null);
 
+  // Theme — shows subtle indicator while generating
+  const [themePending, setThemePending] = useState(false);
+
   // Sheet swipe-to-close
   const sheetStartY             = useRef(null);
   const [sheetDragY, setSheetDragY] = useState(0);
@@ -197,6 +203,30 @@ export default function NeuralRing() {
         50%       { box-shadow: 0 0 0 9px rgba(255,255,255,0.03), 0 0 0 1px rgba(255,255,255,0.12), 0 6px 28px rgba(0,0,0,0.5); }
       }
       .nr-idle { animation: neuralPulse 4s ease-in-out infinite; }
+      @keyframes themeFlash {
+        0%   { opacity: 0; transform: translateX(-50%) scale(0.95); }
+        15%  { opacity: 1; transform: translateX(-50%) scale(1); }
+        85%  { opacity: 1; transform: translateX(-50%) scale(1); }
+        100% { opacity: 0; transform: translateX(-50%) scale(0.95); }
+      }
+      .theme-toast {
+        animation: themeFlash 2.4s ease forwards;
+        position: fixed;
+        bottom: 96px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(255,255,255,0.12);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255,255,255,0.18);
+        border-radius: 20px;
+        padding: 8px 18px;
+        font-size: 13px;
+        color: rgba(255,255,255,0.85);
+        pointer-events: none;
+        z-index: 99999;
+        white-space: nowrap;
+      }
     `;
     document.head.appendChild(style);
     return () => style.remove();
@@ -321,6 +351,17 @@ export default function NeuralRing() {
     prevChatOpen.current = chatOpen;
   }, [chatOpen, assignments]);
 
+  // ── Theme toast helper ───────────────────────────────────────────────────────
+  const showThemeToast = useCallback((text) => {
+    const existing = document.querySelector(".theme-toast");
+    if (existing) existing.remove();
+    const toast = document.createElement("div");
+    toast.className = "theme-toast";
+    toast.textContent = text;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2600);
+  }, []);
+
   // ── Chat ─────────────────────────────────────────────────────────────────────
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
@@ -329,6 +370,17 @@ export default function NeuralRing() {
     setInput("");
     setLoading(true);
     logChat(userId, "user", userMsg.content, null);
+
+    // Theme detection — fires in parallel, does not block the chat response
+    if (isThemeRequest(userMsg.content)) {
+      setThemePending(true);
+      showThemeToast("Generating your theme...");
+      generateAndApplyTheme(userMsg.content, userId, supabase)
+        .then(theme => showThemeToast(`${theme.theme_name} applied`))
+        .catch(() => showThemeToast("Couldn't generate theme"))
+        .finally(() => setThemePending(false));
+    }
+
     try {
       const raw = await groq([...messages, userMsg], buildChatSystem(courseOptions, userData, assignments));
       const { cmd, text: displayText } = parseNav(raw);
@@ -447,7 +499,7 @@ export default function NeuralRing() {
                     </p>
                   )}
                   <p style={{ color: "rgba(255,255,255,0.3)", fontSize: "11px", marginTop: "1px", letterSpacing: "0.4px" }}>
-                    Academic AI · Always on
+                    Academic AI · Always on{themePending ? " · Applying theme…" : ""}
                   </p>
                 </div>
               </div>

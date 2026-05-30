@@ -60,3 +60,36 @@ button {
     scroll-behavior:      auto !important;
   }
 }
+
+/* ─── DYNAMIC THEME VARIABLES ───────────────────────────────────────────────
+   Set at runtime by src/utils/themeEngine.js.
+   Defaults match the existing dark look — nothing breaks before a theme is applied. */
+
+:root {
+  --app-bg-primary:    #0d0d14;
+  --app-bg-secondary:  #111118;
+  --app-bg-card:       #16161f;
+  --app-accent:        #534AB7;
+  --app-accent-bright: #7F77DD;
+  --app-text-primary:  rgba(255, 255, 255, 0.92);
+  --app-text-muted:    rgba(255, 255, 255, 0.38);
+  --app-border:        rgba(255, 255, 255, 0.08);
+}
+
+/* Smooth whole-app colour transition when theme switches */
+*, *::before, *::after {
+  transition:
+    background-color 0.65s ease,
+    border-color     0.65s ease,
+    color            0.45s ease;
+}
+
+/* Preserve snappy feel for interactive elements */
+button, input, a, [data-no-theme-transition] {
+  transition:
+    background-color 0.65s ease,
+    border-color     0.65s ease,
+    color            0.45s ease,
+    opacity          0.18s ease,
+    transform        0.18s ease;
+}
