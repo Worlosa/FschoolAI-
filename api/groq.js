@@ -1,43 +1,50 @@
-// api/groq.js — Vercel serverless function (Node.js, CJS runtime).
-// Proxies Groq chat completions server-side so the API key is never in the browser bundle.
-// Receives POST { messages: [...], system: "..." }
+// api/groq.js — Vercel serverless function
+// Proxies requests to Groq API. GROQ_KEY lives here only, never in the browser bundle.
 
-const GROQ_KEY = process.env.GROQ_KEY;
-const MODEL    = "llama-3.1-8b-instant";
-
-module.exports = async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  if (req.method === "OPTIONS") { res.status(200).end(); return; }
-  if (req.method !== "POST")   { return res.status(405).json({ error: "Method not allowed" }); }
-
-  if (!GROQ_KEY) {
-    return res.status(500).json({ error: "GROQ_KEY not configured on server" });
+export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { messages, system } = req.body ?? {};
-  if (!Array.isArray(messages)) {
+  const key = process.env.GROQ_KEY;
+  if (!key) {
+    return res.status(500).json({ error: "GROQ_KEY not configured" });
+  }
+
+  const { messages, system } = req.body;
+
+  if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: "messages array required" });
   }
 
-  const msgs = system
-    ? [{ role: "system", content: system }, ...messages]
-    : messages;
-
   try {
-    const upstream = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method:  "POST",
-      headers: { Authorization: `Bearer ${GROQ_KEY}`, "Content-Type": "application/json" },
-      body:    JSON.stringify({ model: MODEL, messages: msgs, max_tokens: 1500 }),
+    const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${key}`,
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          ...(system ? [{ role: "system", content: system }] : []),
+          ...messages,
+        ],
+        max_tokens: 1024,
+        temperature: 0.7,
+      }),
     });
 
-    const data = await upstream.json();
-    if (!upstream.ok) {
-      return res.status(upstream.status).json({ error: data.error?.message ?? `Groq error ${upstream.status}` });
+    const data = await groqRes.json();
+
+    if (!groqRes.ok) {
+      return res.status(groqRes.status).json({ error: data.error?.message ?? "Groq API error" });
     }
-    res.status(200).json({ content: data.choices?.[0]?.message?.content ?? "" });
+
+    const content = data.choices?.[0]?.message?.content ?? "";
+    return res.status(200).json({ content });
+
   } catch (err) {
-    res.status(502).json({ error: err.message });
+    return res.status(500).json({ error: err.message ?? "Internal server error" });
   }
-};
+}
