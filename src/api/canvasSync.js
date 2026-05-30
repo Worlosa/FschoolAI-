@@ -28,9 +28,7 @@ import { supabase } from './supabase.js';
 const PROXY_URL = '/api/canvas';
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
-const GROQ_URL = import.meta.env.DEV
-  ? '/api/groq'
-  : 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_URL = '/api/groq';
 
 const FLASHCARD_SYSTEM =
   'You are a study assistant. Generate exactly 8 flashcards from the course material. ' +
@@ -54,26 +52,18 @@ async function generateAndSaveFlashcards(userId, courseDbId, courseName, assignm
       `Course: ${courseName}\n\nModules:\n${moduleList || '(none)'}\n\n` +
       `Assignments:\n${assignmentList || '(none)'}\n\nGenerate 8 study flashcards for this course.`;
 
-    const apiKey = import.meta.env.VITE_GROQ_KEY;
     const res = await fetch(GROQ_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model:      'llama3-8b-8192',
-        max_tokens: 800,
-        messages: [
-          { role: 'system', content: FLASHCARD_SYSTEM },
-          { role: 'user',   content: prompt },
-        ],
+        system:   FLASHCARD_SYSTEM,
+        messages: [{ role: 'user', content: prompt }],
       }),
     });
 
     if (!res.ok) return null;
     const data = await res.json();
-    const text = data.choices?.[0]?.message?.content ?? '';
+    const text = data.content ?? '';
 
     const cards = text
       .split('\n')
