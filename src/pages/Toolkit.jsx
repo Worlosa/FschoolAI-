@@ -2,8 +2,8 @@
 // Tabs: Class Notes | Recordings | Previous Work | Saved Drafts
 // Knowledge graph shows concept connections across courses with hover highlighting.
 
-import { useState, useEffect } from "react";
-import { CLASS_NOTES, LECTURE_RECORDINGS, PREVIOUS_WORK, SAVED_DRAFTS } from "../data/mockData";
+import { useState, useEffect, useRef } from "react";
+
 import { useApp } from "../context/AppContext";
 import { groq }   from "../api/groq";
 
@@ -250,190 +250,135 @@ function KnowledgeGraph({ courses, assignments }) {
 
 // ── Tab content components ────────────────────────────────────────────────────
 function ClassNotesTab() {
-  const [expanded, setExpanded] = useState(null);
+  const { courses } = useApp();
+  const [expanded,    setExpanded]    = useState(null);
+  const [courseFiles, setCourseFiles] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("toolkit_notes") || "{}"); } catch { return {}; }
+  });
+  const fileInputRef = useRef(null);
+  const [uploadingFor, setUploadingFor] = useState(null);
+
+  function saveFiles(next) {
+    setCourseFiles(next);
+    localStorage.setItem("toolkit_notes", JSON.stringify(next));
+  }
+
+  function handleUploadClick(courseId, e) {
+    e.stopPropagation();
+    setUploadingFor(courseId);
+    fileInputRef.current.click();
+  }
+
+  function handleFileChange(e) {
+    const files = Array.from(e.target.files);
+    if (!files.length || !uploadingFor) return;
+    const added = files.map(f => ({ name: f.name, size: f.size, date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" }) }));
+    const next = { ...courseFiles, [uploadingFor]: [...(courseFiles[uploadingFor] || []), ...added] };
+    saveFiles(next);
+    e.target.value = "";
+    setUploadingFor(null);
+  }
+
+  function removeFile(courseId, idx, e) {
+    e.stopPropagation();
+    const next = { ...courseFiles, [courseId]: courseFiles[courseId].filter((_, i) => i !== idx) };
+    saveFiles(next);
+  }
+
+  if (!courses || courses.length === 0) {
+    return (
+      <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-card)", padding: "24px", textAlign: "center" }}>
+        <p style={{ color: "var(--text-secondary)", fontSize: "14px", marginBottom: "4px" }}>No courses yet</p>
+        <p style={{ color: "var(--text-dim)", fontSize: "12px" }}>Connect Canvas to see your courses here</p>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-      {CLASS_NOTES.map((note) => (
-        <div
-          key={note.id}
-          style={{
-            background:   "var(--color-surface)",
-            border:       "1px solid var(--color-border)",
-            borderRadius: "var(--radius-card)",
-            overflow:     "hidden",
-            cursor:       "pointer",
-            transition:   "background var(--dur-base) var(--ease-apple)",
-          }}
-          onClick={() => setExpanded(expanded === note.id ? null : note.id)}
-          onMouseEnter={(e) => (e.currentTarget.style.background = "var(--color-surface-hover)")}
-          onMouseLeave={(e) => (e.currentTarget.style.background = "var(--color-surface)")}
-        >
-          <div style={{ padding: "16px 18px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                <span style={{
-                  fontSize: "10px", color: FALLBACK_COLORS[note.course] ?? "var(--text-dim)",
-                  fontWeight: "600", letterSpacing: "0.5px",
-                }}>
-                  {note.course}
-                </span>
-                <span style={{ fontSize: "10px", color: "var(--text-dim)" }}>{note.date}</span>
+      <input ref={fileInputRef} type="file" multiple accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg" style={{ display: "none" }} onChange={handleFileChange} />
+      {courses.map((course) => {
+        const cid   = String(course.id);
+        const files = courseFiles[cid] || [];
+        const color = COLOR_PALETTE[courses.indexOf(course) % COLOR_PALETTE.length];
+        const open  = expanded === cid;
+        return (
+          <div key={cid} style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-card)", overflow: "hidden", transition: "background var(--dur-base) var(--ease-apple)" }}>
+            <div
+              style={{ padding: "16px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}
+              onClick={() => setExpanded(open ? null : cid)}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--color-surface-hover)")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "")}
+            >
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "3px" }}>
+                  <span style={{ fontSize: "10px", color, fontWeight: "600", letterSpacing: "0.5px" }}>{course.courseCode ?? course.name}</span>
+                  <span style={{ fontSize: "10px", color: "var(--text-dim)" }}>{files.length} file{files.length !== 1 ? "s" : ""}</span>
+                </div>
+                <p style={{ color: "var(--text-primary)", fontSize: "14px", fontWeight: "500", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{course.name}</p>
               </div>
-              <p style={{ color: "var(--text-primary)", fontSize: "14px", fontWeight: "500" }}>{note.title}</p>
-              <div style={{ display: "flex", gap: "6px", marginTop: "8px", flexWrap: "wrap" }}>
-                {note.tags.map((t) => (
-                  <span key={t} style={{
-                    fontSize: "10px", color: "var(--text-secondary)",
-                    background: "rgba(255,255,255,0.06)", borderRadius: "6px", padding: "2px 7px",
-                  }}>
-                    {t}
-                  </span>
-                ))}
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", flexShrink: 0, marginLeft: "12px" }}>
+                <button
+                  onClick={(e) => handleUploadClick(cid, e)}
+                  style={{ background: "rgba(0,210,190,0.12)", border: "1px solid rgba(0,210,190,0.25)", borderRadius: "8px", color: "rgba(0,210,190,0.8)", fontSize: "11px", padding: "5px 10px", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}
+                >
+                  + Upload
+                </button>
+                <span style={{ color: "var(--text-dim)", fontSize: "16px" }}>{open ? "↑" : "↓"}</span>
               </div>
             </div>
-            <span style={{ color: "var(--text-dim)", fontSize: "16px", marginLeft: "12px", flexShrink: 0, marginTop: "2px" }}>
-              {expanded === note.id ? "↑" : "↓"}
-            </span>
+            {open && (
+              <div style={{ borderTop: "1px solid rgba(255,255,255,0.05)", padding: "12px 18px 16px" }}>
+                {files.length === 0 ? (
+                  <p style={{ color: "var(--text-dim)", fontSize: "12px" }}>No notes uploaded yet — tap Upload to add PDF, doc, or slides</p>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                    {files.map((f, i) => (
+                      <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(255,255,255,0.03)", borderRadius: "8px", padding: "10px 12px" }}>
+                        <div style={{ minWidth: 0 }}>
+                          <p style={{ color: "var(--text-primary)", fontSize: "13px", fontWeight: "500", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</p>
+                          <p style={{ color: "var(--text-dim)", fontSize: "11px", marginTop: "2px" }}>{f.date} · {(f.size / 1024).toFixed(0)} KB</p>
+                        </div>
+                        <button onClick={(e) => removeFile(cid, i, e)} style={{ background: "none", border: "none", color: "rgba(255,100,90,0.6)", fontSize: "16px", cursor: "pointer", padding: "0 4px", flexShrink: 0 }}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-          {expanded === note.id && (
-            <div style={{ padding: "0 18px 16px", borderTop: "1px solid rgba(255,255,255,0.05)" }}>
-              <p style={{ color: "var(--text-secondary)", fontSize: "13px", lineHeight: "1.7", marginTop: "12px" }}>
-                {note.content}
-              </p>
-              <p style={{ color: "var(--text-dim)", fontSize: "11px", marginTop: "8px" }}>~{note.wordCount} words</p>
-            </div>
-          )}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
 
 function RecordingsTab() {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-      {LECTURE_RECORDINGS.map((rec) => (
-        <div
-          key={rec.id}
-          style={{
-            background:   "var(--color-surface)",
-            border:       "1px solid var(--color-border)",
-            borderRadius: "var(--radius-card)",
-            padding:      "16px 18px",
-            display:      "flex",
-            alignItems:   "center",
-            gap:          "14px",
-            cursor:       "pointer",
-            transition:   "background var(--dur-base) var(--ease-apple)",
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = "var(--color-surface-hover)")}
-          onMouseLeave={(e) => (e.currentTarget.style.background = "var(--color-surface)")}
-        >
-          {/* Play button */}
-          <div style={{
-            width: 38, height: 38, borderRadius: "50%",
-            background: "rgba(255,255,255,0.07)",
-            border: "1px solid rgba(255,255,255,0.1)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            flexShrink: 0,
-          }}>
-            <svg width="12" height="14" viewBox="0 0 12 14" fill="none">
-              <path d="M1 1l10 6-10 6V1z" fill="rgba(255,255,255,0.7)" />
-            </svg>
-          </div>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <p style={{ color: "var(--text-primary)", fontSize: "14px", fontWeight: "500", marginBottom: "3px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {rec.title}
-            </p>
-            <p style={{ color: "var(--text-dim)", fontSize: "12px" }}>
-              {rec.course} · {rec.date}
-            </p>
-          </div>
-          <div style={{ textAlign: "right", flexShrink: 0 }}>
-            <p style={{ color: "var(--text-secondary)", fontSize: "12px", fontVariantNumeric: "tabular-nums" }}>{rec.duration}</p>
-            <p style={{ color: "var(--text-dim)", fontSize: "11px", marginTop: "2px" }}>{rec.size}</p>
-          </div>
-        </div>
-      ))}
+    <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-card)", padding: "32px 24px", textAlign: "center" }}>
+      <p style={{ color: "var(--text-secondary)", fontSize: "14px", fontWeight: "500", marginBottom: "6px" }}>Lecture recordings coming soon</p>
+      <p style={{ color: "var(--text-dim)", fontSize: "12px", lineHeight: "1.6" }}>
+        Go to your Canvas page → tap a course → Record Lecture.<br />
+        Transcripts and audio will appear here once Wisprflow is connected.
+      </p>
     </div>
   );
 }
 
 function PreviousWorkTab() {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-      {PREVIOUS_WORK.map((work) => (
-        <div
-          key={work.id}
-          style={{
-            background:   "var(--color-surface)",
-            border:       "1px solid var(--color-border)",
-            borderRadius: "var(--radius-card)",
-            padding:      "18px",
-            cursor:       "pointer",
-            transition:   "background var(--dur-base) var(--ease-apple)",
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = "var(--color-surface-hover)")}
-          onMouseLeave={(e) => (e.currentTarget.style.background = "var(--color-surface)")}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "10px" }}>
-            <div style={{ minWidth: 0, flex: 1, paddingRight: "12px" }}>
-              <p style={{ color: "var(--text-primary)", fontSize: "15px", fontWeight: "500", marginBottom: "3px" }}>
-                {work.title}
-              </p>
-              <p style={{ color: "var(--text-dim)", fontSize: "12px" }}>
-                {work.course} · {work.date} · {work.wordCount.toLocaleString()} words
-              </p>
-            </div>
-            <span style={{
-              fontSize: "13px", fontWeight: "700",
-              color: work.grade.startsWith("A") ? "var(--color-success-text)" : "var(--color-amber)",
-              background: work.grade.startsWith("A") ? "var(--color-success-bg)" : "rgba(255,190,0,0.1)",
-              borderRadius: "8px", padding: "3px 9px", flexShrink: 0,
-            }}>
-              {work.grade}
-            </span>
-          </div>
-          <p style={{ color: "var(--text-secondary)", fontSize: "13px", lineHeight: "1.65" }}>
-            {work.excerpt}
-          </p>
-        </div>
-      ))}
+    <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-card)", padding: "32px 24px", textAlign: "center" }}>
+      <p style={{ color: "var(--text-secondary)", fontSize: "14px", fontWeight: "500", marginBottom: "6px" }}>No previous work yet</p>
+      <p style={{ color: "var(--text-dim)", fontSize: "12px" }}>Submitted assignments will appear here once Canvas is synced</p>
     </div>
   );
 }
 
 function SavedDraftsTab() {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-      {SAVED_DRAFTS.map((d) => (
-        <div
-          key={d.id}
-          style={{
-            background:   "var(--color-surface)",
-            border:       "1px solid var(--color-border)",
-            borderRadius: "var(--radius-card)",
-            padding:      "16px 18px",
-            display:      "flex",
-            justifyContent: "space-between",
-            alignItems:   "center",
-            cursor:       "pointer",
-            transition:   "background var(--dur-base) var(--ease-apple)",
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = "var(--color-surface-hover)")}
-          onMouseLeave={(e) => (e.currentTarget.style.background = "var(--color-surface)")}
-        >
-          <div style={{ minWidth: 0, paddingRight: "12px" }}>
-            <p style={{ color: "var(--text-primary)", fontSize: "15px", fontWeight: "500", marginBottom: "4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {d.title}
-            </p>
-            <p style={{ color: "var(--text-secondary)", fontSize: "12px" }}>{d.timestamp}</p>
-          </div>
-          <span style={{ color: "var(--text-dim)", fontSize: "12px", flexShrink: 0, whiteSpace: "nowrap" }}>
-            {d.words.toLocaleString()} words
-          </span>
-        </div>
-      ))}
+    <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-card)", padding: "32px 24px", textAlign: "center" }}>
+      <p style={{ color: "var(--text-secondary)", fontSize: "14px", fontWeight: "500", marginBottom: "6px" }}>No saved drafts</p>
+      <p style={{ color: "var(--text-dim)", fontSize: "12px" }}>Drafts you save from the Assignment page will appear here</p>
     </div>
   );
 }
