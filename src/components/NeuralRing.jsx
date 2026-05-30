@@ -13,11 +13,33 @@ import { useRef, useEffect, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { groq } from "../api/groq";
 import { useApp } from "../context/AppContext";
+import { supabase } from "../api/supabase";
 
 // Matches <nav>...</nav> — also catches malformed <n nav>, < nav>, etc.
 const NAV_REGEX = /<\s*n?\s*nav[^>]*>([\s\S]*?)<\/\s*n?\s*nav\s*>/i;
 // Strips any leftover nav-like tag fragment from display text (catches partial matches)
 const NAV_STRIP_REGEX = /<\s*n?\s*nav[\s\S]*$/i;
+
+/** Log chat message to Supabase chat_logs (non-blocking) */
+async function logChat(userId, role, content, page) {
+  try {
+    await supabase.from("chat_logs").insert({
+      user_id: userId, role, content, page: page ?? null,
+      created_at: new Date().toISOString(),
+    });
+  } catch { /* non-fatal */ }
+}
+
+/** Return assignments due within 48h that aren't submitted */
+function getUrgentAssignments(assignments) {
+  const now = Date.now();
+  const h48 = 48 * 60 * 60 * 1000;
+  return (assignments || []).filter(a => {
+    if (!a.dueAt || a.submission?.submittedAt) return false;
+    const diff = new Date(a.dueAt).getTime() - now;
+    return diff > 0 && diff <= h48;
+  });
+}
 
 // Build system prompt with full user context — course names, GPA, streak, upcoming dues
 function buildChatSystem(courseOptions, userData, assignments) {
@@ -124,7 +146,7 @@ function clamp(pos) {
 }
 
 export default function NeuralRing() {
-  const { userData, updateUserField, courses, assignments, setPendingNav, setStudyConfig } = useApp();
+  const { userData, updateUserField, courses, assignments, setPendingNav, setStudyConfig, userId } = useApp();
 
   // Build course option strings once, matching the format Study.jsx uses
   const courseOptions = courses.length
@@ -280,6 +302,25 @@ export default function NeuralRing() {
     if (dy > 80) { setChatOpen(false); setEditingName(false); }
   }, [sheetDragY]);
 
+  // ── Proactive urgent nudge when chat opens ──────────────────────────────────
+  const prevChatOpen = useRef(false);
+  useEffect(() => {
+    if (chatOpen && !prevChatOpen.current) {
+      const urgent = getUrgentAssignments(assignments);
+      if (urgent.length > 0) {
+        const names = urgent.map(a => {
+          const h = Math.round((new Date(a.dueAt) - Date.now()) / 3600000);
+          return `• ${a.name} — due in ${h}h`;
+        }).join("\n");
+        setMessages(m => m.length === 0
+          ? [{ role: "assistant", content: `Heads up! You have ${urgent.length} assignment${urgent.length > 1 ? "s" : ""} due soon:\n${names}` }]
+          : m
+        );
+      }
+    }
+    prevChatOpen.current = chatOpen;
+  }, [chatOpen, assignments]);
+
   // ── Chat ─────────────────────────────────────────────────────────────────────
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
@@ -287,23 +328,19 @@ export default function NeuralRing() {
     setMessages(m => [...m, userMsg]);
     setInput("");
     setLoading(true);
+    logChat(userId, "user", userMsg.content, null);
     try {
       const raw = await groq([...messages, userMsg], buildChatSystem(courseOptions, userData, assignments));
-
       const { cmd, text: displayText } = parseNav(raw);
-      // Nuclear fallback: strip ALL xml-like tags regardless of regex result
       const cleanText = displayText.replace(/<[^>]+>/g, "").trim();
-
       if (cmd?.page) {
-        if (cmd.course || cmd.mode) {
-          setStudyConfig({ course: cmd.course ?? null, mode: cmd.mode ?? "flashcards" });
-        }
+        if (cmd.course || cmd.mode) setStudyConfig({ course: cmd.course ?? null, mode: cmd.mode ?? "flashcards" });
         setTimeout(() => setPendingNav({ page: cmd.page }), 600);
       }
-
       setMessages(m => [...m, { role: "assistant", content: cleanText }]);
+      logChat(userId, "assistant", cleanText, null);
     } catch {
-      setMessages(m => [...m, { role: "assistant", content: "Couldn't connect. Check your Groq API key in src/api/groq.js." }]);
+      setMessages(m => [...m, { role: "assistant", content: "Couldn't connect. Check your Groq API key." }]);
     }
     setLoading(false);
   };
