@@ -14,7 +14,7 @@ import { createPortal } from "react-dom";
 import { groq } from "../api/groq";
 import { useApp } from "../context/AppContext";
 import { supabase } from "../api/supabase";
-import { isThemeRequest, generateAndApplyTheme } from "../utils/themeEngine";
+import { isThemeRequest, generateAndApplyTheme, resetTheme } from "../utils/themeEngine";
 
 // Matches <nav>...</nav> — also catches malformed <n nav>, < nav>, etc.
 const NAV_REGEX = /<\s*n?\s*nav[^>]*>([\s\S]*?)<\/\s*n?\s*nav\s*>/i;
@@ -372,13 +372,34 @@ export default function NeuralRing() {
     logChat(userId, "user", userMsg.content, null);
 
     // Theme detection — fires in parallel, does not block the chat response
-    if (isThemeRequest(userMsg.content)) {
+    const isTheme = isThemeRequest(userMsg.content);
+    const isRevert = /revert|reset|original|default|undo|go back/i.test(userMsg.content);
+
+    if (isRevert && isTheme) {
+      resetTheme();
+      setMessages(m => [...m, { role: "assistant", content: "Reverted to default theme." }]);
+      logChat(userId, "assistant", "Reverted to default theme.", null);
+      setLoading(false);
+      return;
+    }
+
+    if (isTheme) {
       setThemePending(true);
       showThemeToast("Generating your theme...");
       generateAndApplyTheme(userMsg.content, userId, supabase)
-        .then(theme => showThemeToast(`${theme.theme_name} applied`))
-        .catch(() => showThemeToast("Couldn't generate theme"))
-        .finally(() => setThemePending(false));
+        .then(theme => {
+          const reply = theme.ai_reply || `${theme.theme_name} activated.`;
+          showThemeToast(reply);
+          // Inject AI reply into chat instead of calling groq again
+          setMessages(m => [...m, { role: "assistant", content: reply }]);
+          logChat(userId, "assistant", reply, null);
+        })
+        .catch(() => {
+          showThemeToast("Couldn't generate theme — try again");
+          setMessages(m => [...m, { role: "assistant", content: "Couldn't generate that theme, try describing it differently." }]);
+        })
+        .finally(() => { setThemePending(false); setLoading(false); });
+      return; // skip normal groq call — theme response IS the reply
     }
 
     try {
@@ -508,11 +529,26 @@ export default function NeuralRing() {
             {/* Messages */}
             <div style={{ flex: 1, overflowY: "auto", padding: "16px 18px", display: "flex", flexDirection: "column", gap: "10px" }}>
               {messages.length === 0 ? (
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: "48px", gap: "14px" }}>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: "40px", gap: "12px" }}>
                   <div style={{ width: 52, height: 52, borderRadius: "50%", background: "radial-gradient(circle at 35% 35%, rgba(255,255,255,0.14), rgba(255,255,255,0.03))", border: "1px solid rgba(255,255,255,0.10)" }} />
-                  <p style={{ color: "rgba(255,255,255,0.22)", fontSize: "14px", textAlign: "center", lineHeight: "1.7" }}>
-                    Ask me about your courses,<br />assignments, or study material.
+                  <p style={{ color: "rgba(255,255,255,0.22)", fontSize: "14px", textAlign: "center", lineHeight: "1.8" }}>
+                    Ask about assignments, grades,<br />or change the whole app vibe.
                   </p>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "7px", justifyContent: "center", marginTop: "4px" }}>
+                    {["make it gold and black luxury", "rainy tokyo night", "blood red aggressive", "revert to original"].map(prompt => (
+                      <button
+                        key={prompt}
+                        onClick={() => { setInput(prompt); }}
+                        style={{
+                          fontSize: "11px", padding: "5px 11px", borderRadius: "20px",
+                          background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
+                          color: "rgba(255,255,255,0.5)", cursor: "pointer", fontFamily: "inherit",
+                        }}
+                      >
+                        {prompt}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               ) : (
                 messages.map((m, i) => (
@@ -523,7 +559,7 @@ export default function NeuralRing() {
               )}
               {loading && (
                 <div style={{ alignSelf: "flex-start", color: "rgba(255,255,255,0.3)", fontSize: "13px", padding: "6px 4px" }}>
-                  Thinking…
+                  {themePending ? "Generating theme…" : "Thinking…"}
                 </div>
               )}
               <div ref={messagesEndRef} />
@@ -535,7 +571,7 @@ export default function NeuralRing() {
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-                placeholder="Message…"
+                placeholder="Change vibe, ask about assignments…"
                 style={{ flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: "var(--radius-btn)", padding: "11px 14px", color: "var(--text-primary)", fontSize: "14px", outline: "none", fontFamily: "inherit", transition: "border-color var(--dur-base) var(--ease-apple)" }}
                 onFocus={e => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.22)")}
                 onBlur={e  => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.09)")}
