@@ -4,6 +4,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { groq } from "../api/groq";
 import { useApp } from "../context/AppContext";
+import { supabase } from "../api/supabase";
 
 
 const SYSTEM =
@@ -514,7 +515,7 @@ function MarkdownGuide({ text }) {
 
 // ── Main Study component ──────────────────────────────────────────────────────
 export default function Study() {
-  const { courses: liveCourses, flashcardMap, studyConfig, setStudyConfig, updateUserField, userData } = useApp();
+  const { userId, courses: liveCourses, flashcardMap, studyConfig, setStudyConfig, updateUserField, userData } = useApp();
 
 
   // Use live Canvas courses only
@@ -580,20 +581,47 @@ export default function Study() {
     return selectedCourse?.dbId ?? null;
   }
 
+  // Load existing flashcards/guide from DB without regenerating
+  const loadExisting = async () => {
+    const dbId = getCourseDbId();
+    if (mode === "flashcards") {
+      if (dbId && flashcardMap[dbId]?.cards?.length > 0) {
+        setFlashcards(flashcardMap[dbId].cards);
+        setGuide("");
+        return;
+      }
+      // Not in memory — try DB directly
+      setLoading(true);
+      const { data } = await supabase
+        .from("flashcards")
+        .select("cards")
+        .eq("user_id", userId)
+        .eq("course_id", dbId)
+        .maybeSingle();
+      if (data?.cards?.length > 0) setFlashcards(data.cards);
+      else alert("No saved flashcards yet — tap Generate New to create some.");
+      setLoading(false);
+    } else {
+      // Study guide — load from canvas_data blob
+      setLoading(true);
+      const { data } = await supabase
+        .from("canvas_data")
+        .select("payload")
+        .eq("user_id", userId)
+        .eq("data_type", `study_guide_${dbId}`)
+        .maybeSingle();
+      if (data?.payload?.text) setGuide(data.payload.text);
+      else alert("No saved study guide yet — tap Update Study Guide to create one.");
+      setFlashcards([]);
+      setLoading(false);
+    }
+  };
+
+  // Generate fresh flashcards/guide and save to DB
   const generate = async () => {
     setLoading(true);
     setFlashcards([]);
     setGuide("");
-
-    // For flashcards: check cache first
-    if (mode === "flashcards") {
-      const dbId = getCourseDbId();
-      if (dbId && flashcardMap[dbId]?.cards?.length > 0) {
-        setFlashcards(flashcardMap[dbId].cards);
-        setLoading(false);
-        return;
-      }
-    }
 
     const prompt =
       mode === "flashcards"
@@ -601,8 +629,29 @@ export default function Study() {
         : `Write a clear study guide for ${course}. Use short headings and concise bullet points. Cover key concepts, definitions, and common exam topics.`;
 
     const result = await groq([{ role: "user", content: prompt }], SYSTEM);
-    if (mode === "flashcards") setFlashcards(parseFlashcards(result));
-    else setGuide(result);
+
+    if (mode === "flashcards") {
+      const cards = parseFlashcards(result);
+      setFlashcards(cards);
+      // Save to Supabase
+      const dbId = getCourseDbId();
+      if (dbId && cards.length > 0) {
+        await supabase.from("flashcards").upsert(
+          { user_id: userId, course_id: dbId, cards, generated_at: new Date().toISOString() },
+          { onConflict: "user_id,course_id" }
+        );
+      }
+    } else {
+      setGuide(result);
+      // Save study guide to canvas_data blob
+      const dbId = getCourseDbId();
+      if (dbId) {
+        await supabase.from("canvas_data").upsert(
+          { user_id: userId, data_type: `study_guide_${dbId}`, payload: { text: result }, synced_at: new Date().toISOString() },
+          { onConflict: "user_id,data_type" }
+        );
+      }
+    }
     setLoading(false);
   };
 
@@ -675,24 +724,37 @@ export default function Study() {
         ))}
       </div>
 
-      <button
-        onClick={generate}
-        disabled={loading}
-        style={{
-          width: "100%",
-          background: loading ? "rgba(255,255,255,0.5)" : "var(--color-accent)",
-          color: "#111111", border: "none", borderRadius: "var(--radius-btn)",
-          padding: "13px", fontSize: "15px", fontWeight: "600",
-          cursor: loading ? "not-allowed" : "pointer", fontFamily: "inherit",
-          marginBottom: "24px", transition: "background var(--dur-base) var(--ease-apple)",
-        }}
-      >
-        {loading ? "Generating…" : mode === "guide" ? "Generate Study Guide" : (() => {
-          const dbId = liveCourses.find(c => `${c.courseCode} — ${c.name}` === course)?.dbId;
-          const hasCached = dbId && flashcardMap[dbId]?.cards?.length > 0;
-          return hasCached ? "Load Flashcards ✦" : "Generate Flashcards";
-        })()}
-      </button>
+      <div style={{ display: "flex", gap: "8px", marginBottom: "24px" }}>
+        <button
+          onClick={loadExisting}
+          disabled={loading}
+          style={{
+            flex: 1,
+            background: "var(--color-surface)",
+            color: "var(--text-primary)", border: "1px solid var(--color-border)",
+            borderRadius: "var(--radius-btn)", padding: "13px",
+            fontSize: "14px", fontWeight: "500",
+            cursor: loading ? "not-allowed" : "pointer", fontFamily: "inherit",
+            transition: "background var(--dur-base) var(--ease-apple)",
+          }}
+        >
+          {mode === "guide" ? "Read Study Guide" : "Study Flashcards ✦"}
+        </button>
+        <button
+          onClick={generate}
+          disabled={loading}
+          style={{
+            flex: 1,
+            background: loading ? "rgba(255,255,255,0.5)" : "var(--color-accent)",
+            color: "#111111", border: "none", borderRadius: "var(--radius-btn)",
+            padding: "13px", fontSize: "14px", fontWeight: "600",
+            cursor: loading ? "not-allowed" : "pointer", fontFamily: "inherit",
+            transition: "background var(--dur-base) var(--ease-apple)",
+          }}
+        >
+          {loading ? "Generating…" : mode === "guide" ? "Update Study Guide" : "Add New Flashcards"}
+        </button>
+      </div>
 
       {flashcards.length > 0 && (
         <>
