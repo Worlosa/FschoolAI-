@@ -9,35 +9,6 @@ import { groq } from "../api/groq";
 import { buildStudentContext } from "../data/mockData";
 import { useApp } from "../context/AppContext";
 
-// ── Monitor agent — fires once per assignment, returns targeted nudge ─────────
-function useMonitorAgent(assignment, userData, userId) {
-  const [nudge,     setNudge]     = useState(null);
-  const [dismissed, setDismissed] = useState(false);
-  const lastFiredFor = useRef(null);
-
-  useEffect(() => {
-    if (!assignment?.id || !userId) return;
-    if (lastFiredFor.current === assignment.id) return;
-    lastFiredFor.current = assignment.id;
-    setDismissed(false);
-    setNudge(null);
-    fetch("/api/monitor-agent", {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId, assignment, userData }),
-    })
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.nudge) setNudge(d.nudge); })
-      .catch(() => {});
-  }, [assignment?.id, userId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  return {
-    nudge:       dismissed ? null : nudge,
-    hasNudge:    !dismissed && !!nudge,
-    dismissNudge: () => setDismissed(true),
-  };
-}
-
 const SYSTEM =
   "You are an academic writing assistant. Write thorough, well-structured academic content. Use formal language, clear paragraph structure, and appropriate hedging where needed.";
 
@@ -85,7 +56,7 @@ function formatDue(dueAt) {
 }
 
 export default function Assignment() {
-  const { assignments: liveAssignments, canvasToken, userId, userData } = useApp();
+  const { assignments: liveAssignments, canvasToken } = useApp();
 
   // Real assignments only — sorted by due date, unsubmitted
   const assignments = useMemo(() => {
@@ -111,9 +82,6 @@ export default function Assignment() {
   const [editingIdx, setEditingIdx] = useState(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const draftRef = useRef(null);
-
-  // ── Monitor agent — proactive nudge for the selected assignment ───────────
-  const { nudge, hasNudge, dismissNudge } = useMonitorAgent(selected, userData, userId);
 
 
   // Normalise live vs. placeholder assignment shape for the detail view
@@ -285,43 +253,6 @@ export default function Assignment() {
           {selectedTitle}
         </h1>
         <p style={{ color: "var(--text-secondary)", fontSize: "13px", marginBottom: "16px" }}>{selectedCourse}</p>
-
-        {/* Monitor agent nudge banner */}
-        {hasNudge && (
-          <div style={{
-            background: "rgba(255,255,255,0.05)",
-            border: "1px solid rgba(255,255,255,0.10)",
-            borderRadius: "12px",
-            padding: "12px 14px",
-            marginBottom: "16px",
-            display: "flex",
-            alignItems: "flex-start",
-            gap: "10px",
-          }}>
-            <span style={{ fontSize: "15px", flexShrink: 0, marginTop: "1px" }}>🎯</span>
-            <p style={{
-              flex: 1,
-              color: "rgba(255,255,255,0.75)",
-              fontSize: "13px",
-              lineHeight: "1.6",
-              margin: 0,
-            }}>
-              {nudge}
-            </p>
-            <button
-              onClick={dismissNudge}
-              style={{
-                background: "none", border: "none",
-                color: "rgba(255,255,255,0.25)",
-                cursor: "pointer", fontSize: "18px",
-                flexShrink: 0, padding: "0 2px",
-                lineHeight: 1, fontFamily: "inherit",
-              }}
-            >
-              ×
-            </button>
-          </div>
-        )}
 
         <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "12px", padding: "14px", marginBottom: "20px" }}>
           <div

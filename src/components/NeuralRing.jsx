@@ -61,7 +61,7 @@ function getUrgentAssignments(assignments) {
   });
 }
 
-function buildChatSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession) {
+function buildChatSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind) {
   const courseList = courseOptions.length
     ? courseOptions.join("\n- ")
     : "No courses loaded yet";
@@ -125,7 +125,9 @@ ${flashcardContext ? `WHAT THEY'VE BEEN STUDYING (flashcard topics):\n${flashcar
 
 ${syllabusContext ? `SYLLABUS TOPICS:\n${syllabusContext}` : ""}
 
-${impressionContext ? `WHAT YOU KNOW ABOUT THIS STUDENT (your observations from past sessions):\n${impressionContext}` : ""}
+${impressionContext ? `RECENT OBSERVATIONS (this and past sessions):\n${impressionContext}` : ""}
+
+${livingMind ? `LIVING MIND (your full student model — built across all sessions):\n${livingMind}` : ""}
 
 ${lastSessionLine ? `CONTINUITY:\n${lastSessionLine}` : ""}
 
@@ -138,7 +140,7 @@ Omit "course"/"mode" when not relevant. Only use <nav> for clear navigation inte
 RULES:
 - Never dump the full course list. If asked, summarize (e.g. "You have 6 courses including Physics and Media Studies")
 - Use the student's real GPA/streak/assignments when answering
-- If you have past observations about this student, let them subtly inform how you respond
+- If you have a living mind doc, let it heavily inform your tone and approach — you know this student
 - Be direct and specific, not generic`;
 }
 
@@ -297,9 +299,14 @@ export default function NeuralRing() {
     ? courses.map(c => `${c.courseCode} — ${c.name}`)
     : [];
 
-  // ── Tutor impressions — loaded once on mount, updated after each exchange ──
+  // ── Tutor impressions + living mind — loaded once on mount ─────────────────
   const [impressions,  setImpressions]  = useState([]);
   const [lastSession,  setLastSession]  = useState(null);
+  const [livingMind,   setLivingMind]   = useState(null);
+
+  // ── Session tracking — for session-close payload + self-write trigger ───────
+  const sessionStartedAt  = useRef(null);
+  const exchangeCountRef  = useRef(0); // increments each AI response
 
   const canvasRef = useRef(null);
   const rafRef    = useRef(null);
@@ -366,6 +373,15 @@ export default function NeuralRing() {
             setLastSession(`${daysAgo === 1 ? "yesterday" : `${daysAgo} days ago`} — "${logData[0].content.slice(0, 80)}..."`);
           }
         }
+
+        // Load living mind doc
+        const { data: mindData } = await supabase
+          .from("tutor_mind")
+          .select("mind_doc")
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (mindData?.mind_doc) setLivingMind(mindData.mind_doc);
+
       } catch { /* non-fatal */ }
     }
     loadMemory();
@@ -500,6 +516,32 @@ export default function NeuralRing() {
     if (dy > 80) { setChatOpen(false); setEditingName(false); }
   }, [sheetDragY]);
 
+  // ── Session close queue — fires living mind rewrite when chat closes ────────
+  const prevChatOpenClose = useRef(false);
+  useEffect(() => {
+    const wasOpen = prevChatOpenClose.current;
+    prevChatOpenClose.current = chatOpen;
+    if (chatOpen && !wasOpen) {
+      // Chat just opened — record session start time
+      if (!sessionStartedAt.current) sessionStartedAt.current = new Date().toISOString();
+    }
+    // Chat just closed — fire session-close queue
+    if (wasOpen && !chatOpen && userId && messages.length >= 2) {
+      fetch("/api/session-close", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          sessionMessages: messages,
+          sessionStartedAt: sessionStartedAt.current,
+        }),
+      }).catch(() => {});
+      // Reset for next session
+      sessionStartedAt.current  = null;
+      exchangeCountRef.current  = 0;
+    }
+  }, [chatOpen, userId, messages]);
+
   // ── Proactive urgent nudge when chat opens ──────────────────────────────────
   const prevChatOpen = useRef(false);
   useEffect(() => {
@@ -573,34 +615,73 @@ export default function NeuralRing() {
   // ── Chat ──────────────────────────────────────────────────────────────────────────
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
-    getAudioContext(); // unlock AudioContext on iOS synchronously inside user gesture
+    getAudioContext();
     const userMsg = { role: "user", content: input.trim() };
     setMessages(m => [...m, userMsg]);
     setInput("");
     setLoading(true);
     logChat(userId, "user", userMsg.content, null);
     try {
+      // ── Dynamic context fetch (chatbot agent upgrade) ─────────────────────
+      // Fires in parallel — if it resolves before Claude, gets injected into prompt
+      let dynamicContext = null;
+      const contextFetch = fetch("/api/tutor-context", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, userMessage: userMsg.content }),
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { dynamicContext = d?.context ?? null; })
+        .catch(() => {});
+
       const system = buildChatSystem(
         courseOptions, userData, assignments,
-        flashcardMap, syllabus, impressions, lastSession
+        flashcardMap, syllabus, impressions, lastSession, livingMind
       );
-      // Use Claude for tutor brain quality; fall back to Groq if Claude key missing
+
+      // Wait briefly for context fetch (max 1.2s) — if still pending, proceed without it
+      await Promise.race([contextFetch, new Promise(r => setTimeout(r, 1200))]);
+
+      // Append dynamic context to system prompt if retrieved
+      const finalSystem = dynamicContext
+        ? `${system}\n\nLIVE DATA (just fetched for this query):\n${dynamicContext}`
+        : system;
+
+      // Use Claude for tutor brain; fall back to Groq if key missing
       let raw;
       try {
-        raw = await claudeTutor([...messages, userMsg], system);
+        raw = await claudeTutor([...messages, userMsg], finalSystem);
       } catch {
-        raw = await groq([...messages, userMsg], system);
+        raw = await groq([...messages, userMsg], finalSystem);
       }
+
       const { cmd, text: displayText } = parseNav(raw);
       const cleanText = displayText.replace(/<[^>]+>/g, "").trim();
+
       if (cmd?.page) {
         if (cmd.course || cmd.mode) setStudyConfig({ course: cmd.course ?? null, mode: cmd.mode ?? "flashcards" });
         setTimeout(() => setPendingNav({ page: cmd.page }), 600);
       }
-      logChat(userId, "assistant", cleanText, null);
 
-      // Fire-and-forget impression — never blocks response
+      logChat(userId, "assistant", cleanText, null);
       writeImpression(userId, userMsg.content, cleanText);
+
+      // ── Self-write trigger — fires every 6th exchange ─────────────────────
+      exchangeCountRef.current += 1;
+      if (exchangeCountRef.current % 6 === 0) {
+        const currentMsgs = [...messages, userMsg, { role: "assistant", content: cleanText }];
+        fetch("/api/self-write", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId, recentMessages: currentMsgs.slice(-8) }),
+        })
+          .then(r => r.ok ? r.json() : null)
+          .then(d => {
+            // If living mind was patched mid-session, update local state immediately
+            if (d?.updated && d?.patch) setLivingMind(d.patch);
+          })
+          .catch(() => {});
+      }
 
       setLoading(false);
       await speakAndType(cleanText);
