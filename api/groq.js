@@ -9,7 +9,7 @@ export default async function handler(req, res) {
   if (!messages || !Array.isArray(messages)) return res.status(400).json({ error: "messages array required" });
 
   const body = JSON.stringify({
-    model: "llama-3.3-70b-versatile",
+    model: "llama-3.1-8b-instant",
     messages: [
       ...(system ? [{ role: "system", content: system }] : []),
       ...messages,
