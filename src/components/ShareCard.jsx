@@ -39,11 +39,11 @@ const inputStyle = {
 
 function StatPill({ label, value }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
-      <span style={{ color: "var(--text-primary)", fontSize: "22px", fontWeight: "700", letterSpacing: "-0.5px" }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "3px" }}>
+      <span style={{ color: "var(--text-primary)", fontSize: "17px", fontWeight: "600", letterSpacing: "-0.3px" }}>
         {value ?? "—"}
       </span>
-      <span style={{ color: "rgba(255,255,255,0.28)", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase" }}>
+      <span style={{ color: "rgba(255,255,255,0.3)", fontSize: "10px", letterSpacing: "0.5px" }}>
         {label}
       </span>
     </div>
@@ -62,55 +62,24 @@ function parseSong(raw) {
 }
 
 // iTunes Search API — no key needed
-// iOS Safari blocks direct cross-origin fetch to itunes.apple.com from PWAs,
-// so we try the direct URL first and fall back to a CORS proxy on failure.
 async function searchiTunes(term) {
   if (!term || term.trim().length < 2) return [];
-
-  const params = `?term=${encodeURIComponent(term)}&media=music&entity=song&limit=8&lang=en_us`;
-  const devBase   = "/itunes-search";
-  const directUrl = `https://itunes.apple.com/search${params}`;
-  const proxyUrl  = `https://corsproxy.io/?${encodeURIComponent("https://itunes.apple.com/search" + params)}`;
-
-  async function parseResponse(res) {
-    if (!res.ok) return null;
-    try {
-      const data = await res.json();
-      return (data.results || []).map(t => ({
-        title:          t.trackName,
-        artist:         t.artistName,
-        artworkUrl:     t.artworkUrl100?.replace("100x100", "60x60") ?? t.artworkUrl60,
-        artworkUrlLarge: t.artworkUrl100,
-      }));
-    } catch (_) { return null; }
-  }
-
-  if (import.meta.env.DEV) {
-    const res = await fetch(`${devBase}${params}`).catch(() => null);
-    return (res && await parseResponse(res)) ?? [];
-  }
-
-  // Prod: try direct first, fall back to proxy (handles iOS Safari CORS block)
-  try {
-    const res = await Promise.race([
-      fetch(directUrl, { mode: "cors" }),
-      new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 4000)),
-    ]);
-    const results = await parseResponse(res);
-    if (results) return results;
-  } catch (_) {}
-
-  // Fallback to CORS proxy
-  try {
-    const res = await fetch(proxyUrl);
-    return (await parseResponse(res)) ?? [];
-  } catch (_) { return []; }
+  // Always use /api/itunes serverless proxy — fixes CORS on iOS Safari, Android, all browsers
+  const url = `/api/itunes?term=${encodeURIComponent(term)}&media=music&entity=song&limit=8&lang=en_us`;
+  const res = await fetch(url);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.results || []).map(t => ({
+    title: t.trackName,
+    artist: t.artistName,
+    artworkUrl: t.artworkUrl100?.replace("100x100", "60x60") ?? t.artworkUrl60,
+    artworkUrlLarge: t.artworkUrl100,
+  }));
 }
 
 export default function ShareCard() {
   const { userData, updateUserField } = useApp();
-  const cardRef    = useRef(null);  // full component (not exported)
-  const exportRef  = useRef(null);  // clean card only (no button/toggle)
+  const cardRef = useRef(null);
 
   // ── Song state ────────────────────────────────────────────────────
   const [songData,    setSongData]    = useState(null);       // { title, artist, artworkUrl } | null
@@ -205,7 +174,7 @@ export default function ShareCard() {
   async function handleShare() {
     try {
       const html2canvas = (await import("html2canvas")).default;
-      const canvas = await html2canvas(exportRef.current, {
+      const canvas = await html2canvas(cardRef.current, {
         backgroundColor: "#0d0d0d",
         scale: 3,
         useCORS: true,
@@ -435,13 +404,13 @@ export default function ShareCard() {
       </p>
 
       <div ref={cardRef} style={{
-        background: "rgba(255,255,255,0.03)",
-        backdropFilter: "blur(40px)",
-        WebkitBackdropFilter: "blur(40px)",
-        border: "1px solid rgba(255,255,255,0.08)",
-        borderRadius: "22px",
-        padding: "22px 20px",
-        boxShadow: "0 12px 48px rgba(0,0,0,0.45), 0 1px 0 rgba(255,255,255,0.06) inset",
+        background: "rgba(255,255,255,0.04)",
+        backdropFilter: "blur(32px)",
+        WebkitBackdropFilter: "blur(32px)",
+        border: "1px solid rgba(255,255,255,0.1)",
+        borderRadius: "20px",
+        padding: "24px 20px",
+        boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
         position: "relative",
         overflow: "hidden",
       }}>
@@ -460,9 +429,6 @@ export default function ShareCard() {
           pointerEvents: "none",
         }} />
 
-        {/* ── Exportable card content ── */}
-        <div ref={exportRef}>
-
         {/* Header row */}
         <div style={{
           display: "flex", justifyContent: "space-between",
@@ -470,18 +436,23 @@ export default function ShareCard() {
         }}>
           <div style={{ flex: 1, minWidth: 0, marginRight: "12px" }}>
             <p style={{
-              color: "var(--text-primary)", fontSize: "20px",
-              fontWeight: "700", letterSpacing: "-0.5px",
+              color: "var(--text-primary)", fontSize: "18px",
+              fontWeight: "700", letterSpacing: "-0.4px",
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
             }}>
               {name}
             </p>
             <p style={{
-              color: "rgba(255,255,255,0.3)", fontSize: "11px", marginTop: "3px",
-              letterSpacing: "1.5px", textTransform: "uppercase",
+              color: "rgba(255,255,255,0.38)", fontSize: "12px", marginTop: "2px",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
             }}>
-              NeuroAGI
+              {school}
             </p>
+            {location && (
+              <p style={{ color: "rgba(255,255,255,0.22)", fontSize: "11px", marginTop: "2px" }}>
+                {location}
+              </p>
+            )}
           </div>
 
           {/* Avatar */}
@@ -499,9 +470,9 @@ export default function ShareCard() {
         {/* Stats row */}
         <div style={{
           display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px",
-          paddingBottom: "20px",
-          borderBottom: "1px solid rgba(255,255,255,0.05)",
-          marginBottom: "20px",
+          paddingBottom: "18px",
+          borderBottom: "1px solid rgba(255,255,255,0.06)",
+          marginBottom: "18px",
         }}>
           <StatPill label="GPA"        value={gpa} />
           <StatPill label="Streak"     value={streak} />
@@ -554,8 +525,6 @@ export default function ShareCard() {
             <NowPlaying />
           )}
         </div>
-
-        </div>{/* end exportRef */}
 
         {/* Leaderboard opt-in */}
         <div style={{
