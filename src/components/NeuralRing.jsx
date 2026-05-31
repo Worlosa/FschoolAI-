@@ -104,6 +104,15 @@ function parseNav(raw) {
 }
 
 // ── ElevenLabs TTS ─────────────────────────────────────────────────────────
+// Uses AudioContext instead of HTMLAudioElement — bypasses iOS Safari autoplay block.
+// AudioContext is unlocked on the Send button tap (user gesture chain stays intact).
+let _audioCtx = null;
+function getAudioContext() {
+  if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (_audioCtx.state === "suspended") _audioCtx.resume();
+  return _audioCtx;
+}
+
 async function speakText(text) {
   const res = await fetch("/api/tts", {
     method: "POST",
@@ -113,14 +122,21 @@ async function speakText(text) {
   if (!res.ok) throw new Error(`TTS ${res.status}`);
   const { audio, mimeType } = await res.json();
   if (!audio) throw new Error("No audio returned");
-  const bytes   = Uint8Array.from(atob(audio), c => c.charCodeAt(0));
-  const blob    = new Blob([bytes], { type: mimeType || "audio/mpeg" });
-  const url     = URL.createObjectURL(blob);
-  const audioEl = new Audio(url);
-  return new Promise((resolve, reject) => {
-    audioEl.onended = () => { URL.revokeObjectURL(url); resolve(); };
-    audioEl.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
-    audioEl.play().catch(reject);
+
+  // Decode base64 to ArrayBuffer
+  const binaryStr = atob(audio);
+  const bytes = new Uint8Array(binaryStr.length);
+  for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+
+  // Decode and play via AudioContext — works on iOS Safari without autoplay issues
+  const ctx = getAudioContext();
+  const audioBuffer = await ctx.decodeAudioData(bytes.buffer);
+  return new Promise((resolve) => {
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(ctx.destination);
+    source.onended = resolve;
+    source.start(0);
   });
 }
 
@@ -423,6 +439,8 @@ export default function NeuralRing() {
   // ── Chat ────────────────────────────────────────────────────────────────────
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
+    // Unlock AudioContext on iOS — must happen synchronously inside user gesture
+    getAudioContext();
     const userMsg = { role: "user", content: input.trim() };
     setMessages(m => [...m, userMsg]);
     setInput("");
