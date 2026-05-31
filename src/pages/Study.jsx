@@ -528,11 +528,19 @@ export default function Study() {
   const [flashcards, setFlashcards] = useState([]);
   const [guide,      setGuide]      = useState("");
   const [inSession,  setInSession]  = useState(false);
+  const [toast,      setToast]      = useState("");
 
   // Sync selected course when live courses load in
   useEffect(() => {
     if (COURSES.length > 0 && !course) setCourse(COURSES[0]);
   }, [liveCourses]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-clear toast
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(""), 3000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   // Hold the pending nav config in a ref so it survives async course-loading
   const pendingConfig = useRef(null);
@@ -599,7 +607,7 @@ export default function Study() {
         .eq("course_id", dbId)
         .maybeSingle();
       if (data?.cards?.length > 0) setFlashcards(data.cards);
-      else alert("No saved flashcards yet — tap Generate New to create some.");
+      else setToast("No saved flashcards yet — tap Add New Flashcards to create some.");
       setLoading(false);
     } else {
       // Study guide — load from canvas_data blob
@@ -611,7 +619,7 @@ export default function Study() {
         .eq("data_type", `study_guide_${dbId}`)
         .maybeSingle();
       if (data?.payload?.text) setGuide(data.payload.text);
-      else alert("No saved study guide yet — tap Update Study Guide to create one.");
+      else setToast("No saved study guide yet — tap Update Study Guide to create one.");
       setFlashcards([]);
       setLoading(false);
     }
@@ -724,35 +732,83 @@ export default function Study() {
         ))}
       </div>
 
+      {/* Toast */}
+      {toast && (
+        <div style={{
+          background: "rgba(255,255,255,0.06)",
+          border: "1px solid rgba(255,255,255,0.1)",
+          borderRadius: "12px",
+          padding: "12px 16px",
+          marginBottom: "14px",
+          fontSize: "13px",
+          color: "var(--text-secondary)",
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+        }}>
+          <span style={{ color: "rgba(255,200,80,0.8)", fontSize: "14px" }}>⚠</span>
+          {toast}
+        </div>
+      )}
+
+      {/* Action buttons */}
       <div style={{ display: "flex", gap: "8px", marginBottom: "24px" }}>
+        {/* Ghost button — load existing */}
         <button
           onClick={loadExisting}
           disabled={loading}
           style={{
             flex: 1,
-            background: "var(--color-surface)",
-            color: "var(--text-primary)", border: "1px solid var(--color-border)",
-            borderRadius: "var(--radius-btn)", padding: "13px",
-            fontSize: "14px", fontWeight: "500",
-            cursor: loading ? "not-allowed" : "pointer", fontFamily: "inherit",
-            transition: "background var(--dur-base) var(--ease-apple)",
+            background: "transparent",
+            color: "var(--text-secondary)",
+            border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: "var(--radius-btn)",
+            padding: "13px 10px",
+            fontSize: "13px",
+            fontWeight: "500",
+            cursor: loading ? "not-allowed" : "pointer",
+            fontFamily: "inherit",
+            letterSpacing: "0.2px",
+            transition: "border-color 0.18s, color 0.18s",
           }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.25)"; e.currentTarget.style.color = "var(--text-primary)"; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "var(--text-secondary)"; }}
         >
-          {mode === "guide" ? "Read Study Guide" : "Study Flashcards ✦"}
+          {mode === "guide" ? "Read Guide" : "Study ✦"}
         </button>
+
+        {/* Primary button — generate new */}
         <button
           onClick={generate}
           disabled={loading}
           style={{
-            flex: 1,
-            background: loading ? "rgba(255,255,255,0.5)" : "var(--color-accent)",
-            color: "#111111", border: "none", borderRadius: "var(--radius-btn)",
-            padding: "13px", fontSize: "14px", fontWeight: "600",
-            cursor: loading ? "not-allowed" : "pointer", fontFamily: "inherit",
-            transition: "background var(--dur-base) var(--ease-apple)",
+            flex: 2,
+            background: loading
+              ? "rgba(255,255,255,0.08)"
+              : "linear-gradient(135deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.07) 100%)",
+            color: loading ? "var(--text-dim)" : "var(--text-primary)",
+            border: "1px solid rgba(255,255,255,0.14)",
+            borderRadius: "var(--radius-btn)",
+            padding: "13px 10px",
+            fontSize: "13px",
+            fontWeight: "600",
+            cursor: loading ? "not-allowed" : "pointer",
+            fontFamily: "inherit",
+            letterSpacing: "0.2px",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            transition: "background 0.18s, border-color 0.18s",
+            position: "relative",
+            overflow: "hidden",
           }}
+          onMouseEnter={e => { if (!loading) e.currentTarget.style.borderColor = "rgba(255,255,255,0.28)"; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.14)"; }}
         >
-          {loading ? "Generating…" : mode === "guide" ? "Update Study Guide" : "Add New Flashcards"}
+          {loading
+            ? "Generating…"
+            : mode === "guide"
+            ? "Update Study Guide ✦"
+            : "Add New Flashcards ✦"}
         </button>
       </div>
 
