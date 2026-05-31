@@ -39,11 +39,11 @@ const inputStyle = {
 
 function StatPill({ label, value }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "3px" }}>
-      <span style={{ color: "var(--text-primary)", fontSize: "17px", fontWeight: "600", letterSpacing: "-0.3px" }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
+      <span style={{ color: "var(--text-primary)", fontSize: "22px", fontWeight: "700", letterSpacing: "-0.5px" }}>
         {value ?? "—"}
       </span>
-      <span style={{ color: "rgba(255,255,255,0.3)", fontSize: "10px", letterSpacing: "0.5px" }}>
+      <span style={{ color: "rgba(255,255,255,0.28)", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase" }}>
         {label}
       </span>
     </div>
@@ -435,13 +435,13 @@ export default function ShareCard() {
       </p>
 
       <div ref={cardRef} style={{
-        background: "rgba(255,255,255,0.04)",
-        backdropFilter: "blur(32px)",
-        WebkitBackdropFilter: "blur(32px)",
-        border: "1px solid rgba(255,255,255,0.1)",
-        borderRadius: "20px",
-        padding: "24px 20px",
-        boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
+        background: "rgba(255,255,255,0.03)",
+        backdropFilter: "blur(40px)",
+        WebkitBackdropFilter: "blur(40px)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: "22px",
+        padding: "22px 20px",
+        boxShadow: "0 12px 48px rgba(0,0,0,0.45), 0 1px 0 rgba(255,255,255,0.06) inset",
         position: "relative",
         overflow: "hidden",
       }}>
@@ -470,23 +470,18 @@ export default function ShareCard() {
         }}>
           <div style={{ flex: 1, minWidth: 0, marginRight: "12px" }}>
             <p style={{
-              color: "var(--text-primary)", fontSize: "18px",
-              fontWeight: "700", letterSpacing: "-0.4px",
+              color: "var(--text-primary)", fontSize: "20px",
+              fontWeight: "700", letterSpacing: "-0.5px",
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
             }}>
               {name}
             </p>
             <p style={{
-              color: "rgba(255,255,255,0.38)", fontSize: "12px", marginTop: "2px",
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              color: "rgba(255,255,255,0.3)", fontSize: "11px", marginTop: "3px",
+              letterSpacing: "1.5px", textTransform: "uppercase",
             }}>
-              {school}
+              NeuroAGI
             </p>
-            {location && (
-              <p style={{ color: "rgba(255,255,255,0.22)", fontSize: "11px", marginTop: "2px" }}>
-                {location}
-              </p>
-            )}
           </div>
 
           {/* Avatar */}
@@ -504,9 +499,9 @@ export default function ShareCard() {
         {/* Stats row */}
         <div style={{
           display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px",
-          paddingBottom: "18px",
-          borderBottom: "1px solid rgba(255,255,255,0.06)",
-          marginBottom: "18px",
+          paddingBottom: "20px",
+          borderBottom: "1px solid rgba(255,255,255,0.05)",
+          marginBottom: "20px",
         }}>
           <StatPill label="GPA"        value={gpa} />
           <StatPill label="Streak"     value={streak} />

@@ -219,18 +219,35 @@ function fibonacciSphere(n) {
 
 const NODES = fibonacciSphere(N);
 
+// Safe-area bottom offset — accounts for iOS home indicator + browser toolbar
+function safeBottom() {
+  // env(safe-area-inset-bottom) isn't readable from JS directly,
+  // so we use a sentinel div approach, or fall back to a generous 90px.
+  try {
+    const el = document.createElement("div");
+    el.style.cssText = "position:fixed;bottom:env(safe-area-inset-bottom,0px);height:0;visibility:hidden";
+    document.body.appendChild(el);
+    const rect = el.getBoundingClientRect();
+    document.body.removeChild(el);
+    const inset = window.innerHeight - rect.bottom;
+    return Math.max(inset, 0) + 80; // 80px above toolbar
+  } catch {
+    return 90;
+  }
+}
+
 function defaultPos() {
   const W = window.innerWidth;
   const H = window.innerHeight;
-  return { top: H - SIZE - 96, left: W - SIZE - 22 };
+  return { top: H - SIZE - safeBottom(), left: W - SIZE - 22 };
 }
 
 function clamp(pos) {
   const W = window.innerWidth;
   const H = window.innerHeight;
   return {
-    top:  Math.max(56, Math.min(H - SIZE - 40, pos.top)),
-    left: Math.max(8,  Math.min(W - SIZE - 8,  pos.left)),
+    top:  Math.max(56, Math.min(H - SIZE - safeBottom(), pos.top)),
+    left: Math.max(8,  Math.min(W - SIZE - 8, pos.left)),
   };
 }
 
@@ -733,6 +750,7 @@ export default function NeuralRing() {
             style={{
               position: "fixed", bottom: 0, left: 0, right: 0,
               height: "72vh", maxHeight: "680px",
+              paddingBottom: "env(safe-area-inset-bottom, 0px)",
               background: "rgba(16,16,16,0.96)",
               backdropFilter: "blur(32px)", WebkitBackdropFilter: "blur(32px)",
               borderRadius: "22px 22px 0 0",

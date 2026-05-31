@@ -151,71 +151,77 @@ export default function Leaderboard() {
 
   const maxVal = rows[0]?.[sortCol] ?? 1;
 
+  const scopeLabel = tabName === "Global" ? "Global" : `${tabName}: ${loc[TAB_FILTER_COL[tabName]] ?? "—"}`;
+
   return (
     <div>
-      <h1 style={{ fontSize: "26px", fontWeight: "600", color: "var(--text-primary)", marginBottom: "4px", letterSpacing: "-0.3px" }}>
-        Leaderboard
-      </h1>
-      <p style={{ color: "var(--text-dim)", fontSize: "14px", marginBottom: "20px" }}>
-        Sample students — opt in to appear
-      </p>
-
-      {/* Geographic scope tabs */}
-      <div style={{
-        display: "flex",
-        background: "var(--color-surface)",
-        border: "1px solid var(--color-border)",
-        borderRadius: "12px",
-        padding: "3px",
-        marginBottom: "14px",
-        overflowX: "auto",
-      }}>
-        {TABS.map((t, i) => (
-          <button
-            key={t}
-            onClick={() => setTab(i)}
-            style={{
-              flex: "1 0 auto",
-              background: tab === i ? "rgba(0,210,190,0.12)" : "none",
-              border: tab === i ? "1px solid rgba(0,210,190,0.22)" : "1px solid transparent",
-              borderRadius: "9px",
-              padding: "7px 10px",
-              color: tab === i ? "rgba(0,210,190,0.9)" : "var(--text-dim)",
-              fontSize: "12px",
-              fontWeight: tab === i ? "600" : "400",
-              cursor: "pointer",
-              fontFamily: "inherit",
-              whiteSpace: "nowrap",
-              transition: "background 0.15s, color 0.15s, border-color 0.15s",
-            }}
-          >
-            {t}
-          </button>
-        ))}
+      {/* Header */}
+      <div style={{ marginBottom: "24px" }}>
+        <h1 style={{ fontSize: "26px", fontWeight: "600", color: "var(--text-primary)", letterSpacing: "-0.3px", marginBottom: "4px" }}>
+          Leaderboard
+        </h1>
+        <p style={{ color: "var(--text-dim)", fontSize: "13px" }}>
+          {scopeLabel} · {rows.length} student{rows.length !== 1 ? "s" : ""}
+        </p>
       </div>
 
-      {/* Sort pills */}
-      <div style={{ display: "flex", gap: "6px", marginBottom: "20px" }}>
-        {SORTS.map(s => (
-          <button
-            key={s}
-            onClick={() => setSort(s)}
-            style={{
-              background: sort === s ? "rgba(0,210,190,0.12)" : "var(--color-surface)",
-              border: `1px solid ${sort === s ? "rgba(0,210,190,0.35)" : "var(--color-border)"}`,
-              borderRadius: "20px",
-              padding: "5px 12px",
-              color: sort === s ? "rgba(0,210,190,0.9)" : "var(--text-secondary)",
-              fontSize: "12px",
-              fontWeight: sort === s ? "600" : "400",
-              cursor: "pointer",
-              fontFamily: "inherit",
-              transition: "all 0.15s",
-            }}
-          >
-            {s}
-          </button>
-        ))}
+      {/* Controls row — scope tabs + sort in one line */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px" }}>
+        {/* Scope tabs */}
+        <div style={{
+          display: "flex", gap: "2px",
+          background: "rgba(255,255,255,0.04)",
+          border: "1px solid var(--color-border)",
+          borderRadius: "12px", padding: "3px",
+          overflowX: "auto",
+        }}>
+          {TABS.map((t, i) => (
+            <button
+              key={t}
+              onClick={() => setTab(i)}
+              style={{
+                flex: "1 0 auto",
+                background: tab === i ? "rgba(255,255,255,0.09)" : "transparent",
+                border: tab === i ? "1px solid rgba(255,255,255,0.12)" : "1px solid transparent",
+                borderRadius: "9px",
+                padding: "7px 10px",
+                color: tab === i ? "var(--text-primary)" : "var(--text-dim)",
+                fontSize: "12px",
+                fontWeight: tab === i ? "600" : "400",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                whiteSpace: "nowrap",
+                transition: "all 0.15s",
+              }}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        {/* Sort pills */}
+        <div style={{ display: "flex", gap: "6px" }}>
+          {SORTS.map(s => (
+            <button
+              key={s}
+              onClick={() => setSort(s)}
+              style={{
+                background: sort === s ? "rgba(0,210,190,0.1)" : "transparent",
+                border: `1px solid ${sort === s ? "rgba(0,210,190,0.3)" : "rgba(255,255,255,0.08)"}`,
+                borderRadius: "20px",
+                padding: "5px 14px",
+                color: sort === s ? "rgba(0,210,190,0.9)" : "var(--text-dim)",
+                fontSize: "12px",
+                fontWeight: sort === s ? "600" : "400",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                transition: "all 0.15s",
+              }}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Rows */}
@@ -247,8 +253,8 @@ export default function Leaderboard() {
                   background:   rowBg,
                   border:       `1px solid ${rowBorder}`,
                   borderRadius: "var(--radius-card)",
-                  padding:      isTop3 ? "16px" : "12px 14px",
-                  opacity:      isMe ? 1 : 0.5,
+                  padding:      isTop3 ? "18px 16px" : "13px 14px",
+                  opacity:      isMe ? 1 : (rank <= 3 ? 0.92 : 0.72),
                   boxShadow:    rowShadow,
                   transition:   "opacity 0.2s",
                   position:     "relative",
