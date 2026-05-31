@@ -42,9 +42,31 @@ export function AppProvider({ children }) {
   // Helper — apply any result object (from loadCanvasData or syncCanvasData)
   // to the relevant state setters. Only overwrites when the array is non-empty
   // so a partial result never clears previously-loaded data.
+  // Calculate GPA from course scores (4.0 scale)
+  function computeGpa(courseList) {
+    const scored = courseList.filter(c => c.currentScore != null || c.finalScore != null);
+    if (!scored.length) return null;
+    const avg = scored.reduce((s, c) => s + (c.currentScore ?? c.finalScore), 0) / scored.length;
+    if (avg >= 90) return 4.0;
+    if (avg >= 85) return 3.7;
+    if (avg >= 80) return 3.3;
+    if (avg >= 75) return 3.0;
+    if (avg >= 70) return 2.7;
+    if (avg >= 65) return 2.3;
+    if (avg >= 60) return 2.0;
+    return 1.0;
+  }
+
   function applyCanvasResult(result) {
     // Always apply courses + assignments (even empty) so manual-only users load correctly
-    if (result.courses     !== undefined) setCourses(result.courses);
+    if (result.courses     !== undefined) {
+      setCourses(result.courses);
+      // Recalculate GPA from loaded courses if sync didn't provide one
+      if (result.gpa == null) {
+        const gpa = computeGpa(result.courses);
+        if (gpa != null) setUserData(prev => prev ? { ...prev, gpa } : prev);
+      }
+    }
     if (result.assignments !== undefined) setAssignments(result.assignments);
     if (result.announcements?.length)    setAnnouncements(result.announcements);
     if (result.modules?.length)          setModules(result.modules);

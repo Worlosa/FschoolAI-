@@ -65,9 +65,10 @@ Rules: 6-10 nodes, 4-8 edges, course field must match a course code listed above
 
 // ── Knowledge Graph ───────────────────────────────────────────────────────────
 function KnowledgeGraph({ courses, assignments }) {
-  const [graphData, setGraphData] = useState(null);
-  const [loading,   setLoading]   = useState(false);
-  const [hovered,   setHovered]   = useState(null);
+  const [graphData,  setGraphData]  = useState(null);
+  const [loading,    setLoading]    = useState(false);
+  const [hovered,    setHovered]    = useState(null);
+  const justTappedRef = useRef(null); // prevents SVG parent from immediately clearing a node tap
 
   useEffect(() => {
     if (!courses || courses.length === 0) {
@@ -84,7 +85,14 @@ function KnowledgeGraph({ courses, assignments }) {
       .finally(() => setLoading(false));
   }, [courses, assignments]);
 
-  const handleNodeTouch = (id, e) => { e.stopPropagation(); e.preventDefault(); setHovered(h => h === id ? null : id); };
+  const handleNodeTouch = (id, e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    justTappedRef.current = id;
+    setHovered(h => h === id ? null : id);
+    // Clear the ref after a tick so the SVG handler can check it
+    setTimeout(() => { justTappedRef.current = null; }, 50);
+  };
   const { nodes = [], edges = [], courseColors = {} } = graphData ?? {};
   const adjacentIds = hovered ? new Set(edges.filter(e => e.from === hovered || e.to === hovered).flatMap(e => [e.from, e.to])) : null;
   const isNodeActive = (id) => !hovered || adjacentIds.has(id);
@@ -108,7 +116,7 @@ function KnowledgeGraph({ courses, assignments }) {
           <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.2)", letterSpacing: "1px" }}>Generating graph…</p>
         </div>
       ) : (
-        <svg viewBox="0 0 420 260" width="100%" height="200" style={{ overflow: "visible" }} onTouchStart={e => { if (e.target === e.currentTarget || e.target.tagName === "svg") setHovered(null); }}>
+        <svg viewBox="0 0 420 260" width="100%" height="200" style={{ overflow: "visible", touchAction: "none" }} onTouchStart={e => { if ((e.target === e.currentTarget || e.target.tagName === "svg") && !justTappedRef.current) setHovered(null); }}>
           {edges.map((e, i) => {
             const from = nodes.find(n => n.id === e.from);
             const to   = nodes.find(n => n.id === e.to);
@@ -122,9 +130,11 @@ function KnowledgeGraph({ courses, assignments }) {
             const color   = courseColors[node.course] ?? "#ffffff";
             return (
               <g key={node.id} onMouseEnter={() => setHovered(node.id)} onMouseLeave={() => setHovered(null)} onTouchStart={e => handleNodeTouch(node.id, e)} style={{ cursor: "pointer" }}>
+                {/* Large invisible hit target for easy mobile tapping */}
+                <circle cx={node.x} cy={node.y} r={22} fill="transparent" />
                 {isHover && <circle cx={node.x} cy={node.y} r={14} fill={color} opacity={0.12} />}
                 <circle cx={node.x} cy={node.y} r={isHover ? 7 : 5} fill={color} opacity={active ? (isHover ? 1 : 0.75) : 0.12} style={{ transition: "r 0.18s, opacity 0.2s" }} />
-                <text x={node.x} y={node.y - 12} textAnchor="middle" fontSize={isHover ? "9" : "8"} fill={color} opacity={active ? (isHover ? 1 : 0.65) : 0.1} style={{ transition: "opacity 0.2s, font-size 0.15s", pointerEvents: "none", fontFamily: "var(--font-sans)" }}>{node.label}</text>
+                <text x={node.x} y={node.y - 14} textAnchor="middle" fontSize={isHover ? "9" : "8"} fill={color} opacity={active ? (isHover ? 1 : 0.65) : 0.1} style={{ transition: "opacity 0.2s, font-size 0.15s", pointerEvents: "none", fontFamily: "var(--font-sans)" }}>{node.label}</text>
               </g>
             );
           })}
