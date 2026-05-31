@@ -105,7 +105,6 @@ function parseNav(raw) {
 
 // ── ElevenLabs TTS ─────────────────────────────────────────────────────────
 // AudioContext bypasses iOS Safari autoplay restrictions.
-// Must be created/resumed synchronously inside a user gesture.
 let _audioCtx = null;
 function getAudioContext() {
   if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -113,27 +112,32 @@ function getAudioContext() {
   return _audioCtx;
 }
 
-async function speakText(text) {
+// Returns { duration: seconds, play: fn }
+// Caller decodes audio first, gets duration, then starts typewriter, then plays.
+async function fetchAndDecodeAudio(text) {
   const res = await fetch("/api/tts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   });
   if (!res.ok) throw new Error(`TTS ${res.status}`);
-  const { audio, mimeType } = await res.json();
+  const { audio } = await res.json();
   if (!audio) throw new Error("No audio returned");
   const binaryStr = atob(audio);
   const bytes = new Uint8Array(binaryStr.length);
   for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
   const ctx = getAudioContext();
   const audioBuffer = await ctx.decodeAudioData(bytes.buffer);
-  return new Promise((resolve) => {
-    const source = ctx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(ctx.destination);
-    source.onended = resolve;
-    source.start(0);
-  });
+  return {
+    duration: audioBuffer.duration, // actual audio duration in seconds
+    play: () => new Promise((resolve) => {
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+      source.onended = resolve;
+      source.start(0);
+    }),
+  };
 }
 
 const SIZE           = 68;
@@ -421,12 +425,14 @@ export default function NeuralRing() {
   }, [chatOpen, assignments]);
 
   // ── Typewriter ──────────────────────────────────────────────────────────────────────────
-  const typewrite = useCallback((text, charsPerSec = 38) => {
+  const typewrite = useCallback((text, durationSecs) => {
     return new Promise((resolve) => {
       if (typeTimerRef.current) clearInterval(typeTimerRef.current);
       let i = 0;
       setStreamingMsg("");
-      const interval = Math.max(16, Math.round(1000 / charsPerSec));
+      // Spread typing over actual audio duration, min 1.5s, with slight padding
+      const totalMs  = Math.max(1500, durationSecs * 1000 * 0.92);
+      const interval = Math.max(16, Math.round(totalMs / text.length));
       typeTimerRef.current = setInterval(() => {
         i++;
         setStreamingMsg(text.slice(0, i));
@@ -442,22 +448,30 @@ export default function NeuralRing() {
   }, []);
 
   // ── Speak + type in sync ───────────────────────────────────────────────────────────────
+  // Fetch audio first → get real duration → start both typewriter and playback together.
+  // This eliminates the 1-2s delay between text appearing and voice starting.
   const speakAndType = useCallback(async (text) => {
     const plain = text.replace(/<[^>]+>/g, "").trim();
     if (!plain) return;
-    if (muted) { await typewrite(plain, 40); return; }
-    const estimatedSecs = Math.max(1.2, plain.length / 150);
-    const charsPerSec   = Math.round(plain.length / estimatedSecs);
+
+    if (muted) {
+      await typewrite(plain, 3); // ~3s default when no voice
+      return;
+    }
+
     try {
       setSpeaking(true);
+      // Decode audio first so we have the real duration
+      const { duration, play } = await fetchAndDecodeAudio(plain);
+      // Now start both simultaneously — typewriter matches actual audio length
       await Promise.all([
-        speakText(plain).finally(() => setSpeaking(false)),
-        typewrite(plain, charsPerSec),
+        play().finally(() => setSpeaking(false)),
+        typewrite(plain, duration),
       ]);
     } catch (err) {
       console.warn("TTS failed, staying text-only:", err.message);
       setSpeaking(false);
-      await typewrite(plain, 40);
+      await typewrite(plain, 3);
     }
   }, [muted, typewrite]);
 
