@@ -104,15 +104,6 @@ function parseNav(raw) {
 }
 
 // ── ElevenLabs TTS ─────────────────────────────────────────────────────────
-// Uses AudioContext instead of HTMLAudioElement — bypasses iOS Safari autoplay block.
-// AudioContext is unlocked on the Send button tap (user gesture chain stays intact).
-let _audioCtx = null;
-function getAudioContext() {
-  if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (_audioCtx.state === "suspended") _audioCtx.resume();
-  return _audioCtx;
-}
-
 async function speakText(text) {
   const res = await fetch("/api/tts", {
     method: "POST",
@@ -122,21 +113,14 @@ async function speakText(text) {
   if (!res.ok) throw new Error(`TTS ${res.status}`);
   const { audio, mimeType } = await res.json();
   if (!audio) throw new Error("No audio returned");
-
-  // Decode base64 to ArrayBuffer
-  const binaryStr = atob(audio);
-  const bytes = new Uint8Array(binaryStr.length);
-  for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-
-  // Decode and play via AudioContext — works on iOS Safari without autoplay issues
-  const ctx = getAudioContext();
-  const audioBuffer = await ctx.decodeAudioData(bytes.buffer);
-  return new Promise((resolve) => {
-    const source = ctx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(ctx.destination);
-    source.onended = resolve;
-    source.start(0);
+  const bytes   = Uint8Array.from(atob(audio), c => c.charCodeAt(0));
+  const blob    = new Blob([bytes], { type: mimeType || "audio/mpeg" });
+  const url     = URL.createObjectURL(blob);
+  const audioEl = new Audio(url);
+  return new Promise((resolve, reject) => {
+    audioEl.onended = () => { URL.revokeObjectURL(url); resolve(); };
+    audioEl.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
+    audioEl.play().catch(reject);
   });
 }
 
@@ -263,7 +247,9 @@ export default function NeuralRing() {
   const [muted,    setMuted]    = useState(() => {
     try { return localStorage.getItem("fschool_muted") === "1"; } catch { return false; }
   });
-  const [speaking, setSpeaking] = useState(false);
+  const [speaking,     setSpeaking]     = useState(false);
+  const [streamingMsg, setStreamingMsg] = useState(""); // typewriter in-progress text
+  const typeTimerRef = useRef(null);
 
   const sheetStartY             = useRef(null);
   const [sheetDragY, setSheetDragY] = useState(0);
@@ -298,6 +284,7 @@ export default function NeuralRing() {
         50%       { box-shadow: 0 0 0 14px rgba(255,255,255,0.05), 0 0 0 1px rgba(255,255,255,0.22), 0 6px 28px rgba(0,0,0,0.5); }
       }
       .nr-speaking { animation: neuralSpeak 0.8s ease-in-out infinite; }
+      @keyframes blink { 0%, 100% { opacity: 0.4; } 50% { opacity: 0; } }
     `;
     document.head.appendChild(style);
     return () => style.remove();
@@ -421,32 +408,60 @@ export default function NeuralRing() {
     prevChatOpen.current = chatOpen;
   }, [chatOpen, assignments]);
 
-  // ── Speak helper — fires TTS if not muted, fails silently ──────────────────
-  const speak = useCallback(async (text) => {
-    if (muted) return;
+    // ── Typewriter — types text at charsPerSec, returns promise (──────────────────────────────
+  const typewrite = useCallback((text, charsPerSec = 38) => {
+    return new Promise((resolve) => {
+      if (typeTimerRef.current) clearInterval(typeTimerRef.current);
+      let i = 0;
+      setStreamingMsg("");
+      const interval = Math.max(16, Math.round(1000 / charsPerSec));
+      typeTimerRef.current = setInterval(() => {
+        i++;
+        setStreamingMsg(text.slice(0, i));
+        if (i >= text.length) {
+          clearInterval(typeTimerRef.current);
+          typeTimerRef.current = null;
+          setMessages(m => [...m, { role: "assistant", content: text }]);
+          setStreamingMsg("");
+          resolve();
+        }
+      }, interval);
+    });
+  }, []);
+
+  // ── Speak + typewriter in sync ───────────────────────────────────────────────────
+  // ElevenLabs turbo ~150 chars/sec. Typewriter speed matches so text finishes with voice.
+  const speakAndType = useCallback(async (text) => {
     const plain = text.replace(/<[^>]+>/g, "").trim();
     if (!plain) return;
+    if (muted) {
+      await typewrite(plain, 40);
+      return;
+    }
+    const estimatedSecs = Math.max(1.2, plain.length / 150);
+    const charsPerSec   = Math.round(plain.length / estimatedSecs);
     try {
       setSpeaking(true);
-      await speakText(plain);
+      await Promise.all([
+        speakText(plain).finally(() => setSpeaking(false)),
+        typewrite(plain, charsPerSec),
+      ]);
     } catch (err) {
       console.warn("TTS failed, staying text-only:", err.message);
-    } finally {
       setSpeaking(false);
+      await typewrite(plain, 40);
     }
-  }, [muted]);
+  }, [muted, typewrite]);
 
-  // ── Chat ────────────────────────────────────────────────────────────────────
+  // ── Chat ──────────────────────────────────────────────────────────────────────────
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
-    // Unlock AudioContext on iOS — must happen synchronously inside user gesture
-    getAudioContext();
+    getAudioContext(); // unlock AudioContext on iOS inside user gesture
     const userMsg = { role: "user", content: input.trim() };
     setMessages(m => [...m, userMsg]);
     setInput("");
     setLoading(true);
     logChat(userId, "user", userMsg.content, null);
-
     try {
       const raw = await groq([...messages, userMsg], buildChatSystem(courseOptions, userData, assignments));
       const { cmd, text: displayText } = parseNav(raw);
@@ -455,13 +470,13 @@ export default function NeuralRing() {
         if (cmd.course || cmd.mode) setStudyConfig({ course: cmd.course ?? null, mode: cmd.mode ?? "flashcards" });
         setTimeout(() => setPendingNav({ page: cmd.page }), 600);
       }
-      setMessages(m => [...m, { role: "assistant", content: cleanText }]);
       logChat(userId, "assistant", cleanText, null);
-      speak(cleanText);
+      setLoading(false);
+      await speakAndType(cleanText);
     } catch {
       setMessages(m => [...m, { role: "assistant", content: "Couldn't connect. Check your Groq API key." }]);
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -613,6 +628,18 @@ export default function NeuralRing() {
                   Thinking…
                 </div>
               )}
+              {streamingMsg ? (
+                <div style={{
+                  alignSelf: "flex-start", maxWidth: "84%",
+                  background: "rgba(255,255,255,0.05)",
+                  borderRadius: "16px 16px 16px 4px",
+                  padding: "10px 14px", color: "var(--text-primary)",
+                  fontSize: "14px", lineHeight: "1.6",
+                  border: "1px solid rgba(255,255,255,0.07)",
+                }}>
+                  {streamingMsg}<span style={{ opacity: 0.4, animation: "blink 1s step-end infinite" }}>|</span>
+                </div>
+              ) : null}
               <div ref={messagesEndRef} />
             </div>
 
