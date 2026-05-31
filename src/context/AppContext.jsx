@@ -4,7 +4,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { supabase } from "../api/supabase";
 import { syncCanvasData, loadCanvasData } from "../api/canvasSync";
-import { loadSavedTheme } from "../utils/themeEngine";
 
 const AppContext = createContext(null);
 
@@ -68,7 +67,6 @@ export function AppProvider({ children }) {
         setUserData(user);
         if (user.canvas_token)    setCanvasToken(user.canvas_token);
         if (user.canvas_base_url) setCanvasBaseUrl(user.canvas_base_url);
-        loadSavedTheme(user); // restore last theme on boot
       }
 
       const cached = await loadCanvasData(userId);
