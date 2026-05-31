@@ -61,7 +61,7 @@ function getUrgentAssignments(assignments) {
   });
 }
 
-function buildChatSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind) {
+function buildChatSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, isFirstMessage = false) {
   const courseList = courseOptions.length
     ? courseOptions.join("\n- ")
     : "No courses loaded yet";
@@ -141,7 +141,8 @@ RULES:
 - Never dump the full course list. If asked, summarize (e.g. "You have 6 courses including Physics and Media Studies")
 - Use the student's real GPA/streak/assignments when answering
 - If you have a living mind doc, let it heavily inform your tone and approach — you know this student
-- Be direct and specific, not generic`;
+- Be direct and specific, not generic
+- ${isFirstMessage ? "FIRST MESSAGE RULE: The student just opened chat. Greet them naturally and briefly — DO NOT list assignments, courses, or deadlines unprompted. Wait for them to ask." : "You may reference assignments and deadlines when directly relevant to the student's question."}`;
 }
 
 function parseNav(raw) {
@@ -172,13 +173,27 @@ function getAudioContext() {
   return _audioCtx;
 }
 
+// Sanitize text before sending to TTS.
+// Course codes like "GGRC25H3 F LEC01" sound terrible when read aloud.
+// We strip them and replace with a natural phrase where possible.
+function sanitizeForTTS(text) {
+  return text
+    // Remove raw Canvas course codes: e.g. GGRC25H3, VPAC16H3, MDSB11H3
+    .replace(/\b[A-Z]{2,6}\d{2,4}[A-Z0-9]*\s*(F|W|S)?\s*(LEC|TUT|PRA|LAB)\d{2,3}\b/g, "that course")
+    // Remove section labels like "LEC01", "TUT02"
+    .replace(/\b(LEC|TUT|PRA|LAB)\d{2,3}\b/gi, "")
+    // Clean up multiple spaces
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 // Returns { duration: seconds, play: fn }
 // Caller decodes audio first, gets duration, then starts typewriter, then plays.
 async function fetchAndDecodeAudio(text) {
   const res = await fetch("/api/tts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text: sanitizeForTTS(text) }),
   });
   if (!res.ok) throw new Error(`TTS ${res.status}`);
   const { audio } = await res.json();
@@ -535,6 +550,10 @@ export default function NeuralRing() {
 
   // ── Session close queue — fires living mind rewrite when chat closes ────────
   const prevChatOpenClose = useRef(false);
+  // Keep a ref to messages so beforeunload can read the latest value
+  const messagesRef = useRef(messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+
   useEffect(() => {
     const wasOpen = prevChatOpenClose.current;
     prevChatOpenClose.current = chatOpen;
@@ -542,8 +561,8 @@ export default function NeuralRing() {
       // Chat just opened — record session start time
       if (!sessionStartedAt.current) sessionStartedAt.current = new Date().toISOString();
     }
-    // Chat just closed — fire session-close queue
-    if (wasOpen && !chatOpen && userId && messages.length >= 2) {
+    // Chat just closed — fire session-close queue (lowered threshold: 1+ real messages)
+    if (wasOpen && !chatOpen && userId && messages.length >= 1) {
       fetch("/api/session-close", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
@@ -559,12 +578,40 @@ export default function NeuralRing() {
     }
   }, [chatOpen, userId, messages]);
 
+  // Also fire session-close on page unload/refresh so memory saves even without
+  // explicitly closing the chat sheet
+  useEffect(() => {
+    if (!userId) return;
+    function handleUnload() {
+      const msgs = messagesRef.current;
+      if (!msgs || msgs.length < 1) return;
+      // sendBeacon is fire-and-forget — survives page unload
+      const payload = JSON.stringify({
+        userId,
+        sessionMessages: msgs,
+        sessionStartedAt: sessionStartedAt.current,
+      });
+      navigator.sendBeacon("/api/session-close", new Blob([payload], { type: "application/json" }));
+    }
+    window.addEventListener("pagehide", handleUnload);
+    window.addEventListener("beforeunload", handleUnload);
+    return () => {
+      window.removeEventListener("pagehide", handleUnload);
+      window.removeEventListener("beforeunload", handleUnload);
+    };
+  }, [userId]);
+
   // ── Proactive urgent nudge when chat opens ──────────────────────────────────
+  // Only fires if user opens chat without typing first (empty messages state).
+  // Does NOT fire if the student just said their name/age — that's handled
+  // by the first-message rule in buildChatSystem.
   const prevChatOpen = useRef(false);
   useEffect(() => {
     if (chatOpen && !prevChatOpen.current) {
       const urgent = getUrgentAssignments(assignments);
-      if (urgent.length > 0) {
+      // Only show the nudge if chat is fresh (no messages yet) — never interrupt
+      // an ongoing conversation or a greeting with an assignment dump
+      if (urgent.length > 0 && messages.length === 0) {
         const names = urgent.map(a => {
           const h = Math.round((new Date(a.dueAt) - Date.now()) / 3600000);
           return `• ${a.name} — due in ${h}h`;
@@ -653,7 +700,8 @@ export default function NeuralRing() {
 
       const system = buildChatSystem(
         courseOptions, userData, assignments,
-        flashcardMap, syllabus, impressions, lastSession, livingMind
+        flashcardMap, syllabus, impressions, lastSession, livingMind,
+        messages.length === 0  // isFirstMessage — no prior exchanges yet
       );
 
       // Wait briefly for context fetch (max 1.2s) — if still pending, proceed without it

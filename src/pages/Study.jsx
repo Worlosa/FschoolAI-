@@ -643,21 +643,37 @@ export default function Study() {
       setFlashcards(cards);
       // Save to Supabase
       const dbId = getCourseDbId();
-      if (dbId && cards.length > 0) {
-        await supabase.from("flashcards").upsert(
+      if (!dbId) {
+        setToast("⚠️ Couldn't link to course — flashcards shown but not saved. Try re-syncing Canvas.");
+      } else if (cards.length > 0) {
+        const { error: saveErr } = await supabase.from("flashcards").upsert(
           { user_id: userId, course_id: dbId, cards, generated_at: new Date().toISOString() },
           { onConflict: "user_id,course_id" }
         );
+        if (saveErr) {
+          console.error("[Study] flashcard save failed:", saveErr.message);
+          setToast("⚠️ Flashcards generated but couldn't save: " + saveErr.message);
+        } else {
+          setToast("✓ Flashcards saved!");
+        }
       }
     } else {
       setGuide(result);
       // Save study guide to canvas_data blob
       const dbId = getCourseDbId();
-      if (dbId) {
-        await supabase.from("canvas_data").upsert(
+      if (!dbId) {
+        setToast("⚠️ Couldn't link to course — guide shown but not saved. Try re-syncing Canvas.");
+      } else {
+        const { error: saveErr } = await supabase.from("canvas_data").upsert(
           { user_id: userId, data_type: `study_guide_${dbId}`, payload: { text: result }, synced_at: new Date().toISOString() },
           { onConflict: "user_id,data_type" }
         );
+        if (saveErr) {
+          console.error("[Study] guide save failed:", saveErr.message);
+          setToast("⚠️ Guide generated but couldn't save: " + saveErr.message);
+        } else {
+          setToast("✓ Study guide saved!");
+        }
       }
     }
     setLoading(false);

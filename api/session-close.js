@@ -23,6 +23,13 @@
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
+  // sendBeacon sends body as text/plain — parse manually if needed
+  let body = req.body;
+  if (typeof body === "string") {
+    try { body = JSON.parse(body); } catch { body = {}; }
+  }
+  body = body ?? {};
+
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   const supabaseUrl  = process.env.SUPABASE_URL;
   const supabaseKey  = process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY;
@@ -32,7 +39,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: false, reason: "missing env" });
   }
 
-  const { userId, sessionMessages } = req.body ?? {};
+  const { userId, sessionMessages } = body;
   if (!userId) return res.status(200).json({ ok: false, reason: "missing userId" });
 
   // Need at least 2 real exchanges to be worth rewriting
