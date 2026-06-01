@@ -625,44 +625,82 @@ export default function Study() {
     }
   };
 
-  // Build a smart context string from stored canvas_data blobs for this course
+  // Build a smart context string — reads syllabus, modules, pages, files, announcements
+  // Vincent's vision: read everything → reverse engineer what's on the final → plan
   async function buildCourseContext(dbId) {
     if (!dbId) return "";
     try {
-      const types = ["syllabus", "modules", `study_guide_${dbId}`];
-      // Also try per-course page/file blobs if stored separately
+      const selectedCourse = liveCourses.find(c => `${c.courseCode} — ${c.name}` === course);
+      const courseId = selectedCourse?.id; // Canvas course ID for blob filtering
+
       const { data: rows } = await supabase
         .from("canvas_data")
         .select("data_type, payload")
         .eq("user_id", userId)
-        .in("data_type", types);
+        .in("data_type", ["syllabus", "modules", "announcements", "course_pages", "course_files"]);
 
       const parts = [];
 
-      // Syllabus — extract items matching this course
+      // 1. Syllabus — full outline of what the course covers
       const syllabusRow = rows?.find(r => r.data_type === "syllabus");
       if (syllabusRow?.payload?.length) {
-        const courseKeyword = course.split(" — ")[1]?.toLowerCase() ?? "";
         const items = syllabusRow.payload
-          .filter(s => !courseKeyword || JSON.stringify(s).toLowerCase().includes(courseKeyword.split(" ")[0]))
-          .slice(0, 8)
+          .filter(s => !courseId || !s.courseId || s.courseId === courseId)
+          .slice(0, 10)
           .map(s => s.title ?? s.name ?? JSON.stringify(s));
-        if (items.length) parts.push(`SYLLABUS TOPICS:\n${items.map(i => `• ${i}`).join("\n")}`);
+        if (items.length) parts.push(`SYLLABUS / COURSE OUTLINE:\n${items.map(i => `• ${i}`).join("\n")}`);
       }
 
-      // Modules — filter to this course
+      // 2. Modules — focus on LAST 3 (most likely to be on final)
       const modulesRow = rows?.find(r => r.data_type === "modules");
       if (modulesRow?.payload?.length) {
-        const courseId = liveCourses.find(c => `${c.courseCode} — ${c.name}` === course)?.id;
         const courseModules = modulesRow.payload
-          .filter(m => !courseId || m.courseId === courseId)
+          .filter(m => !courseId || m.courseId === courseId);
+        const recentModules = courseModules.slice(-3); // last 3 modules = finals territory
+        const allModuleNames = courseModules.map(m => m.name ?? m.title);
+        if (recentModules.length) {
+          parts.push(`RECENT MODULES (last ${recentModules.length} — highest finals probability):\n${recentModules.map(m => `• ${m.name ?? m.title}`).join("\n")}`);
+        }
+        if (allModuleNames.length > 3) {
+          parts.push(`ALL MODULES (full course arc):\n${allModuleNames.map(n => `• ${n}`).join("\n")}`);
+        }
+      }
+
+      // 3. Professor announcements — often contain exam hints
+      const annRow = rows?.find(r => r.data_type === "announcements");
+      if (annRow?.payload?.length) {
+        const recentAnn = annRow.payload
+          .filter(a => !courseId || a.courseId === courseId)
+          .slice(-4) // last 4 announcements
+          .map(a => `• ${a.title ?? a.subject ?? ""}: ${(a.message ?? a.body ?? "").slice(0, 120)}`);
+        if (recentAnn.length) parts.push(`PROFESSOR ANNOUNCEMENTS (recent — may contain exam hints):\n${recentAnn.join("\n")}`);
+      }
+
+      // 4. Course pages — professor notes, reading pages
+      const pagesRow = rows?.find(r => r.data_type === "course_pages");
+      if (pagesRow?.payload?.length) {
+        const coursePages = pagesRow.payload
+          .filter(p => !courseId || p.courseId === courseId)
           .slice(0, 6)
-          .map(m => `• ${m.name ?? m.title}`);
-        if (courseModules.length) parts.push(`COURSE MODULES:\n${courseModules.join("\n")}`);
+          .map(p => `• ${p.title ?? p.url ?? "Page"}`);
+        if (coursePages.length) parts.push(`PROFESSOR PAGES / NOTES:\n${coursePages.join("\n")}`);
+      }
+
+      // 5. Course files — slides, PDFs uploaded by professor
+      const filesRow = rows?.find(r => r.data_type === "course_files");
+      if (filesRow?.payload?.length) {
+        const courseFiles = filesRow.payload
+          .filter(f => !courseId || f.courseId === courseId)
+          .slice(0, 6)
+          .map(f => `• ${f.displayName ?? f.filename ?? f.name ?? "File"}`);
+        if (courseFiles.length) parts.push(`PROFESSOR FILES / SLIDES:\n${courseFiles.join("\n")}`);
       }
 
       return parts.length ? parts.join("\n\n") : "";
-    } catch { return ""; }
+    } catch (e) {
+      console.warn("[Study] buildCourseContext error:", e.message);
+      return "";
+    }
   }
 
   // Generate fresh flashcards/guide and save to DB
@@ -681,8 +719,8 @@ export default function Study() {
 
     const prompt =
       mode === "flashcards"
-        ? `Create exactly ${cardCount} study flashcards for ${course}.${contextBlock}\n\nFormat each card as: Q: [question] | A: [answer] — one per line. Focus on the actual topics listed above. No numbering, no extra text.`
-        : `Write a targeted finals study guide for ${course}.${contextBlock}\n\nStructure it as: key concepts → definitions → likely exam topics → common mistakes. Use short headings and bullet points. Be specific to the actual course content above, not generic.`;
+        ? `Create exactly ${cardCount} study flashcards for ${course}.${contextBlock}\n\nFormat each card as: Q: [question] | A: [answer] — one per line. Focus on the actual topics listed above. Prioritize concepts from the most recent modules and anything hinted at in announcements. No numbering, no extra text.`
+        : `You are a finals detective. Your job is to figure out exactly what will be on the final exam for ${course} and build a targeted study plan.${contextBlock}\n\nStep 1 — REVERSE ENGINEER THE FINAL: Based on the syllabus, recent modules (especially the last ones), professor announcements, and any file/page titles, identify the 5-7 most likely exam topics. Think like a professor: what did they spend the most time on? What did they announce recently?\n\nStep 2 — BUILD THE STUDY PLAN: For each likely exam topic, write: the concept, why it matters, and 2-3 things to know cold.\n\nStep 3 — PRIORITY ORDER: rank topics by how likely they are to appear.\n\nBe specific to this course's actual content. Do not give generic study advice.`;
 
     const result = await groq([{ role: "user", content: prompt }], SYSTEM);
 
