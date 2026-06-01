@@ -83,18 +83,20 @@ function parseArtifact(raw) {
 
 const VIZ_SYSTEM = `You are a data visualization expert. Create stunning interactive React visualizations.
 
-RULES:
-1. Wrap your ENTIRE React component in <artifact></artifact> tags — nothing outside the tags.
-2. The component must be a function named App.
-3. Use only these globals (already loaded — do NOT import them):
+STRICT RULES — breaking any of these will cause a crash:
+1. Wrap your ENTIRE component in <artifact></artifact> tags. Nothing outside the tags.
+2. The component MUST be named App: function App() { ... } or const App = () => { ... }
+3. NO import or export statements — everything is already available as a global.
+4. NO TypeScript — plain JavaScript only. No type annotations, no interfaces, no generics.
+5. Use only these pre-loaded globals (do NOT redeclare them):
    - React hooks: useState, useEffect, useCallback, useMemo, useRef
    - Recharts: LineChart, Line, BarChart, Bar, PieChart, Pie, AreaChart, Area,
      RadarChart, Radar, ScatterChart, Scatter, Cell, XAxis, YAxis, CartesianGrid,
      Tooltip, Legend, ResponsiveContainer, PolarGrid, PolarAngleAxis, PolarRadiusAxis
-4. Use realistic sample data if none is provided.
-5. Dark theme: background transparent/#111, text rgba(255,255,255,0.9), accent #e8ff6b.
-6. Make it interactive (hover states, click filters, etc.) when appropriate.
-7. Return ONLY the <artifact> block — no explanation, no markdown, no extra text.`;
+6. Use realistic sample data when no real data is provided.
+7. Dark theme: background #111111, primary text rgba(255,255,255,0.9), accent #e8ff6b.
+8. Make it interactive where it makes sense (buttons, sliders, hover effects).
+9. Return ONLY the <artifact> block — no explanation, no markdown fences, nothing else.`;
 
 const SIZE   = 68;
 const RADIUS = 24;

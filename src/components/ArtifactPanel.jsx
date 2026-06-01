@@ -11,7 +11,8 @@ function escapeScriptTag(code) {
 }
 
 // Claude often writes ESM import/export statements in its artifacts.
-// Strip them all — React, Recharts, etc. are already available as globals in the iframe.
+// Strip them — React, Recharts, etc. are already available as globals in the iframe.
+// The typescript Babel preset handles any remaining TS syntax (interfaces, type annotations).
 function stripModuleSyntax(code) {
   return code
     // Remove: import Something from 'somewhere'  (single and multi-line)
@@ -20,9 +21,11 @@ function stripModuleSyntax(code) {
     .replace(/^import\s+['"][^'"]*['"];?[ \t]*\n?/gm, '')
     // Remove: export { Foo, Bar }
     .replace(/^export\s*\{[^}]*\};?[ \t]*\n?/gm, '')
-    // Remove export keyword from: export default function App / export const / export class
+    // Remove export keyword from declarations
     .replace(/\bexport\s+default\s+/g, '')
     .replace(/\bexport\s+(function|const|let|var|class|async)\b/g, '$1')
+    // Remove React.FC / React.ReactNode type references that slip through
+    .replace(/:\s*React\.(FC|ReactNode|ReactElement|CSSProperties|Dispatch|SetStateAction)[^,);]*/g, '')
     .trim();
 }
 
@@ -91,7 +94,7 @@ window.addEventListener('load', function () {
     // Babel.transform compiles JSX → plain JS; any syntax error is caught here
     var compiled = Babel.transform(
       globals + '\\n' + src + '\\nReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));',
-      { presets: ['react'], filename: 'artifact.jsx' }
+      { presets: ['react', 'typescript'], filename: 'artifact.tsx' }
     ).code;
 
     // new Function runs the compiled code in global scope (React/Recharts are on window)
