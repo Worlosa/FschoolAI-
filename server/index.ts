@@ -15,6 +15,8 @@ import { createClient } from '@supabase/supabase-js';
 import { authenticate } from './middleware/auth.js';
 import { requestContextMiddleware } from './middleware/request-context.js';
 import './services/brain-scheduler-init'; // Autonomous brain — starts on server boot
+import { brainRealtime } from './services/brain-realtime'; // Realtime event subscriptions
+import { startInterventionRealtimeListener } from './services/brain-intervention-delivery'; // SSE intervention push
 
 // Load environment variables
 dotenv.config();
@@ -70,6 +72,7 @@ app.use('/api/agents', authenticate, require('./routes/agents').default);
 app.use('/api/canvas', authenticate, require('./routes/canvas').default);
 app.use('/api/brain',  authenticate, require('./routes/brain').default);
 app.use('/api/signals', authenticate, require('./routes/signals').default);
+app.use('/api/chat',    authenticate, require('./routes/chat').default);
 
 // ── Error Handling ─────────────────────────────────────────────────────────────
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
@@ -94,6 +97,10 @@ const supabase = createClient(
   process.env.SUPABASE_URL || '',
   process.env.SUPABASE_ANON_KEY || ''
 );
+
+// Start Realtime subscriptions (brain listens to DB events)
+brainRealtime.connect().catch(err => console.error('[Realtime] Failed to connect:', err));
+startInterventionRealtimeListener().catch(err => console.error('[InterventionDelivery] Failed to start:', err));
 
 app.listen(PORT, () => {
   logger.info(`
