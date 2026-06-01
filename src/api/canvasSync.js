@@ -214,6 +214,36 @@ export async function syncCanvasData(userId, canvasToken, canvasBaseUrl) {
     pastCourses = normalizePastCourses(rawPast);
   } catch { /* skip */ }
 
+  // ── 1c. Fetch assignments for past courses (up to 5 most recent) ─
+  const allPastAssignments = [];
+  const recentPast = pastCourses.slice(0, 5);
+  for (const pastCourse of recentPast) {
+    try {
+      const raw = await fetchAssignments(canvasToken, baseUrl, pastCourse.id, proxy);
+      const meta = { courseId: pastCourse.id, courseCode: pastCourse.courseCode, courseName: pastCourse.name };
+      allPastAssignments.push(...normalizeAssignments(raw, meta));
+    } catch { /* skip — past courses may return 404 */ }
+  }
+
+  // Upsert past assignments if any were fetched
+  if (allPastAssignments.length > 0) {
+    const pastAssignRows = allPastAssignments.map(a => ({
+      user_id:              userId,
+      canvas_assignment_id: a.id ? String(a.id) : null,
+      title:                a.name,
+      description:          a.description ?? null,
+      due_at:               a.dueAt ?? null,
+      points_possible:      a.pointsPossible ?? null,
+      score:                a.submission?.score ?? null,
+      source:               'past_canvas',
+      is_manual:            false,
+      updated_at:           now,
+    }));
+    await supabase
+      .from('assignments')
+      .upsert(pastAssignRows.filter(r => r.canvas_assignment_id), { onConflict: 'user_id,canvas_assignment_id' });
+  }
+
   // ── 2. Per-course data (sequential to avoid rate limits) ─────────
   const allAssignments      = [];
   const allModules          = [];

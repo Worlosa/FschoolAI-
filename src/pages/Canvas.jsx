@@ -366,8 +366,32 @@ function CourseCard({ course, assignments, modules, assignmentGroups }) {
 
 /* ─── PastCoursesSection ──────────────────────────────────── */
 
-function PastCoursesSection({ pastCourses, addedIds, adding, onAdd }) {
+function PastCoursesSection({ pastCourses, addedIds, adding, onAdd, onAddManual }) {
   const [open, setOpen] = useState(false);
+  const [showForm, setShowForm]     = useState(false);
+  const [manualName, setManualName] = useState("");
+  const [manualSem,  setManualSem]  = useState("");
+  const [manualCode, setManualCode] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleManualSubmit() {
+    if (!manualName.trim()) return;
+    setSubmitting(true);
+    await onAddManual({
+      name:       manualName.trim(),
+      courseCode: manualCode.trim() || manualName.trim().split(" ")[0].toUpperCase(),
+      semester:   manualSem.trim() || "Past",
+    });
+    setManualName(""); setManualCode(""); setManualSem("");
+    setShowForm(false);
+    setSubmitting(false);
+  }
+
+  const inputSt = {
+    width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+    borderRadius: "8px", padding: "8px 12px", color: "var(--text-primary)", fontSize: "13px",
+    fontFamily: "inherit", outline: "none", boxSizing: "border-box",
+  };
 
   // Group by semester
   const grouped = {};
@@ -379,20 +403,50 @@ function PastCoursesSection({ pastCourses, addedIds, adding, onAdd }) {
 
   return (
     <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-card)", overflow: "hidden" }}>
-      <button
-        onClick={() => setOpen(o => !o)}
-        style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}
-      >
-        <span style={{ color: "var(--text-primary)", fontSize: "13px", fontWeight: "600", letterSpacing: "0.04em", textTransform: "uppercase" }}>
-          🗂 Past Courses
-        </span>
-        <span style={{ color: "var(--text-dim)", fontSize: "12px" }}>
-          {pastCourses.length} · {open ? "▲" : "▼"}
-        </span>
-      </button>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px" }}>
+        <button
+          onClick={() => setOpen(o => !o)}
+          style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "6px" }}
+        >
+          <span style={{ color: "var(--text-primary)", fontSize: "13px", fontWeight: "600", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+            🗂 Past Courses
+          </span>
+          <span style={{ color: "var(--text-dim)", fontSize: "12px" }}>
+            {pastCourses.length} {open ? "▲" : "▼"}
+          </span>
+        </button>
+        <button
+          onClick={() => { setShowForm(f => !f); setOpen(true); }}
+          style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "8px", padding: "5px 12px", color: "var(--text-secondary)", fontSize: "11px", fontWeight: "500", cursor: "pointer", fontFamily: "inherit" }}
+        >
+          + Add manually
+        </button>
+      </div>
+
+      {showForm && (
+        <div style={{ borderTop: "1px solid var(--color-border)", padding: "14px 18px", display: "flex", flexDirection: "column", gap: "8px" }}>
+          <input style={inputSt} placeholder="Course name (e.g. Intro to Psychology)" value={manualName} onChange={e => setManualName(e.target.value)} />
+          <div style={{ display: "flex", gap: "8px" }}>
+            <input style={{ ...inputSt, width: "50%" }} placeholder="Code (e.g. PSY101)" value={manualCode} onChange={e => setManualCode(e.target.value)} />
+            <input style={{ ...inputSt, width: "50%" }} placeholder="Semester (e.g. Fall 2025)" value={manualSem} onChange={e => setManualSem(e.target.value)} />
+          </div>
+          <button
+            onClick={handleManualSubmit}
+            disabled={!manualName.trim() || submitting}
+            style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "8px", padding: "8px", color: "var(--text-primary)", fontSize: "13px", fontWeight: "500", cursor: "pointer", fontFamily: "inherit", opacity: (!manualName.trim() || submitting) ? 0.5 : 1 }}
+          >
+            {submitting ? "Adding..." : "Add Course"}
+          </button>
+        </div>
+      )}
 
       {open && (
         <div style={{ borderTop: "1px solid var(--color-border)" }}>
+          {pastCourses.length === 0 && (
+            <p style={{ padding: "14px 18px", color: "var(--text-dim)", fontSize: "13px" }}>
+              No past courses from Canvas. Add them manually above.
+            </p>
+          )}
           {Object.entries(grouped).map(([semester, semCourses]) => (
             <div key={semester}>
               <p style={{ padding: "10px 18px 6px", fontSize: "10px", color: "var(--text-dim)", letterSpacing: "1.5px", textTransform: "uppercase" }}>
@@ -478,6 +532,20 @@ export default function Canvas() {
     );
     const next = new Set(addedPastIds);
     next.add(pastCourse.id);
+    setAddedPastIds(next);
+    localStorage.setItem("fschool_added_past", JSON.stringify([...next]));
+    setAddingPast(false);
+  }
+
+  async function handleAddManualPast(course) {
+    setAddingPast(true);
+    const tempId = `manual_past_${Date.now()}`;
+    await addManualCourse(
+      { name: course.name, courseCode: course.courseCode, source: "manual_past", semester: course.semester },
+      []
+    );
+    const next = new Set(addedPastIds);
+    next.add(tempId);
     setAddedPastIds(next);
     localStorage.setItem("fschool_added_past", JSON.stringify([...next]));
     setAddingPast(false);
@@ -572,6 +640,7 @@ export default function Canvas() {
             addedIds={addedPastIds}
             adding={addingPast}
             onAdd={handleAddPastCourse}
+            onAddManual={handleAddManualPast}
           />
         )}
 

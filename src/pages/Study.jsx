@@ -625,16 +625,64 @@ export default function Study() {
     }
   };
 
+  // Build a smart context string from stored canvas_data blobs for this course
+  async function buildCourseContext(dbId) {
+    if (!dbId) return "";
+    try {
+      const types = ["syllabus", "modules", `study_guide_${dbId}`];
+      // Also try per-course page/file blobs if stored separately
+      const { data: rows } = await supabase
+        .from("canvas_data")
+        .select("data_type, payload")
+        .eq("user_id", userId)
+        .in("data_type", types);
+
+      const parts = [];
+
+      // Syllabus — extract items matching this course
+      const syllabusRow = rows?.find(r => r.data_type === "syllabus");
+      if (syllabusRow?.payload?.length) {
+        const courseKeyword = course.split(" — ")[1]?.toLowerCase() ?? "";
+        const items = syllabusRow.payload
+          .filter(s => !courseKeyword || JSON.stringify(s).toLowerCase().includes(courseKeyword.split(" ")[0]))
+          .slice(0, 8)
+          .map(s => s.title ?? s.name ?? JSON.stringify(s));
+        if (items.length) parts.push(`SYLLABUS TOPICS:\n${items.map(i => `• ${i}`).join("\n")}`);
+      }
+
+      // Modules — filter to this course
+      const modulesRow = rows?.find(r => r.data_type === "modules");
+      if (modulesRow?.payload?.length) {
+        const courseId = liveCourses.find(c => `${c.courseCode} — ${c.name}` === course)?.id;
+        const courseModules = modulesRow.payload
+          .filter(m => !courseId || m.courseId === courseId)
+          .slice(0, 6)
+          .map(m => `• ${m.name ?? m.title}`);
+        if (courseModules.length) parts.push(`COURSE MODULES:\n${courseModules.join("\n")}`);
+      }
+
+      return parts.length ? parts.join("\n\n") : "";
+    } catch { return ""; }
+  }
+
   // Generate fresh flashcards/guide and save to DB
   const generate = async () => {
     setLoading(true);
     setFlashcards([]);
     setGuide("");
 
+    const dbId = getCourseDbId();
+    const courseContext = await buildCourseContext(dbId);
+    const contextBlock = courseContext
+      ? `\n\nHere is real content from the student's course to base your response on:\n${courseContext}`
+      : "";
+
+    const cardCount = Math.min(Math.max(liveCourses.length > 0 ? 10 : 8, 8), 12);
+
     const prompt =
       mode === "flashcards"
-        ? `Create exactly 8 study flashcards for ${course}. Format each card as: Q: [question] | A: [answer] — one per line. No numbering, no extra text.`
-        : `Write a clear study guide for ${course}. Use short headings and concise bullet points. Cover key concepts, definitions, and common exam topics.`;
+        ? `Create exactly ${cardCount} study flashcards for ${course}.${contextBlock}\n\nFormat each card as: Q: [question] | A: [answer] — one per line. Focus on the actual topics listed above. No numbering, no extra text.`
+        : `Write a targeted finals study guide for ${course}.${contextBlock}\n\nStructure it as: key concepts → definitions → likely exam topics → common mistakes. Use short headings and bullet points. Be specific to the actual course content above, not generic.`;
 
     const result = await groq([{ role: "user", content: prompt }], SYSTEM);
 
