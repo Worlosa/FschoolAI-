@@ -341,6 +341,7 @@ export default function NeuralRing() {
   const [lastSession,  setLastSession]  = useState(null);
   const [livingMind,   setLivingMind]   = useState(null);
 
+
   // ── Session tracking — for session-close payload + self-write trigger ───────
   const sessionStartedAt  = useRef(null);
   const exchangeCountRef  = useRef(0); // increments each AI response
@@ -372,6 +373,17 @@ export default function NeuralRing() {
   const [speaking,     setSpeaking]     = useState(false);
   const [streamingMsg, setStreamingMsg] = useState("");
   const typeTimerRef = useRef(null);
+
+  // ── Stop button — cancels in-flight fetch + audio ───────────────────────────
+  const stopResponse = useCallback(() => {
+    abortCtrlRef.current?.abort();
+    abortCtrlRef.current = null;
+    try { audioSourceRef.current?.stop(); } catch (_) {}
+    audioSourceRef.current = null;
+    setSpeaking(false);
+    setLoading(false);
+    setStreamingMsg("");
+  }, []);
 
   const sheetStartY             = useRef(null);
   const [sheetDragY, setSheetDragY] = useState(0);
