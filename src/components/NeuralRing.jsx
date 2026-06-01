@@ -145,7 +145,7 @@ RULES:
 - If asked something personal (name, age, city) — answer from STUDENT DATA or say you don't have it. Do not pivot to courses.
 - Match the student's energy — casual when they're casual, focused when they need help.
 - Use the living mind doc to inform your tone — you know this student well.
-- ${isFirstMessage ? "FIRST MESSAGE RULE: Greet them warmly by name in one short sentence only. No assignments, no stats, no courses." : "Only mention assignments or deadlines if directly relevant to what they asked."}\`;
+- ${isFirstMessage ? "FIRST MESSAGE RULE: Greet them warmly by name in one short sentence only. No assignments, no stats, no courses." : "Only mention assignments or deadlines if directly relevant to what they asked."}`; 
 }
 
 function parseNav(raw) {
