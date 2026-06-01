@@ -206,6 +206,8 @@ async function fetchAndDecodeAudio(text) {
   const bytes = new Uint8Array(binaryStr.length);
   for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
   const ctx = getAudioContext();
+  // Mobile suspends AudioContext after inactivity — resume before use
+  if (ctx.state === "suspended") { try { await ctx.resume(); } catch (_) {} }
   const audioBuffer = await ctx.decodeAudioData(bytes.buffer);
   return {
     duration: audioBuffer.duration, // actual audio duration in seconds
@@ -710,7 +712,6 @@ export default function NeuralRing() {
   const sendMessage = async (overrideText) => {
     const text = overrideText ?? input.trim();
     if (!text || loading) return;
-    getAudioContext();
     const userMsg = { role: "user", content: text };
     setMessages(m => [...m, userMsg]);
     setInput("");
@@ -1080,7 +1081,7 @@ export default function NeuralRing() {
               <input
                 value={input}
                 onChange={e => setInput(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); getAudioContext(); sendMessage(); } }}
                 placeholder="Ask about assignments, navigate…"
                 style={{
                   flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)",
@@ -1105,7 +1106,7 @@ export default function NeuralRing() {
                 </button>
               ) : (
                 <button
-                  onClick={sendMessage}
+                  onClick={() => { getAudioContext(); sendMessage(); }}
                   disabled={!input.trim()}
                   style={{
                     background: !input.trim() ? "rgba(255,255,255,0.18)" : "var(--color-accent)",
