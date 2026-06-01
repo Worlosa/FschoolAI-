@@ -219,3 +219,75 @@ export function normalizeUserGroup(raw) {
     description: raw.description || '',
   };
 }
+
+// ─── Course Files (slides, PDFs, docs) ───────────────────────────────────────
+
+export function normalizeCourseFile(raw) {
+  return {
+    id: raw.id,
+    filename: raw.display_name || raw.filename || '',
+    contentType: raw.content_type || '',
+    size: raw.size || 0,
+    url: raw.url || null,
+    updatedAt: raw.updated_at || null,
+    folderId: raw.folder_id || null,
+  };
+}
+
+export function normalizeCourseFiles(rawFiles) {
+  return rawFiles.map(normalizeCourseFile);
+}
+
+// ─── Course Pages ─────────────────────────────────────────────────────────────
+
+export function normalizeCoursePageSummary(raw) {
+  return {
+    id: raw.page_id || raw.url,
+    title: raw.title || '',
+    slug: raw.url || '',
+    updatedAt: raw.updated_at || null,
+    editedBy: raw.last_edited_by?.display_name || null,
+  };
+}
+
+// ─── Quizzes ─────────────────────────────────────────────────────────────────
+
+export function normalizeQuiz(raw) {
+  return {
+    id: raw.id,
+    title: raw.title || '',
+    dueAt: raw.due_at || null,
+    pointsPossible: raw.points_possible || 0,
+    questionCount: raw.question_count || 0,
+    timeLimit: raw.time_limit || null,
+    quizType: raw.quiz_type || '',
+  };
+}
+
+// ─── Past Courses ─────────────────────────────────────────────────────────────
+
+export function normalizePastCourse(raw) {
+  const enrollment = Array.isArray(raw.enrollments) ? raw.enrollments[0] : null;
+  // Extract semester from course name or course_code e.g. "Fall 2024", "Winter 2025"
+  const semesterMatch = (raw.name || raw.course_code || '').match(/(fall|winter|spring|summer)\s*(20\d{2})/i);
+  const semester = semesterMatch
+    ? `${semesterMatch[1].charAt(0).toUpperCase() + semesterMatch[1].slice(1).toLowerCase()} ${semesterMatch[2]}`
+    : (enrollment?.enrollment_state === 'completed' ? 'Past' : '');
+  return {
+    id: raw.id,
+    name: raw.name || '',
+    courseCode: raw.course_code || '',
+    imageUrl: raw.image_download_url || null,
+    finalScore: enrollment ? (enrollment.computed_final_score ?? null) : null,
+    enrollmentState: 'completed',
+    semester,
+    accessRestricted: Boolean(raw.access_restricted_by_date),
+  };
+}
+
+export function normalizePastCourses(rawCourses, limit = 20) {
+  return rawCourses
+    .filter(c => c.name && !c.access_restricted_by_date)
+    .slice(0, limit)
+    .map(normalizePastCourse);
+}

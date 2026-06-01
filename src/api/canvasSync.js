@@ -14,6 +14,10 @@ import {
   fetchModules,
   fetchAssignmentGroups,
   fetchDiscussionTopics,
+  fetchPastCourses,
+  fetchCourseFiles,
+  fetchCoursePages,
+  fetchQuizzes,
 } from '../../canvas-module/canvasApi.js';
 import {
   normalizeCourses,
@@ -22,6 +26,11 @@ import {
   normalizeModule,
   normalizeAssignmentGroup,
   normalizeDiscussionTopic,
+  normalizeCourseFiles,
+  normalizeCourseFile,
+  normalizeCoursePageSummary,
+  normalizeQuiz,
+  normalizePastCourses,
 } from '../../canvas-module/canvasTransform.js';
 import { supabase } from './supabase.js';
 
@@ -198,11 +207,21 @@ export async function syncCanvasData(userId, canvasToken, canvasBaseUrl) {
 
   const courseIds = courses.map(c => c.id);
 
+  // ── 1b. Past/completed courses ───────────────────────────────────
+  let pastCourses = [];
+  try {
+    const rawPast = await fetchPastCourses(canvasToken, baseUrl, proxy);
+    pastCourses = normalizePastCourses(rawPast);
+  } catch { /* skip */ }
+
   // ── 2. Per-course data (sequential to avoid rate limits) ─────────
   const allAssignments      = [];
   const allModules          = [];
   const allAssignmentGroups = [];
   const allDiscussionTopics = [];
+  const allCourseFiles      = [];
+  const allCoursePages      = [];
+  const allQuizzes          = [];
 
   for (const course of courses) {
     const meta = { courseId: course.id, courseCode: course.courseCode, courseName: course.name };
@@ -243,6 +262,39 @@ export async function syncCanvasData(userId, canvasToken, canvasBaseUrl) {
         courseCode: course.courseCode,
         courseName: course.name,
         topics:     raw.map(normalizeDiscussionTopic),
+      });
+    } catch { /* skip */ }
+
+    // Course files (slides, PDFs, docs)
+    try {
+      const raw = await fetchCourseFiles(canvasToken, baseUrl, course.id, proxy);
+      allCourseFiles.push({
+        courseId:   course.id,
+        courseCode: course.courseCode,
+        courseName: course.name,
+        files:      normalizeCourseFiles(raw),
+      });
+    } catch { /* skip */ }
+
+    // Course pages (lecture notes, reading pages)
+    try {
+      const raw = await fetchCoursePages(canvasToken, baseUrl, course.id, proxy);
+      allCoursePages.push({
+        courseId:   course.id,
+        courseCode: course.courseCode,
+        courseName: course.name,
+        pages:      raw.map(normalizeCoursePageSummary),
+      });
+    } catch { /* skip */ }
+
+    // Quizzes
+    try {
+      const raw = await fetchQuizzes(canvasToken, baseUrl, course.id, proxy);
+      allQuizzes.push({
+        courseId:   course.id,
+        courseCode: course.courseCode,
+        courseName: course.name,
+        quizzes:    raw.map(normalizeQuiz),
       });
     } catch { /* skip */ }
   }
@@ -289,6 +341,10 @@ export async function syncCanvasData(userId, canvasToken, canvasBaseUrl) {
     saveBlob(userId, 'assignment_groups', allAssignmentGroups, now),
     saveBlob(userId, 'discussion_topics', allDiscussionTopics, now),
     saveBlob(userId, 'syllabus',          syllabus,            now),
+    saveBlob(userId, 'course_files',      allCourseFiles,      now),
+    saveBlob(userId, 'course_pages',      allCoursePages,      now),
+    saveBlob(userId, 'quizzes',           allQuizzes,          now),
+    saveBlob(userId, 'past_courses',      pastCourses,         now),
   ]);
 
   // ── 6. GPA + update user ─────────────────────────────────────────
@@ -319,6 +375,10 @@ export async function syncCanvasData(userId, canvasToken, canvasBaseUrl) {
     assignmentGroups: allAssignmentGroups,
     discussionTopics: allDiscussionTopics,
     syllabus,
+    courseFiles:      allCourseFiles,
+    coursePages:      allCoursePages,
+    quizzes:          allQuizzes,
+    pastCourses,
     gpa,
   };
 }
@@ -340,11 +400,15 @@ export async function loadCanvasData(userId) {
   const blobMap = {};
   (blobResult.data || []).forEach(row => { blobMap[row.data_type] = row.payload; });
 
-  const annResult = { data: { payload: blobMap['announcements']    ?? [] } };
-  const modResult = { data: { payload: blobMap['modules']          ?? [] } };
-  const agResult  = { data: { payload: blobMap['assignment_groups']?? [] } };
-  const dtResult  = { data: { payload: blobMap['discussion_topics']?? [] } };
-  const sylResult = { data: { payload: blobMap['syllabus']          ?? [] } };
+  const annResult  = { data: { payload: blobMap['announcements']    ?? [] } };
+  const modResult  = { data: { payload: blobMap['modules']          ?? [] } };
+  const agResult   = { data: { payload: blobMap['assignment_groups']?? [] } };
+  const dtResult   = { data: { payload: blobMap['discussion_topics']?? [] } };
+  const sylResult  = { data: { payload: blobMap['syllabus']          ?? [] } };
+  const filesResult  = { data: { payload: blobMap['course_files']   ?? [] } };
+  const pagesResult  = { data: { payload: blobMap['course_pages']   ?? [] } };
+  const quizResult   = { data: { payload: blobMap['quizzes']        ?? [] } };
+  const pastResult   = { data: { payload: blobMap['past_courses']   ?? [] } };
 
   const courses = (cResult.data || []).map(c => ({
     // Canvas courses: expose canvas_course_id as the id (used for assignment matching)
@@ -401,11 +465,15 @@ export async function loadCanvasData(userId) {
   return {
     courses,
     assignments,
-    announcements:    annResult.data?.payload ?? [],
-    modules:          modResult.data?.payload ?? [],
-    assignmentGroups: agResult.data?.payload  ?? [],
-    discussionTopics: dtResult.data?.payload  ?? [],
-    syllabus:         sylResult.data?.payload ?? [],
+    announcements:    annResult.data?.payload  ?? [],
+    modules:          modResult.data?.payload  ?? [],
+    assignmentGroups: agResult.data?.payload   ?? [],
+    discussionTopics: dtResult.data?.payload   ?? [],
+    syllabus:         sylResult.data?.payload  ?? [],
+    courseFiles:      filesResult.data?.payload ?? [],
+    coursePages:      pagesResult.data?.payload ?? [],
+    quizzes:          quizResult.data?.payload  ?? [],
+    pastCourses:      pastResult.data?.payload  ?? [],
     flashcardMap,
     syncedAt:         null,
   };

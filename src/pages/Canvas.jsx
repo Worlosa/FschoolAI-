@@ -363,6 +363,89 @@ function CourseCard({ course, assignments, modules, assignmentGroups }) {
   );
 }
 
+
+/* ─── PastCoursesSection ──────────────────────────────────── */
+
+function PastCoursesSection({ pastCourses, addedIds, adding, onAdd }) {
+  const [open, setOpen] = useState(false);
+
+  // Group by semester
+  const grouped = {};
+  pastCourses.forEach(c => {
+    const sem = c.semester || "Past";
+    if (!grouped[sem]) grouped[sem] = [];
+    grouped[sem].push(c);
+  });
+
+  return (
+    <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-card)", overflow: "hidden" }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}
+      >
+        <span style={{ color: "var(--text-primary)", fontSize: "13px", fontWeight: "600", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+          🗂 Past Courses
+        </span>
+        <span style={{ color: "var(--text-dim)", fontSize: "12px" }}>
+          {pastCourses.length} · {open ? "▲" : "▼"}
+        </span>
+      </button>
+
+      {open && (
+        <div style={{ borderTop: "1px solid var(--color-border)" }}>
+          {Object.entries(grouped).map(([semester, semCourses]) => (
+            <div key={semester}>
+              <p style={{ padding: "10px 18px 6px", fontSize: "10px", color: "var(--text-dim)", letterSpacing: "1.5px", textTransform: "uppercase" }}>
+                {semester}
+              </p>
+              {semCourses.map((c, i) => {
+                const added = addedIds.has(c.id);
+                return (
+                  <div key={c.id ?? i} style={{
+                    padding: "11px 18px",
+                    borderBottom: i < semCourses.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                  }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <p style={{ color: "var(--text-primary)", fontSize: "13px", fontWeight: "500", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {c.name}
+                      </p>
+                      <p style={{ color: "var(--text-dim)", fontSize: "11px", marginTop: "2px" }}>
+                        {c.courseCode}
+                        {c.finalScore != null ? ` · ${Math.round(c.finalScore)}%` : ""}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => onAdd(c)}
+                      disabled={added || adding}
+                      style={{
+                        background: added ? "rgba(100,220,130,0.1)" : "rgba(255,255,255,0.07)",
+                        border: `1px solid ${added ? "rgba(100,220,130,0.25)" : "rgba(255,255,255,0.12)"}`,
+                        borderRadius: "8px",
+                        padding: "5px 12px",
+                        color: added ? "rgba(100,220,130,0.8)" : "var(--text-secondary)",
+                        fontSize: "11px", fontWeight: "500",
+                        cursor: added || adding ? "default" : "pointer",
+                        fontFamily: "inherit", flexShrink: 0, marginLeft: "10px",
+                        transition: "all 0.15s",
+                      }}
+                    >
+                      {added ? "Added ✓" : adding ? "Adding…" : "+ Add"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+          <p style={{ padding: "10px 18px 12px", color: "var(--text-dim)", fontSize: "11px", lineHeight: "1.5" }}>
+            Added courses appear in your active course list and are included in AI context.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── Main Canvas page ────────────────────────────────────── */
 
 export default function Canvas() {
@@ -370,11 +453,35 @@ export default function Canvas() {
     courses, assignments, announcements,
     modules, assignmentGroups,
     canvasToken, syncStatus, saveCanvasCredentials,
-    addManualCourse,
-    forceSync,
+    addManualCourse, forceSync,
+    pastCourses,
   } = useApp();
 
-  const [showUpload, setShowUpload] = useState(false);
+  const [showUpload,    setShowUpload]    = useState(false);
+  const [addingPast,    setAddingPast]    = useState(false);
+  const [addedPastIds,  setAddedPastIds]  = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("fschool_added_past") || "[]")); }
+    catch { return new Set(); }
+  });
+
+  async function handleAddPastCourse(pastCourse) {
+    if (addedPastIds.has(pastCourse.id)) return;
+    setAddingPast(true);
+    await addManualCourse(
+      {
+        name:       pastCourse.name,
+        courseCode: pastCourse.courseCode,
+        source:     "past_canvas",
+        semester:   pastCourse.semester,
+      },
+      []
+    );
+    const next = new Set(addedPastIds);
+    next.add(pastCourse.id);
+    setAddedPastIds(next);
+    localStorage.setItem("fschool_added_past", JSON.stringify([...next]));
+    setAddingPast(false);
+  }
 
   if (!canvasToken) {
     return (
@@ -457,6 +564,16 @@ export default function Canvas() {
             assignmentGroups={assignmentGroups}
           />
         ))}
+
+        {/* ── Past courses section ── */}
+        {pastCourses && pastCourses.length > 0 && (
+          <PastCoursesSection
+            pastCourses={pastCourses}
+            addedIds={addedPastIds}
+            adding={addingPast}
+            onAdd={handleAddPastCourse}
+          />
+        )}
 
         {/* ── Manual upload trigger ── */}
         <button

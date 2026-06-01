@@ -172,3 +172,36 @@ export async function fetchAssignmentGroups(canvasToken, baseUrl, courseId, prox
     canvasToken, baseUrl, proxyUrl
   );
 }
+
+/** Fetch all past/completed courses (previous semesters) */
+export async function fetchPastCourses(canvasToken, baseUrl, proxyUrl) {
+  const includes = 'include[]=total_scores&include[]=course_image';
+  return fetchAll(
+    `/courses?enrollment_state=completed&${includes}`,
+    canvasToken, baseUrl, proxyUrl
+  );
+}
+
+/** Fetch files for a course — filters to slides, PDFs, and docs */
+export async function fetchCourseFiles(canvasToken, baseUrl, courseId, proxyUrl) {
+  return fetchAll(
+    `/courses/${courseId}/files?content_types[]=application/pdf&content_types[]=application/vnd.ms-powerpoint&content_types[]=application/vnd.openxmlformats-officedocument.presentationml.presentation&content_types[]=application/msword&content_types[]=application/vnd.openxmlformats-officedocument.wordprocessingml.document&sort=updated_at&order=desc`,
+    canvasToken, baseUrl, proxyUrl
+  );
+}
+
+/** Fetch all pages for a course (lecture notes, reading pages, syllabus) */
+export async function fetchCoursePages(canvasToken, baseUrl, courseId, proxyUrl) {
+  return fetchAll(
+    `/courses/${courseId}/pages?sort=updated_at&order=desc`,
+    canvasToken, baseUrl, proxyUrl
+  );
+}
+
+/** Fetch quizzes for a course */
+export async function fetchQuizzes(canvasToken, baseUrl, courseId, proxyUrl) {
+  return fetchAll(
+    `/courses/${courseId}/quizzes`,
+    canvasToken, baseUrl, proxyUrl
+  );
+}
