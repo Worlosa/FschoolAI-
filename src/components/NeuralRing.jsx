@@ -63,12 +63,29 @@ function parseNav(raw) {
 const ARTIFACT_REGEX = /<artifact>([\s\S]*?)<\/artifact>/i;
 
 const VIZ_KEYWORDS = [
+  // charts / data viz
   "chart", "graph", "visuali", "plot", "diagram", "dashboard",
-  "bar chart", "pie chart", "line chart", "histogram", "scatter",
+  "histogram", "scatter", "heatmap",
+  // build / create UI
+  "build", "create", "make me", "make a", "build me",
+  // interactive things
+  "interactive", "animation", "animate", "simulat",
+  // specific app types
+  "timer", "calculator", "tracker", "kanban", "game", "snake",
+  "flashcard", "quiz", "pomodoro", "calendar", "planner", "budget",
+  "sorting", "pathfinding", "neural", "algorithm",
+];
+
+// Never route these to Claude even if they contain a VIZ_KEYWORD
+// (e.g. "create a study plan" should stay as regular chat)
+const NAV_OVERRIDE_KEYWORDS = [
+  "go to", "navigate", "open", "show my", "what are my",
+  "study plan", "remind me", "schedule", "assignment",
 ];
 
 function isVizRequest(text) {
   const lower = text.toLowerCase();
+  if (NAV_OVERRIDE_KEYWORDS.some(kw => lower.includes(kw))) return false;
   return VIZ_KEYWORDS.some(kw => lower.includes(kw));
 }
 
