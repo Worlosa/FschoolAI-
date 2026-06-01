@@ -14,6 +14,7 @@ import pino from 'pino';
 import { createClient } from '@supabase/supabase-js';
 import { authenticate } from './middleware/auth.js';
 import { requestContextMiddleware } from './middleware/request-context.js';
+import './services/brain-scheduler-init'; // Autonomous brain — starts on server boot
 
 // Load environment variables
 dotenv.config();
@@ -55,8 +56,9 @@ app.get('/health', (req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV,
     version: '1.0.0',
-    brain: 'connected',
+    brain: 'autonomous — scheduler running',
     llm: process.env.OPENAI_API_KEY ? 'configured' : 'missing',
+    claude: process.env.ANTHROPIC_API_KEY ? 'configured' : 'using openai key',
   });
 });
 
