@@ -365,6 +365,9 @@ export default function NeuralRing() {
   const [messages, setMessages] = useState([]);
   const [input,    setInput]    = useState("");
   const [loading,  setLoading]  = useState(false);
+  // Thumbs reaction state — tracks per-message reactions + reason picker
+  const [reactions,    setReactions]    = useState({});   // { msgIndex: "up"|"down" }
+  const [reasonPicker, setReasonPicker] = useState(null); // msgIndex | null
   const messagesEndRef          = useRef(null);
 
   const [muted,        setMuted]        = useState(() => {
@@ -694,10 +697,11 @@ export default function NeuralRing() {
   }, [muted, typewrite]);
 
   // ── Chat ──────────────────────────────────────────────────────────────────────────
-  const sendMessage = async () => {
-    if (!input.trim() || loading) return;
+  const sendMessage = async (overrideText) => {
+    const text = overrideText ?? input.trim();
+    if (!text || loading) return;
     getAudioContext();
-    const userMsg = { role: "user", content: input.trim() };
+    const userMsg = { role: "user", content: text };
     setMessages(m => [...m, userMsg]);
     setInput("");
     setLoading(true);
@@ -916,34 +920,116 @@ export default function NeuralRing() {
                       {m.content}
                     </div>
                     {m.role === "assistant" && (
-                      <div style={{ display: "flex", gap: "6px", marginTop: "5px", paddingLeft: "2px" }}>
-                        <button
-                          onClick={() => navigator.clipboard?.writeText(m.content)}
-                          title="Copy"
-                          style={{ background: "none", border: "none", color: "rgba(255,255,255,0.25)", fontSize: "12px", cursor: "pointer", padding: "2px 6px", borderRadius: "6px", fontFamily: "inherit" }}
-                          onMouseEnter={e => e.currentTarget.style.color = "rgba(255,255,255,0.6)"}
-                          onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,0.25)"}
-                        >
-                          Copy
-                        </button>
-                        <button
-                          onClick={() => writeImpression(userId, messages[i-1]?.content ?? "", m.content + " [thumbs up]")}
-                          title="Good response"
-                          style={{ background: "none", border: "none", color: "rgba(255,255,255,0.25)", fontSize: "13px", cursor: "pointer", padding: "2px 4px", borderRadius: "6px" }}
-                          onMouseEnter={e => e.currentTarget.style.color = "rgba(100,220,155,0.8)"}
-                          onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,0.25)"}
-                        >
-                          👍
-                        </button>
-                        <button
-                          onClick={() => writeImpression(userId, messages[i-1]?.content ?? "", m.content + " [thumbs down — student disliked this response]")}
-                          title="Bad response"
-                          style={{ background: "none", border: "none", color: "rgba(255,255,255,0.25)", fontSize: "13px", cursor: "pointer", padding: "2px 4px", borderRadius: "6px" }}
-                          onMouseEnter={e => e.currentTarget.style.color = "rgba(255,100,90,0.8)"}
-                          onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,0.25)"}
-                        >
-                          👎
-                        </button>
+                      <div style={{ marginTop: "5px", paddingLeft: "2px" }}>
+                        {/* Action row — Copy / thumbs */}
+                        <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+                          {/* Copy */}
+                          <button
+                            onClick={() => {
+                              navigator.clipboard?.writeText(m.content);
+                              // Flash "Copied" feedback
+                              const btn = document.getElementById(`copy-btn-${i}`);
+                              if (btn) { btn.textContent = "Copied!"; setTimeout(() => { btn.textContent = "Copy"; }, 1500); }
+                            }}
+                            id={`copy-btn-${i}`}
+                            style={{ background: "none", border: "none", color: "rgba(255,255,255,0.25)", fontSize: "12px", cursor: "pointer", padding: "3px 7px", borderRadius: "6px", fontFamily: "inherit", transition: "color 0.15s" }}
+                            onMouseEnter={e => e.currentTarget.style.color = "rgba(255,255,255,0.6)"}
+                            onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,0.25)"}
+                          >Copy</button>
+
+                          {/* Thumbs up */}
+                          <button
+                            onClick={() => {
+                              if (reactions[i] === "up") return;
+                              setReactions(r => ({ ...r, [i]: "up" }));
+                              setReasonPicker(null);
+                              writeImpression(userId, messages[i-1]?.content ?? "", m.content + " [student liked this response]");
+                            }}
+                            style={{
+                              background: reactions[i] === "up" ? "rgba(52,199,89,0.15)" : "none",
+                              border: reactions[i] === "up" ? "1px solid rgba(52,199,89,0.3)" : "1px solid transparent",
+                              borderRadius: "6px", fontSize: "13px", cursor: reactions[i] === "up" ? "default" : "pointer",
+                              padding: "2px 5px", transition: "all 0.15s",
+                              transform: reactions[i] === "up" ? "scale(1.2)" : "scale(1)",
+                            }}
+                          >👍</button>
+
+                          {/* Thumbs down */}
+                          <button
+                            onClick={() => {
+                              if (reactions[i] === "up") return;
+                              setReasonPicker(reasonPicker === i ? null : i);
+                            }}
+                            style={{
+                              background: reactions[i] === "down" ? "rgba(255,80,80,0.12)" : "none",
+                              border: reactions[i] === "down" ? "1px solid rgba(255,80,80,0.25)" : "1px solid transparent",
+                              borderRadius: "6px", fontSize: "13px", cursor: "pointer",
+                              padding: "2px 5px", transition: "all 0.15s",
+                              transform: reactions[i] === "down" ? "scale(1.1)" : "scale(1)",
+                            }}
+                          >👎</button>
+                        </div>
+
+                        {/* Reason picker — slides in below thumbs down */}
+                        {reasonPicker === i && reactions[i] !== "down" && (
+                          <div style={{
+                            marginTop: "8px",
+                            background: "rgba(255,255,255,0.04)",
+                            border: "1px solid rgba(255,255,255,0.09)",
+                            borderRadius: "12px",
+                            padding: "10px",
+                            display: "flex", flexDirection: "column", gap: "6px",
+                          }}>
+                            <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.3)", marginBottom: "2px", letterSpacing: "0.5px" }}>What was wrong?</p>
+                            {["Too long", "Off topic", "Wrong info", "Not helpful"].map(reason => (
+                              <button
+                                key={reason}
+                                onClick={() => {
+                                  setReactions(r => ({ ...r, [i]: "down" }));
+                                  setReasonPicker(null);
+                                  writeImpression(userId, messages[i-1]?.content ?? "", m.content + ` [student disliked — reason: ${reason}]`);
+                                  // Offer regenerate — set input to last user message
+                                  const lastUserMsg = messages[i-1]?.content;
+                                  if (lastUserMsg) setInput(lastUserMsg);
+                                }}
+                                style={{
+                                  background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)",
+                                  borderRadius: "8px", padding: "7px 10px", color: "rgba(255,255,255,0.6)",
+                                  fontSize: "13px", cursor: "pointer", textAlign: "left", fontFamily: "inherit",
+                                  transition: "background 0.12s, color 0.12s",
+                                }}
+                                onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,80,80,0.1)"; e.currentTarget.style.color = "rgba(255,130,120,0.9)"; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color = "rgba(255,255,255,0.6)"; }}
+                              >{reason}</button>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Regenerate prompt — shows after picking a reason */}
+                        {reactions[i] === "down" && (
+                          <div style={{ marginTop: "6px", display: "flex", alignItems: "center", gap: "6px" }}>
+                            <span style={{ fontSize: "11px", color: "rgba(255,255,255,0.25)" }}>Thanks for the feedback</span>
+                            <button
+                              onClick={() => {
+                                const lastUserMsg = messages[i-1]?.content;
+                                if (!lastUserMsg) return;
+                                // Remove the bad response and regenerate
+                                setMessages(msgs => msgs.slice(0, i));
+                                setReactions(r => { const n = {...r}; delete n[i]; return n; });
+                                setInput("");
+                                setTimeout(() => sendMessage(lastUserMsg), 50);
+                              }}
+                              style={{
+                                background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
+                                borderRadius: "6px", padding: "3px 9px", color: "rgba(255,255,255,0.5)",
+                                fontSize: "12px", cursor: "pointer", fontFamily: "inherit",
+                                transition: "all 0.15s",
+                              }}
+                              onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.1)"; e.currentTarget.style.color = "rgba(255,255,255,0.85)"; }}
+                              onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "rgba(255,255,255,0.5)"; }}
+                            >↺ Try again</button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -985,7 +1071,7 @@ export default function NeuralRing() {
                 onFocus={e => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.22)")}
                 onBlur={e  => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.09)")}
               />
-              {loading ? (
+              {(loading || speaking) ? (
                 <button
                   onClick={stopResponse}
                   style={{
