@@ -17,11 +17,12 @@ import { useApp } from "../context/AppContext";
 import { supabase } from "../api/supabase";
 
 // ── Claude proxy helper (tutor brain — better quality than Groq for conversation) ──
-async function claudeTutor(messages, system) {
+async function claudeTutor(messages, system, signal) {
   const res = await fetch("/api/claude", {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ messages, system, max_tokens: 400 }),
+    signal,  // abort signal from stopResponse()
   });
   if (!res.ok) throw new Error(`Claude proxy ${res.status}`);
   const { content } = await res.json();
@@ -208,11 +209,13 @@ async function fetchAndDecodeAudio(text) {
   const audioBuffer = await ctx.decodeAudioData(bytes.buffer);
   return {
     duration: audioBuffer.duration, // actual audio duration in seconds
-    play: () => new Promise((resolve) => {
+    // onSourceCreated lets the caller store the source for abort
+    play: (onSourceCreated) => new Promise((resolve) => {
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(ctx.destination);
       source.onended = resolve;
+      onSourceCreated?.(source);
       source.start(0);
     }),
   };
@@ -379,10 +382,14 @@ export default function NeuralRing() {
 
   // ── Stop button — cancels in-flight fetch + audio ───────────────────────────
   const stopResponse = useCallback(() => {
+    // Cancel in-flight fetch
     abortCtrlRef.current?.abort();
     abortCtrlRef.current = null;
+    // Stop audio playback
     try { audioSourceRef.current?.stop(); } catch (_) {}
     audioSourceRef.current = null;
+    // Stop typewriter
+    if (typeTimerRef.current) { clearInterval(typeTimerRef.current); typeTimerRef.current = null; }
     setSpeaking(false);
     setLoading(false);
     setStreamingMsg("");
@@ -686,7 +693,10 @@ export default function NeuralRing() {
       const { duration, play } = await fetchAndDecodeAudio(plain);
       // Now start both simultaneously — typewriter matches actual audio length
       await Promise.all([
-        play().finally(() => setSpeaking(false)),
+        play((src) => { audioSourceRef.current = src; }).finally(() => {
+          audioSourceRef.current = null;
+          setSpeaking(false);
+        }),
         typewrite(plain, duration),
       ]);
     } catch (err) {
@@ -737,7 +747,7 @@ export default function NeuralRing() {
       // Use Claude for tutor brain; fall back to Groq if key missing
       let raw;
       try {
-        raw = await claudeTutor([...messages, userMsg], finalSystem);
+        raw = await claudeTutor([...messages, userMsg], finalSystem, abortCtrlRef.current?.signal);
       } catch {
         raw = await groq([...messages, userMsg], finalSystem);
       }
@@ -772,9 +782,15 @@ export default function NeuralRing() {
 
       setLoading(false);
       await speakAndType(cleanText);
-    } catch {
-      setMessages(m => [...m, { role: "assistant", content: "Couldn't connect. Check your API keys." }]);
+    } catch (err) {
+      console.error("[NeuralRing] sendMessage error:", err?.message ?? err);
+      // Only add error message if not aborted by stop button
+      if (err?.name !== "AbortError") {
+        setMessages(m => [...m, { role: "assistant", content: "Something went wrong. Try again." }]);
+      }
+      setSpeaking(false);
       setLoading(false);
+      setStreamingMsg("");
     }
   };
 
@@ -1013,11 +1029,15 @@ export default function NeuralRing() {
                               onClick={() => {
                                 const lastUserMsg = messages[i-1]?.content;
                                 if (!lastUserMsg) return;
-                                // Remove the bad response and regenerate
+                                // Remove the bad response + queue regenerate after state settles
                                 setMessages(msgs => msgs.slice(0, i));
                                 setReactions(r => { const n = {...r}; delete n[i]; return n; });
-                                setInput("");
-                                setTimeout(() => sendMessage(lastUserMsg), 50);
+                                setInput(lastUserMsg);
+                                // Use a small delay so setMessages settles, then send
+                                setTimeout(() => {
+                                  setInput("");
+                                  sendMessage(lastUserMsg);
+                                }, 100);
                               }}
                               style={{
                                 background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)",
