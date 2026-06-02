@@ -116,13 +116,50 @@ export default async function handler(req, res) {
       return res.redirect("/?verify=error&reason=db_failed");
     }
 
-    // Redirect with success param — App.jsx reads this and shows the banner
-    // Also set a localStorage flag so other open tabs show the banner via storage event
-    return res.redirect("/?verify=success&t=" + Date.now());
+    // Serve standalone success page — don't redirect into the app
+    // Opening the link on a different device would load the app logged in as someone else
+    res.setHeader("Content-Type", "text/html");
+    return res.status(200).send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Email verified — FSchoolAI</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{background:#111;color:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px}
+    .card{max-width:380px;width:100%;text-align:center;animation:up .5s cubic-bezier(.34,1.56,.64,1) both}
+    @keyframes up{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+    @keyframes pulseRing{0%{transform:scale(1);opacity:.6}100%{transform:scale(2.2);opacity:0}}
+    .dot-wrap{position:relative;width:48px;height:48px;margin:0 auto 28px}
+    .dot-ring{position:absolute;inset:0;border-radius:50%;background:#30d158;animation:pulseRing 1.6s ease-out infinite}
+    .dot-core{position:absolute;inset:6px;border-radius:50%;background:#30d158;display:flex;align-items:center;justify-content:center}
+    h1{font-size:26px;font-weight:700;letter-spacing:-.5px;margin-bottom:10px}
+    p{font-size:15px;color:rgba(255,255,255,.4);line-height:1.7;margin-bottom:32px}
+    .pill{display:inline-flex;align-items:center;gap:6px;background:rgba(48,209,88,.1);border:1px solid rgba(48,209,88,.2);border-radius:20px;padding:6px 16px;font-size:12px;color:rgba(48,209,88,.85);font-weight:500;margin-bottom:32px}
+    .pill-dot{width:6px;height:6px;border-radius:50%;background:rgba(48,209,88,.8)}
+    a{display:inline-block;background:rgba(255,255,255,.92);color:#111;text-decoration:none;padding:13px 28px;border-radius:12px;font-size:15px;font-weight:600}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="dot-wrap">
+      <div class="dot-ring"></div>
+      <div class="dot-core">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="#111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+    </div>
+    <div class="pill"><span class="pill-dot"></span>Beta access activated</div>
+    <h1>Email verified.</h1>
+    <p>Your 1-month free subscription is now active.<br/>Open the app on your device to get started.</p>
+    <a href="https://neuro-agi.vercel.app">Open FSchoolAI →</a>
+  </div>
+</body>
+</html>\`);
   }
 
   // ── POST /api/email?action=reset (alias: send-reset) ─────────────────────────────────────────
-  if (action === "reset") {
+  if (action === "reset" || action === "send-reset") {
     if (req.method !== "POST") return res.status(405).end();
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: "email required" });

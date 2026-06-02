@@ -282,9 +282,14 @@ export default function Landing({ onEnter }) {
   const [authMode,       setAuthMode]       = useState(null);
   const [forgotSent,     setForgotSent]     = useState(false);
   const [forgotLoading,  setForgotLoading]  = useState(false);
+  const [forgotError,    setForgotError]    = useState(false);
 
   async function handleForgotPassword(email) {
-    if (!email) { alert("Enter your email first, then tap Forgot password."); return; }
+    if (!email) {
+      setForgotError(true);
+      setTimeout(() => setForgotError(false), 4000);
+      return;
+    }
     setForgotLoading(true);
     try {
       await fetch("/api/email?action=reset", {
@@ -512,10 +517,61 @@ export default function Landing({ onEnter }) {
         <span style={{ color: "rgba(255,255,255,0.12)", fontSize: "12px" }}>Academic intelligence</span>
       </footer>
 
-      {/* ── Forgot password success banner ───────────────────────────────── */}
+      {/* ── Forgot password banners ─────────────────────────────────────── */}
+      <style>{`
+        @keyframes bannerIn {
+          from { opacity:0; transform:translateX(-50%) translateY(-14px) scale(0.95); }
+          to   { opacity:1; transform:translateX(-50%) translateY(0) scale(1); }
+        }
+        @keyframes pulseRing {
+          0%   { transform:scale(1);   opacity:0.6; }
+          100% { transform:scale(1.9); opacity:0;   }
+        }
+      `}</style>
+      {forgotError && (
+        <div style={{
+          position:"fixed", top:"env(safe-area-inset-top, 0px)", left:"50%",
+          transform:"translateX(-50%)", zIndex:1001, marginTop:"16px",
+          width:"calc(100% - 40px)", maxWidth:"420px",
+          padding:"14px 18px", borderRadius:"16px",
+          display:"flex", alignItems:"center", gap:"12px",
+          background:"rgba(30,10,10,0.92)",
+          border:"1px solid rgba(255,80,70,0.22)",
+          backdropFilter:"blur(24px)", WebkitBackdropFilter:"blur(24px)",
+          boxShadow:"0 8px 32px rgba(255,59,48,0.18), 0 0 0 1px rgba(255,80,70,0.08)",
+          animation:"bannerIn 0.4s cubic-bezier(0.34,1.56,0.64,1) both",
+        }}>
+          <div style={{ position:"relative", flexShrink:0, width:"10px", height:"10px" }}>
+            <div style={{ position:"absolute", inset:0, borderRadius:"50%", background:"#ff453a", animation:"pulseRing 1.4s ease-out infinite" }}/>
+            <div style={{ position:"absolute", inset:0, borderRadius:"50%", background:"#ff453a" }}/>
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:"13px", fontWeight:"600", color:"#ff6961", letterSpacing:"-0.1px", marginBottom:"2px" }}>Enter your email first</div>
+            <div style={{ fontSize:"12px", color:"rgba(255,255,255,0.4)" }}>Type your email above, then tap Forgot password.</div>
+          </div>
+        </div>
+      )}
       {forgotSent && (
-        <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 1001, padding: "12px 20px", textAlign: "center", fontSize: "13px", fontWeight: "500", background: "rgba(52,199,89,0.95)", color: "#fff" }}>
-          ✓ Password reset email sent — check your inbox.
+        <div style={{
+          position:"fixed", top:"env(safe-area-inset-top, 0px)", left:"50%",
+          transform:"translateX(-50%)", zIndex:1001, marginTop:"16px",
+          width:"calc(100% - 40px)", maxWidth:"420px",
+          padding:"14px 18px", borderRadius:"16px",
+          display:"flex", alignItems:"center", gap:"12px",
+          background:"rgba(10,24,16,0.92)",
+          border:"1px solid rgba(52,199,89,0.22)",
+          backdropFilter:"blur(24px)", WebkitBackdropFilter:"blur(24px)",
+          boxShadow:"0 8px 32px rgba(52,199,89,0.2), 0 0 0 1px rgba(52,199,89,0.08)",
+          animation:"bannerIn 0.4s cubic-bezier(0.34,1.56,0.64,1) both",
+        }}>
+          <div style={{ position:"relative", flexShrink:0, width:"10px", height:"10px" }}>
+            <div style={{ position:"absolute", inset:0, borderRadius:"50%", background:"#30d158", animation:"pulseRing 1.4s ease-out infinite" }}/>
+            <div style={{ position:"absolute", inset:0, borderRadius:"50%", background:"#30d158" }}/>
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:"13px", fontWeight:"600", color:"#30d158", letterSpacing:"-0.1px", marginBottom:"2px" }}>Reset email sent</div>
+            <div style={{ fontSize:"12px", color:"rgba(255,255,255,0.4)" }}>Check your inbox — link expires in 1 hour.</div>
+          </div>
         </div>
       )}
 
