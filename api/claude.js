@@ -27,7 +27,7 @@ export default async function handler(req, res) {
 
   const body = {
     model:      "claude-haiku-4-5-20251001",
-    max_tokens: Math.min(Number(max_tokens) || 400, 1024),
+    max_tokens: Math.min(Number(max_tokens) || 400, 4096),
     messages:   cleanMessages,
   };
   if (system && typeof system === "string" && system.trim()) {

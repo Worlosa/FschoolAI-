@@ -60,9 +60,15 @@ function isVizRequest(text) {
 }
 
 function parseArtifact(raw) {
+  // Primary: wrapped in <artifact> tags
   const m = raw.match(ARTIFACT_REGEX);
-  if (!m) return { code: null, text: raw };
-  return { code: m[1].trim(), text: raw.replace(ARTIFACT_REGEX, "").trim() || "Here's your visualization." };
+  if (m) return { code: m[1].trim(), text: raw.replace(ARTIFACT_REGEX, "").trim() || "Here's your visualization." };
+
+  // Fallback: response looks like raw component code (Claude skipped the tags)
+  const looksLikeCode = /function\s+App\s*[({]|const\s+App\s*=|return\s*\(\s*</.test(raw);
+  if (looksLikeCode) return { code: raw.trim(), text: "Here's your visualization." };
+
+  return { code: null, text: raw };
 }
 
 const VIZ_SYSTEM = `You are a data visualization expert. Create stunning interactive React visualizations.
