@@ -51,7 +51,7 @@ export default async function handler(req, res) {
 
     try {
       await resend.emails.send({
-        from:    "FSchoolAI <noreply@fschoolai.com>",
+        from:    "onboarding@resend.dev",
         to:      email,
         subject: "Verify your FSchoolAI account",
         html: `
