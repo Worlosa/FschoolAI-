@@ -1,24 +1,26 @@
 // App.jsx — Navigation state + page transition only.
 // Does not know about page content — all page logic lives in pages/.
 // Adding a page: create pages/NewPage.jsx, import it here, add to PAGES.
+// PLACE IN: /src/App.jsx (replaces existing file)
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { NAV, LABEL }  from "./navigation/navConfig";
-import { useSwipe }    from "./navigation/useSwipe";
-import PageDots        from "./components/PageDots";
-import NeuralRing      from "./components/NeuralRing";
-import Landing         from "./pages/Landing";
-import Onboarding      from "./pages/Onboarding";
-import { useApp }      from "./context/AppContext";
-import { supabase } from "./api/supabase";
+import { NAV, LABEL }       from "./navigation/navConfig";
+import { useSwipe }         from "./navigation/useSwipe";
+import PageDots             from "./components/PageDots";
+import NeuralRing           from "./components/NeuralRing";
+import Landing              from "./pages/Landing";
+import Onboarding           from "./pages/Onboarding";
+import { useApp }           from "./context/AppContext";
+import { supabase }         from "./api/supabase";
+import { usePageTracking }  from "./hooks/usePageTracking";
 
-import Work            from "./pages/Work";
-import Canvas          from "./pages/Canvas";
-import Assignment      from "./pages/Assignment";
-import Study           from "./pages/Study";
-import Toolkit         from "./pages/Toolkit";
-import Identity        from "./pages/Identity";
-import Leaderboard     from "./pages/Leaderboard";
+import Work        from "./pages/Work";
+import Canvas      from "./pages/Canvas";
+import Assignment  from "./pages/Assignment";
+import Study       from "./pages/Study";
+import Toolkit     from "./pages/Toolkit";
+import Identity    from "./pages/Identity";
+import Leaderboard from "./pages/Leaderboard";
 
 const PAGES = {
   work:        Work,
@@ -30,12 +32,8 @@ const PAGES = {
   leaderboard: Leaderboard,
 };
 
-// Persist login across sessions
 const LOGGED_IN_KEY = "fschool_logged_in";
 
-// Inject app-shell styles into <head> once — theme-reactive via CSS vars.
-// Using a <style> tag instead of inline styles so the browser always resolves
-// the CURRENT value of each var (inline styles snapshot the value at render time).
 const SHELL_STYLES = `
   .app-shell {
     background:  var(--color-bg);
@@ -70,7 +68,6 @@ const SHELL_STYLES = `
   }
 `;
 
-// Inject once on module load
 if (!document.getElementById("app-shell-styles")) {
   const tag = document.createElement("style");
   tag.id = "app-shell-styles";
@@ -81,18 +78,38 @@ if (!document.getElementById("app-shell-styles")) {
 export default function App() {
   const { userId, saveCanvasCredentials, updateUserField, pendingNav, setPendingNav } = useApp();
 
-  // Initialise from cache so returning users skip the landing page entirely
   const [isLoggedIn, setIsLoggedIn] = useState(
     () => Boolean(localStorage.getItem(LOGGED_IN_KEY))
   );
-  const [showOnboarding,     setShowOnboarding]    = useState(false);
-  const [onboardingEmail,    setOnboardingEmail]   = useState("");
-  const [onboardingInitName, setOnboardingInitName] = useState("");
-  const [currentPage, setCurrentPage] = useState("work");
-  const [visible,     setVisible]     = useState(true);
+  const [showOnboarding,      setShowOnboarding]     = useState(false);
+  const [onboardingEmail,     setOnboardingEmail]    = useState("");
+  const [onboardingInitName,  setOnboardingInitName] = useState("");
+  const [currentPage,         setCurrentPage]        = useState("work");
+  const [visible,             setVisible]            = useState(true);
+
+  // ── Verify banner state ────────────────────────────────────────────────────
+  const [verifyBanner, setVerifyBanner] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("verify") || null;
+  });
+
+  // Clear ?verify= param from URL after reading it
+  useEffect(() => {
+    if (!verifyBanner) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("verify");
+    url.searchParams.delete("reason");
+    window.history.replaceState({}, "", url.toString());
+    const t = setTimeout(() => setVerifyBanner(null), 5000);
+    return () => clearTimeout(t);
+  }, [verifyBanner]);
+
   const fadingRef = useRef(false);
 
-  // Transition helper — reused for both swipe and AI navigation
+  // ── Page tracking ──────────────────────────────────────────────────────────
+  usePageTracking(isLoggedIn ? currentPage : null, userId);
+
+  // ── Navigation ─────────────────────────────────────────────────────────────
   const navigate = useCallback((pageKey) => {
     if (fadingRef.current || !PAGES[pageKey]) return;
     try { navigator.vibrate?.(8); } catch (_) {}
@@ -105,13 +122,11 @@ export default function App() {
     }, 180);
   }, []);
 
-  // Swipe navigation uses adjacent-page directions
   const swipeNavigate = useCallback((dir) => {
     const next = NAV[currentPage]?.[dir];
     if (next) navigate(next);
   }, [currentPage, navigate]);
 
-  // AI-triggered navigation — NeuralRing sets pendingNav in AppContext
   useEffect(() => {
     if (!pendingNav) return;
     navigate(pendingNav.page ?? pendingNav);
@@ -120,10 +135,9 @@ export default function App() {
 
   const { onTouchStart, onTouchEnd } = useSwipe(swipeNavigate);
 
+  // ── Auth ───────────────────────────────────────────────────────────────────
   const handleEnter = useCallback(async (creds = {}) => {
     if (creds.mode === "login") {
-      // Verify credentials, restore the user's UUID, then reload so AppContext
-      // re-initialises with the correct UUID and loads their Supabase data.
       const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(creds.password));
       const password_hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
       const { data: user, error } = await supabase
@@ -140,18 +154,20 @@ export default function App() {
       return;
     }
 
-    // Write name to localStorage immediately so greeting is correct right away
+    // ── Signup ────────────────────────────────────────────────────────────────
     localStorage.setItem("fschool_name", creds.name);
 
-    // signup — create user row directly via supabase
     try {
       const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(creds.password));
       const password_hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+
+      // Check for existing account — prevents duplicate signups
       const { data: existing } = await supabase
         .from("users")
         .select("id")
         .eq("email", creds.email.toLowerCase().trim())
         .maybeSingle();
+
       if (!existing) {
         await supabase
           .from("users")
@@ -159,27 +175,42 @@ export default function App() {
             { id: userId, name: creds.name, email: creds.email.toLowerCase().trim(), password_hash },
             { onConflict: "id" }
           );
+
+        // Send verification email — non-blocking, won't fail signup if email fails
+        fetch("/api/send-verify", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({
+            userId,
+            email: creds.email.toLowerCase().trim(),
+            name:  creds.name,
+          }),
+        }).catch(() => {});
+
+      } else {
+        // Email already registered — use existing account, don't create duplicate
+        localStorage.setItem("fschool_uid", existing.id);
       }
     } catch (err) {
       console.warn("Supabase signup failed:", err.message);
     }
 
-    // Show onboarding wizard instead of dropping straight into the app
     setOnboardingEmail(creds.email);
     setOnboardingInitName(creds.name);
     setShowOnboarding(true);
   }, [userId]);
 
+  // ── Onboarding complete ────────────────────────────────────────────────────
   const handleOnboardingComplete = useCallback(async ({
     preferredName, schoolName, schoolCity, schoolCountry, schoolContinent, token, baseUrl,
   }) => {
     if (preferredName) localStorage.setItem("fschool_name", preferredName);
     try {
       const patch = { id: userId };
-      if (preferredName)   patch.name = preferredName;
-      if (schoolName)      patch.school = schoolName;
-      if (schoolCity)      patch.school_city = schoolCity;
-      if (schoolCountry)   patch.school_country = schoolCountry;
+      if (preferredName)   patch.name            = preferredName;
+      if (schoolName)      patch.school          = schoolName;
+      if (schoolCity)      patch.school_city     = schoolCity;
+      if (schoolCountry)   patch.school_country  = schoolCountry;
       if (schoolContinent) patch.school_continent = schoolContinent;
       await updateUserField(patch);
     } catch {}
@@ -191,6 +222,7 @@ export default function App() {
     setIsLoggedIn(true);
   }, [userId, updateUserField, saveCanvasCredentials]);
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   if (showOnboarding) {
     return (
       <Onboarding
@@ -213,6 +245,29 @@ export default function App() {
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
     >
+      {/* ── Email verify banner ───────────────────────────────────────────── */}
+      {verifyBanner && (
+        <div style={{
+          position:   "fixed",
+          top:        0,
+          left:       0,
+          right:      0,
+          zIndex:     999,
+          padding:    "12px 20px",
+          textAlign:  "center",
+          fontSize:   "13px",
+          fontWeight: "500",
+          background: verifyBanner === "success" ? "rgba(52,199,89,0.95)"
+                    : verifyBanner === "already_done" ? "rgba(52,199,89,0.7)"
+                    : "rgba(255,59,48,0.95)",
+          color: "#fff",
+        }}>
+          {verifyBanner === "success"      && "✓ Email verified — your 1-month free subscription is active."}
+          {verifyBanner === "already_done" && "✓ Email already verified."}
+          {verifyBanner === "error"        && "Verification link is invalid or expired. Check your email for a new one."}
+        </div>
+      )}
+
       <div
         className="app-page-transition"
         style={{
