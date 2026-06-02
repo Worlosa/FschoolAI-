@@ -121,7 +121,7 @@ export default async function handler(req, res) {
     return res.redirect("/?verify=success&t=" + Date.now());
   }
 
-  // ── POST /api/email?action=reset ─────────────────────────────────────────
+  // ── POST /api/email?action=reset (alias: send-reset) ─────────────────────────────────────────
   if (action === "reset") {
     if (req.method !== "POST") return res.status(405).end();
     const { email } = req.body;
@@ -195,5 +195,5 @@ export default async function handler(req, res) {
   }
 
   // Unknown action
-  return res.status(400).json({ error: "Unknown action. Use ?action=send, verify, reset, or reset-confirm" });
+  return res.status(400).json({ error: "Unknown action. Use ?action=send, verify, reset (or send-reset), or reset-confirm" });
 }

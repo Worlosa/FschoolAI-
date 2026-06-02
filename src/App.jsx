@@ -205,40 +205,39 @@ export default function App() {
     // ── Signup ────────────────────────────────────────────────────────────────
     localStorage.setItem("fschool_name", creds.name);
 
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(creds.password));
+    const password_hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+
+    // Check for existing account — prevents duplicate signups
+    const { data: existing } = await supabase
+      .from("users")
+      .select("id")
+      .eq("email", creds.email.toLowerCase().trim())
+      .maybeSingle();
+
+    if (existing) {
+      // Throw here — propagates up to Landing.jsx to show the error to the user
+      throw new Error("An account with this email already exists. Please sign in instead.");
+    }
+
     try {
-      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(creds.password));
-      const password_hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
-
-      // Check for existing account — prevents duplicate signups
-      const { data: existing } = await supabase
+      await supabase
         .from("users")
-        .select("id")
-        .eq("email", creds.email.toLowerCase().trim())
-        .maybeSingle();
+        .upsert(
+          { id: userId, name: creds.name, email: creds.email.toLowerCase().trim(), password_hash },
+          { onConflict: "id" }
+        );
 
-      if (!existing) {
-        await supabase
-          .from("users")
-          .upsert(
-            { id: userId, name: creds.name, email: creds.email.toLowerCase().trim(), password_hash },
-            { onConflict: "id" }
-          );
-
-        // Send verification email — non-blocking, won't fail signup if email fails
-        fetch("/api/email?action=send", {
-          method:  "POST",
-          headers: { "Content-Type": "application/json" },
-          body:    JSON.stringify({
-            userId,
-            email: creds.email.toLowerCase().trim(),
-            name:  creds.name,
-          }),
-        }).catch(() => {});
-
-      } else {
-        // Email already registered — throw error, don't silently merge into existing account
-        throw new Error("An account with this email already exists. Please sign in instead.");
-      }
+      // Send verification email — non-blocking, won't fail signup if email fails
+      fetch("/api/email?action=send", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({
+          userId,
+          email: creds.email.toLowerCase().trim(),
+          name:  creds.name,
+        }),
+      }).catch(() => {});
     } catch (err) {
       console.warn("Supabase signup failed:", err.message);
     }
@@ -296,23 +295,54 @@ export default function App() {
       {/* ── Email verify banner ───────────────────────────────────────────── */}
       {verifyBanner && (
         <div style={{
-          position:   "fixed",
-          top:        0,
-          left:       0,
-          right:      0,
-          zIndex:     999,
-          padding:    "12px 20px",
-          textAlign:  "center",
-          fontSize:   "13px",
-          fontWeight: "500",
-          background: verifyBanner === "success" ? "rgba(52,199,89,0.95)"
-                    : verifyBanner === "already_done" ? "rgba(52,199,89,0.7)"
-                    : "rgba(255,59,48,0.95)",
-          color: "#fff",
+          position:       "fixed",
+          top:            "env(safe-area-inset-top, 0px)",
+          left:           "50%",
+          transform:      "translateX(-50%)",
+          zIndex:         999,
+          marginTop:      "16px",
+          width:          "calc(100% - 40px)",
+          maxWidth:       "420px",
+          padding:        "14px 18px",
+          borderRadius:   "16px",
+          display:        "flex",
+          alignItems:     "center",
+          gap:            "12px",
+          background:     verifyBanner === "error" ? "rgba(30,10,10,0.88)" : "rgba(10,24,16,0.88)",
+          border:         verifyBanner === "error" ? "1px solid rgba(255,80,70,0.25)" : "1px solid rgba(52,199,89,0.22)",
+          backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+          boxShadow:      verifyBanner === "error"
+            ? "0 8px 32px rgba(255,59,48,0.18), 0 0 0 1px rgba(255,80,70,0.1)"
+            : "0 8px 32px rgba(52,199,89,0.18), 0 0 0 1px rgba(52,199,89,0.1)",
+          animation: "bannerSlideIn 0.4s cubic-bezier(0.34,1.56,0.64,1) both",
         }}>
-          {verifyBanner === "success"      && "✓ Email verified — your 1-month free subscription is active."}
-          {verifyBanner === "already_done" && "✓ Email already verified."}
-          {verifyBanner === "error"        && "Verification link is invalid or expired. Check your email for a new one."}
+          <style>{`
+            @keyframes bannerSlideIn {
+              from { opacity:0; transform:translateX(-50%) translateY(-12px) scale(0.96); }
+              to   { opacity:1; transform:translateX(-50%) translateY(0) scale(1); }
+            }
+            @keyframes pulseRing {
+              0%   { transform:scale(1);   opacity:0.6; }
+              100% { transform:scale(1.9); opacity:0;   }
+            }
+          `}</style>
+          <div style={{ position:"relative", flexShrink:0, width:"10px", height:"10px" }}>
+            <div style={{ position:"absolute", inset:0, borderRadius:"50%", background: verifyBanner === "error" ? "#ff453a" : "#30d158", animation:"pulseRing 1.4s ease-out infinite" }}/>
+            <div style={{ position:"absolute", inset:0, borderRadius:"50%", background: verifyBanner === "error" ? "#ff453a" : "#30d158" }}/>
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:"13px", fontWeight:"600", color: verifyBanner === "error" ? "#ff6961" : "#30d158", letterSpacing:"-0.1px", marginBottom:"2px" }}>
+              {verifyBanner === "success"      && "Email verified"}
+              {verifyBanner === "already_done" && "Already verified"}
+              {verifyBanner === "error"        && "Verification failed"}
+            </div>
+            <div style={{ fontSize:"12px", color:"rgba(255,255,255,0.4)" }}>
+              {verifyBanner === "success"      && "Your 1-month free subscription is now active."}
+              {verifyBanner === "already_done" && "Your email is already verified."}
+              {verifyBanner === "error"        && "Link is invalid or expired — check your inbox."}
+            </div>
+          </div>
         </div>
       )}
 
@@ -346,8 +376,26 @@ export default function App() {
         </div>
       )}
       {resetDone && (
-        <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 999, padding: "12px 20px", textAlign: "center", fontSize: "13px", fontWeight: "500", background: "rgba(52,199,89,0.95)", color: "#fff" }}>
-          ✓ Password updated — you can now sign in with your new password.
+        <div style={{
+          position:"fixed", top:"env(safe-area-inset-top, 0px)", left:"50%",
+          transform:"translateX(-50%)", zIndex:999, marginTop:"16px",
+          width:"calc(100% - 40px)", maxWidth:"420px",
+          padding:"14px 18px", borderRadius:"16px",
+          display:"flex", alignItems:"center", gap:"12px",
+          background:"rgba(10,24,16,0.88)",
+          border:"1px solid rgba(52,199,89,0.22)",
+          backdropFilter:"blur(20px)", WebkitBackdropFilter:"blur(20px)",
+          boxShadow:"0 8px 32px rgba(52,199,89,0.18)",
+          animation:"bannerSlideIn 0.4s cubic-bezier(0.34,1.56,0.64,1) both",
+        }}>
+          <div style={{ position:"relative", flexShrink:0, width:"10px", height:"10px" }}>
+            <div style={{ position:"absolute", inset:0, borderRadius:"50%", background:"#30d158", animation:"pulseRing 1.4s ease-out infinite" }}/>
+            <div style={{ position:"absolute", inset:0, borderRadius:"50%", background:"#30d158" }}/>
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:"13px", fontWeight:"600", color:"#30d158", marginBottom:"2px" }}>Password updated</div>
+            <div style={{ fontSize:"12px", color:"rgba(255,255,255,0.4)" }}>You can now sign in with your new password.</div>
+          </div>
         </div>
       )}
 
