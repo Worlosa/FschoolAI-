@@ -512,13 +512,15 @@ export default function Landing({ onEnter }) {
         <span style={{ color: "rgba(255,255,255,0.12)", fontSize: "12px" }}>Academic intelligence</span>
       </footer>
 
+      {/* ── Forgot password success banner ───────────────────────────────── */}
+      {forgotSent && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 1001, padding: "12px 20px", textAlign: "center", fontSize: "13px", fontWeight: "500", background: "rgba(52,199,89,0.95)", color: "#fff" }}>
+          ✓ Password reset email sent — check your inbox.
+        </div>
+      )}
+
       {/* ── Auth modal ───────────────────────────────────────────────────── */}
       {authMode && (
-        {forgotSent && (
-          <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 1001, padding: "12px 20px", textAlign: "center", fontSize: "13px", fontWeight: "500", background: "rgba(52,199,89,0.95)", color: "#fff" }}>
-            ✓ Password reset email sent — check your inbox.
-          </div>
-        )}
         <AuthModal
           mode={authMode}
           onClose={() => setAuthMode(null)}
