@@ -15,6 +15,7 @@ import { createPortal } from "react-dom";
 import { groq } from "../api/groq";
 import { useApp } from "../context/AppContext";
 import { supabase } from "../api/supabase";
+import ArtifactPanel from "./ArtifactPanel";
 
 // ── Claude proxy helper (tutor brain — better quality than Groq for conversation) ──
 async function claudeTutor(messages, system, signal) {
@@ -40,6 +41,46 @@ function writeImpression(userId, userMessage, tutorResponse) {
 
 const NAV_REGEX      = /<\s*n?\s*nav[^>]*>([\s\S]*?)<\/\s*n?\s*nav\s*>/i;
 const NAV_STRIP_REGEX = /<\s*n?\s*nav[\s\S]*$/i;
+const ARTIFACT_REGEX = /<artifact>([\s\S]*?)<\/artifact>/i;
+
+const VIZ_KEYWORDS = [
+  "chart", "graph", "visuali", "plot", "diagram", "dashboard", "histogram", "scatter", "heatmap",
+  "build", "create", "make me", "make a", "build me",
+  "interactive", "animation", "animate", "simulat",
+  "timer", "calculator", "tracker", "kanban", "game", "snake",
+  "flashcard", "quiz", "pomodoro", "calendar", "planner", "budget",
+  "sorting", "pathfinding", "neural", "algorithm",
+];
+const NAV_OVERRIDE_KEYWORDS = ["go to", "navigate", "open", "show my", "what are my", "study plan", "remind me", "schedule", "assignment"];
+
+function isVizRequest(text) {
+  const lower = text.toLowerCase();
+  if (NAV_OVERRIDE_KEYWORDS.some(kw => lower.includes(kw))) return false;
+  return VIZ_KEYWORDS.some(kw => lower.includes(kw));
+}
+
+function parseArtifact(raw) {
+  const m = raw.match(ARTIFACT_REGEX);
+  if (!m) return { code: null, text: raw };
+  return { code: m[1].trim(), text: raw.replace(ARTIFACT_REGEX, "").trim() || "Here's your visualization." };
+}
+
+const VIZ_SYSTEM = `You are a data visualization expert. Create stunning interactive React visualizations.
+
+STRICT RULES — breaking any of these will cause a crash:
+1. Wrap your ENTIRE component in <artifact></artifact> tags. Nothing outside the tags.
+2. The component MUST be named App: function App() { ... } or const App = () => { ... }
+3. NO import or export statements — everything is already available as a global.
+4. NO TypeScript — plain JavaScript only. No type annotations, no interfaces, no generics.
+5. Use only these pre-loaded globals (do NOT redeclare them):
+   - React hooks: useState, useEffect, useCallback, useMemo, useRef
+   - Recharts: LineChart, Line, BarChart, Bar, PieChart, Pie, AreaChart, Area,
+     RadarChart, Radar, ScatterChart, Scatter, Cell, XAxis, YAxis, CartesianGrid,
+     Tooltip, Legend, ResponsiveContainer, PolarGrid, PolarAngleAxis, PolarRadiusAxis
+6. Use realistic sample data when no real data is provided.
+7. Dark theme: background #111111, primary text rgba(255,255,255,0.9), accent #e8ff6b.
+8. Make it interactive where it makes sense (buttons, sliders, hover effects).
+9. Return ONLY the <artifact> block — no explanation, no markdown fences, nothing else.`;
 
 /** Log chat message to Supabase chat_logs (non-blocking) */
 async function logChat(userId, role, content, page) {
@@ -382,6 +423,10 @@ export default function NeuralRing() {
   const [streamingMsg, setStreamingMsg] = useState("");
   const typeTimerRef = useRef(null);
 
+  // ── Visualization artifact state ────────────────────────────────────────────
+  const [artifactCode, setArtifactCode] = useState(null);
+  const [artifactOpen, setArtifactOpen] = useState(false);
+
   // ── Stop button — cancels in-flight fetch + audio ───────────────────────────
   const stopResponse = useCallback(() => {
     // Cancel in-flight fetch
@@ -718,6 +763,24 @@ export default function NeuralRing() {
     setLoading(true);
     logChat(userId, "user", userMsg.content, null);
     try {
+      // ── Visualization routing — send to Claude artifact builder ───────────
+      if (isVizRequest(userMsg.content)) {
+        const raw = await fetch("/api/claude", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: [userMsg], system: VIZ_SYSTEM, max_tokens: 4096 }),
+        }).then(r => r.json()).then(d => d.content ?? "");
+        const { code, text: displayText } = parseArtifact(raw);
+        if (code) {
+          setArtifactCode(code);
+          setMessages(m => [...m, { role: "assistant", content: displayText, hasArtifact: true }]);
+        } else {
+          setMessages(m => [...m, { role: "assistant", content: displayText }]);
+        }
+        setLoading(false);
+        return;
+      }
+
       // ── Dynamic context fetch (chatbot agent upgrade) ─────────────────────
       // Fires in parallel — if it resolves before Claude, gets injected into prompt
       let dynamicContext = null;
@@ -935,6 +998,20 @@ export default function NeuralRing() {
                       }}
                     >
                       {m.content}
+                      {m.hasArtifact && (
+                        <button
+                          onClick={() => setArtifactOpen(true)}
+                          style={{
+                            display: "block", marginTop: "10px",
+                            background: "rgba(232,255,107,0.12)", border: "1px solid rgba(232,255,107,0.3)",
+                            borderRadius: "8px", padding: "7px 14px", color: "#e8ff6b",
+                            fontSize: "12px", fontWeight: "600", cursor: "pointer",
+                            fontFamily: "inherit", width: "100%", textAlign: "center",
+                          }}
+                        >
+                          View Visualization →
+                        </button>
+                      )}
                     </div>
                     {m.role === "assistant" && (
                       <div style={{ marginTop: "5px", paddingLeft: "2px" }}>
@@ -1123,6 +1200,9 @@ export default function NeuralRing() {
             </div>
           </div>
         </>
+      )}
+      {artifactOpen && artifactCode && (
+        <ArtifactPanel code={artifactCode} onClose={() => setArtifactOpen(false)} />
       )}
     </>,
     document.body
