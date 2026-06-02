@@ -148,6 +148,54 @@ const claudeProxyPlugin = {
   },
 };
 
+// TTS proxy plugin — forwards /api/tts POST to ElevenLabs from dev server.
+const ttsProxyPlugin = {
+  name: "tts-proxy",
+  configureServer(server) {
+    server.middlewares.use("/api/tts", async (req, res) => {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      if (req.method === "OPTIONS") { res.statusCode = 200; res.end(); return; }
+      let body = "";
+      req.on("data", c => { body += c; });
+      req.on("end", async () => {
+        const ELEVEN_KEY = loadEnvKey("ELEVENLABS_API_KEY");
+        if (!ELEVEN_KEY) {
+          res.statusCode = 500; res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ error: "ELEVENLABS_API_KEY not set in .env" })); return;
+        }
+        try {
+          const { text, voiceId } = JSON.parse(body);
+          const voice = voiceId || "JBFqnCBsd6RMkjVDRZzb";
+          const upstream = await fetch(
+            `https://api.elevenlabs.io/v1/text-to-speech/${voice}?output_format=mp3_44100_128`,
+            {
+              method: "POST",
+              headers: { "xi-api-key": ELEVEN_KEY, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                text: text.substring(0, 500),
+                model_id: "eleven_turbo_v2_5",
+                voice_settings: { stability: 0.42, similarity_boost: 0.82, style: 0.18, use_speaker_boost: true },
+              }),
+            }
+          );
+          if (!upstream.ok) {
+            const err = await upstream.text();
+            res.statusCode = 502; res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({ error: `ElevenLabs ${upstream.status}`, detail: err })); return;
+          }
+          const buffer = await upstream.arrayBuffer();
+          const base64 = Buffer.from(buffer).toString("base64");
+          res.statusCode = 200; res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ audio: base64, mimeType: "audio/mpeg" }));
+        } catch (err) {
+          res.statusCode = 502; res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ error: err.message }));
+        }
+      });
+    });
+  },
+};
+
 // iTunes proxy plugin — forwards /itunes-search to itunes.apple.com from dev server.
 // iTunes doesn't send CORS headers in local dev, so this proxies it transparently.
 // In production (Vercel), ShareCard.jsx hits itunes.apple.com directly — it works fine there.
@@ -175,6 +223,6 @@ const itunesProxyPlugin = {
 };
 
 export default defineConfig({
-  plugins: [react(), canvasProxyPlugin, groqProxyPlugin, claudeProxyPlugin, itunesProxyPlugin],
+  plugins: [react(), canvasProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin],
   server:  { port: 5173 },
 });
