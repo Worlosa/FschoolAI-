@@ -111,7 +111,7 @@ window.addEventListener('load', function () {
 
 export default function ArtifactPanel({ code, onClose }) {
   const [loaded, setLoaded] = useState(false);
-  const [showCode, setShowCode] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const [visible, setVisible] = useState(false);
   useEffect(() => {
@@ -122,6 +122,13 @@ export default function ArtifactPanel({ code, onClose }) {
   const handleClose = () => {
     setVisible(false);
     setTimeout(onClose, 240);
+  };
+
+  const handleCopy = () => {
+    navigator.clipboard?.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
   };
 
   return createPortal(
@@ -178,19 +185,20 @@ export default function ArtifactPanel({ code, onClose }) {
           </div>
           <div style={{ display: "flex", gap: "8px" }}>
             <button
-              onClick={() => setShowCode(s => !s)}
+              onClick={handleCopy}
               style={{
-                background: showCode ? "rgba(232,255,107,0.12)" : "rgba(255,255,255,0.06)",
-                border: showCode ? "1px solid rgba(232,255,107,0.3)" : "1px solid rgba(255,255,255,0.1)",
+                background: copied ? "rgba(52,199,89,0.12)" : "rgba(255,255,255,0.06)",
+                border: copied ? "1px solid rgba(52,199,89,0.3)" : "1px solid rgba(255,255,255,0.1)",
                 borderRadius: "8px",
                 padding: "5px 12px",
-                color: showCode ? "#e8ff6b" : "rgba(255,255,255,0.5)",
+                color: copied ? "rgba(52,199,89,0.9)" : "rgba(255,255,255,0.5)",
                 fontSize: "12px",
                 cursor: "pointer",
                 fontFamily: "inherit",
+                transition: "all 0.2s",
               }}
             >
-              {showCode ? "View Chart" : "View Code"}
+              {copied ? "Copied ✓" : "Copy Code"}
             </button>
             <button
               onClick={handleClose}
@@ -210,48 +218,34 @@ export default function ArtifactPanel({ code, onClose }) {
           </div>
         </div>
 
-        {showCode ? (
-          /* Code viewer */
+        {/* Loading overlay */}
+        {!loaded && (
           <div style={{
-            flex: 1, overflow: "auto", padding: "20px",
-            fontFamily: "monospace", fontSize: "12px",
-            color: "rgba(255,255,255,0.75)", lineHeight: "1.7",
-            whiteSpace: "pre-wrap", wordBreak: "break-word",
+            position: "absolute", inset: "57px 0 0 0",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            background: "#111111", zIndex: 1,
           }}>
-            {code}
+            <p style={{ color: "rgba(255,255,255,0.25)", fontSize: "13px", letterSpacing: "0.5px" }}>
+              Loading chart…
+            </p>
           </div>
-        ) : (
-          <>
-            {/* Loading overlay */}
-            {!loaded && (
-              <div style={{
-                position: "absolute", inset: "57px 0 0 0",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                background: "#111111", zIndex: 1,
-              }}>
-                <p style={{ color: "rgba(255,255,255,0.25)", fontSize: "13px", letterSpacing: "0.5px" }}>
-                  Loading chart libraries…
-                </p>
-              </div>
-            )}
-
-            {/* iframe */}
-            <iframe
-              key={code}
-              srcDoc={buildHtml(code)}
-              sandbox="allow-scripts"
-              onLoad={() => setLoaded(true)}
-              style={{
-                flex: 1,
-                border: "none",
-                background: "#111111",
-                opacity: loaded ? 1 : 0,
-                transition: "opacity 0.2s",
-              }}
-              title="Claude Visualization"
-            />
-          </>
         )}
+
+        {/* iframe — always shown, never hidden behind a code view */}
+        <iframe
+          key={code}
+          srcDoc={buildHtml(code)}
+          sandbox="allow-scripts"
+          onLoad={() => setLoaded(true)}
+          style={{
+            flex: 1,
+            border: "none",
+            background: "#111111",
+            opacity: loaded ? 1 : 0,
+            transition: "opacity 0.2s",
+          }}
+          title="Claude Visualization"
+        />
       </div>
     </>,
     document.body
