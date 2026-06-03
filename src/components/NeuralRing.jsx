@@ -13,6 +13,7 @@
 import { useRef, useEffect, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { groq } from "../api/groq";
+import { claude } from "../api/claude";
 import { useApp } from "../context/AppContext";
 import { supabase } from "../api/supabase";
 import ArtifactPanel from "./ArtifactPanel";
@@ -815,11 +816,13 @@ export default function NeuralRing() {
         : system;
 
       // Use Claude for tutor brain; fall back to Groq if key missing
+      // Strip UI-only props (hasArtifact) so they don't reach the Anthropic/Groq API
+      const apiMessages = [...messages, userMsg].map(({ role, content }) => ({ role, content }));
       let raw;
       try {
-        raw = await claudeTutor([...messages, userMsg], finalSystem, abortCtrlRef.current?.signal);
+        raw = await claudeTutor(apiMessages, finalSystem, abortCtrlRef.current?.signal);
       } catch {
-        raw = await groq([...messages, userMsg], finalSystem);
+        raw = await groq(apiMessages, finalSystem);
       }
 
       const { cmd, text: displayText } = parseNav(raw);
@@ -972,8 +975,9 @@ export default function NeuralRing() {
               {messages.length === 0 ? (
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginTop: "40px", gap: "12px" }}>
                   <div style={{ width: 52, height: 52, borderRadius: "50%", background: "radial-gradient(circle at 35% 35%, rgba(255,255,255,0.14), rgba(255,255,255,0.03))", border: "1px solid rgba(255,255,255,0.10)" }} />
-                  <p style={{ color: "rgba(255,255,255,0.22)", fontSize: "14px", textAlign: "center", lineHeight: "1.8" }}>
-                    Ask about assignments, grades,<br />or navigate anywhere in the app.
+                  <p style={{ color: "rgba(255,255,255,0.22)", fontSize: "14px", textAlign: "center", lineHeight: "1.7" }}>
+                    Ask me about your courses,<br />assignments, or study material.<br />
+                    <span style={{ color: "rgba(232,255,107,0.5)", fontSize: "12px" }}>Try "show me a chart of study progress"</span>
                   </p>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "7px", justifyContent: "center", marginTop: "4px" }}>
                     {["What's due soon?", "Take me to study", "How's my GPA?", "Open toolkit"].map(prompt => (
@@ -1000,7 +1004,7 @@ export default function NeuralRing() {
                         borderRadius: m.role === "user" ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
                         padding: "10px 14px", color: "var(--text-primary)",
                         fontSize: "14px", lineHeight: "1.6",
-                        border: "1px solid rgba(255,255,255,0.07)",
+                        border: m.hasArtifact ? "1px solid rgba(232,255,107,0.2)" : "1px solid rgba(255,255,255,0.07)",
                       }}
                     >
                       {m.content}
