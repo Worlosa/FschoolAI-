@@ -1,8 +1,8 @@
-// api/canvas.js — Vercel serverless function (Node.js, CJS runtime).
+// api/canvas.js — Vercel serverless function (ESM).
 // Forwards Canvas LMS API requests server-side, bypassing browser CORS.
 // Receives: ?base=<canvas-api-base>&path=<api-path>&token=<access-token>
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Authorization, Accept");
