@@ -98,15 +98,35 @@ export async function fetchUserGroups(canvasToken, baseUrl, proxyUrl) {
 }
 
 export async function fetchCourses(canvasToken, baseUrl, proxyUrl) {
-  const includes = 'include[]=total_scores&include[]=current_grading_period_scores&include[]=course_image';
-  let courses = await fetchAll(
-    `/courses?enrollment_state=active&${includes}`,
-    canvasToken, baseUrl, proxyUrl
-  );
-  if (!courses.length) {
-    courses = await fetchAll(`/courses?${includes}`, canvasToken, baseUrl, proxyUrl);
+  // Some Canvas instances return 500 on specific includes (commonly
+  // current_grading_period_scores, or course_image when the account feature
+  // is off). A single failing include must not kill the entire sync, so try
+  // progressively simpler include sets until one succeeds.
+  const includeSets = [
+    'include[]=total_scores&include[]=current_grading_period_scores&include[]=course_image',
+    'include[]=total_scores&include[]=course_image',
+    'include[]=total_scores',
+    '',
+  ];
+  for (const includes of includeSets) {
+    try {
+      const q = includes ? `&${includes}` : '';
+      let courses = await fetchAll(
+        `/courses?enrollment_state=active${q}`,
+        canvasToken, baseUrl, proxyUrl
+      );
+      if (!courses.length) {
+        courses = await fetchAll(
+          `/courses${includes ? `?${includes}` : ''}`,
+          canvasToken, baseUrl, proxyUrl
+        );
+      }
+      return courses;
+    } catch {
+      // fall through to the next, simpler include set
+    }
   }
-  return courses;
+  return [];
 }
 
 export async function fetchAssignments(canvasToken, baseUrl, courseId, proxyUrl) {
@@ -175,11 +195,22 @@ export async function fetchAssignmentGroups(canvasToken, baseUrl, courseId, prox
 
 /** Fetch all past/completed courses (previous semesters) */
 export async function fetchPastCourses(canvasToken, baseUrl, proxyUrl) {
-  const includes = 'include[]=total_scores&include[]=course_image';
-  return fetchAll(
-    `/courses?enrollment_state=completed&${includes}`,
-    canvasToken, baseUrl, proxyUrl
-  );
+  const includeSets = [
+    'include[]=total_scores&include[]=course_image',
+    'include[]=total_scores',
+    '',
+  ];
+  for (const includes of includeSets) {
+    try {
+      return await fetchAll(
+        `/courses?enrollment_state=completed${includes ? `&${includes}` : ''}`,
+        canvasToken, baseUrl, proxyUrl
+      );
+    } catch {
+      // try a simpler include set
+    }
+  }
+  return [];
 }
 
 /** Fetch files for a course — filters to slides, PDFs, and docs */

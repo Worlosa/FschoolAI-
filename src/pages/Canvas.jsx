@@ -564,6 +564,56 @@ export default function Canvas() {
             <strong>Note:</strong> Canvas restricts direct browser requests from third-party origins (CORS). If sync fails, you may need a proxy server.
           </p>
         </div>
+
+        {/* Manual courses don't need Canvas — let users build their list now */}
+        <p style={{ color: "var(--text-secondary)", fontSize: "13px", fontWeight: "600", margin: "26px 0 10px" }}>
+          Or add courses manually
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          {courses.map(c => (
+            <CourseCard
+              key={c.id ?? c.course_code ?? c.courseCode}
+              course={c}
+              assignments={assignments}
+              modules={modules}
+              assignmentGroups={assignmentGroups}
+            />
+          ))}
+
+          <PastCoursesSection
+            pastCourses={pastCourses || []}
+            addedIds={addedPastIds}
+            adding={addingPast}
+            onAdd={handleAddPastCourse}
+            onAddManual={handleAddManualPast}
+          />
+
+          <button
+            onClick={() => setShowUpload(true)}
+            style={{
+              width: "100%", padding: "18px",
+              background: "transparent",
+              border: "1px dashed rgba(255,255,255,0.12)",
+              borderRadius: "var(--radius-card)",
+              color: "var(--text-dim)", fontSize: "13px", fontWeight: "500",
+              cursor: "pointer", fontFamily: "inherit",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
+            }}
+          >
+            <span style={{ fontSize: "16px", lineHeight: 1 }}>+</span>
+            Add course manually
+          </button>
+        </div>
+
+        {showUpload && (
+          <ManualUploadSheet
+            onClose={() => setShowUpload(false)}
+            onSave={(course, newAssignments) => {
+              addManualCourse(course, newAssignments);
+              setShowUpload(false);
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -633,16 +683,14 @@ export default function Canvas() {
           />
         ))}
 
-        {/* ── Past courses section ── */}
-        {pastCourses && pastCourses.length > 0 && (
-          <PastCoursesSection
-            pastCourses={pastCourses}
-            addedIds={addedPastIds}
-            adding={addingPast}
-            onAdd={handleAddPastCourse}
-            onAddManual={handleAddManualPast}
-          />
-        )}
+        {/* ── Past courses section (always shown — has its own empty state + manual add) ── */}
+        <PastCoursesSection
+          pastCourses={pastCourses || []}
+          addedIds={addedPastIds}
+          adding={addingPast}
+          onAdd={handleAddPastCourse}
+          onAddManual={handleAddManualPast}
+        />
 
         {/* ── Manual upload trigger ── */}
         <button

@@ -207,6 +207,16 @@ export async function syncCanvasData(userId, canvasToken, canvasBaseUrl) {
 
   const courseIds = courses.map(c => c.id);
 
+  // Collection arrays (declared up here so past-course extraction below can
+  // push into the same files/pages blobs as current courses).
+  const allAssignments      = [];
+  const allModules          = [];
+  const allAssignmentGroups = [];
+  const allDiscussionTopics = [];
+  const allCourseFiles      = [];
+  const allCoursePages      = [];
+  const allQuizzes          = [];
+
   // ── 1b. Past/completed courses ───────────────────────────────────
   let pastCourses = [];
   try {
@@ -214,15 +224,25 @@ export async function syncCanvasData(userId, canvasToken, canvasBaseUrl) {
     pastCourses = normalizePastCourses(rawPast);
   } catch { /* skip */ }
 
-  // ── 1c. Fetch assignments for past courses (up to 5 most recent) ─
+  // ── 1c. Extract assignments + files + notes for past courses ─────
   const allPastAssignments = [];
   const recentPast = pastCourses.slice(0, 5);
   for (const pastCourse of recentPast) {
+    const meta = { courseId: pastCourse.id, courseCode: pastCourse.courseCode, courseName: pastCourse.name };
     try {
       const raw = await fetchAssignments(canvasToken, baseUrl, pastCourse.id, proxy);
-      const meta = { courseId: pastCourse.id, courseCode: pastCourse.courseCode, courseName: pastCourse.name };
       allPastAssignments.push(...normalizeAssignments(raw, meta));
     } catch { /* skip — past courses may return 404 */ }
+    // Slides / PDFs / docs for the past course
+    try {
+      const raw = await fetchCourseFiles(canvasToken, baseUrl, pastCourse.id, proxy);
+      allCourseFiles.push({ courseId: pastCourse.id, courseCode: pastCourse.courseCode, courseName: pastCourse.name, files: normalizeCourseFiles(raw), past: true });
+    } catch { /* skip */ }
+    // Lecture notes / reading pages for the past course
+    try {
+      const raw = await fetchCoursePages(canvasToken, baseUrl, pastCourse.id, proxy);
+      allCoursePages.push({ courseId: pastCourse.id, courseCode: pastCourse.courseCode, courseName: pastCourse.name, pages: raw.map(normalizeCoursePageSummary), past: true });
+    } catch { /* skip */ }
   }
 
   // Upsert past assignments if any were fetched
@@ -245,14 +265,6 @@ export async function syncCanvasData(userId, canvasToken, canvasBaseUrl) {
   }
 
   // ── 2. Per-course data (sequential to avoid rate limits) ─────────
-  const allAssignments      = [];
-  const allModules          = [];
-  const allAssignmentGroups = [];
-  const allDiscussionTopics = [];
-  const allCourseFiles      = [];
-  const allCoursePages      = [];
-  const allQuizzes          = [];
-
   for (const course of courses) {
     const meta = { courseId: course.id, courseCode: course.courseCode, courseName: course.name };
 
