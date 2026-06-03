@@ -17,7 +17,7 @@ function getOrCreateUserId() {
 }
 
 export function AppProvider({ children }) {
-  const [userId] = useState(getOrCreateUserId);
+  const [userId, setUserId] = useState(getOrCreateUserId);
   const [userData, setUserData]               = useState(null);
   const [canvasToken, setCanvasToken]         = useState("");
   const [canvasBaseUrl, setCanvasBaseUrl]     = useState("");
@@ -122,6 +122,34 @@ export function AppProvider({ children }) {
     }
     doSync();
   }, [canvasToken, canvasBaseUrl, userId]);
+
+  /** Re-fetch the current user row from Supabase (e.g. after verifying on another device). */
+  const refreshUser = useCallback(async () => {
+    const { data: user } = await supabase
+      .from("users")
+      .select("*")
+      .eq("id", userId)
+      .maybeSingle();
+    if (user) {
+      setUserData(user);
+      if (user.canvas_token)    setCanvasToken(user.canvas_token);
+      if (user.canvas_base_url) setCanvasBaseUrl(user.canvas_base_url);
+    }
+  }, [userId]);
+
+  // When the tab regains focus, re-pull the user. This makes a verification
+  // completed on a phone surface on the laptop without a manual reload.
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState === "visible") refreshUser();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [refreshUser]);
 
   /** Save Canvas credentials to Supabase and trigger a fresh sync. */
   const saveCanvasCredentials = useCallback(async (token, baseUrl) => {
@@ -245,6 +273,8 @@ export function AppProvider({ children }) {
   return (
     <AppContext.Provider value={{
       userId,
+      setUserId,
+      refreshUser,
       userData,
       canvasToken,
       canvasBaseUrl,
