@@ -159,7 +159,8 @@ const inputStyle = {
 /* ─── Main component ───────────────────────────────────────────────────────── */
 
 export default function Onboarding({ email, preferredName: initName, onComplete }) {
-  const [step, setStep] = useState(0); // 0 | 1 | 2 | "gen"
+  const [step, setStep] = useState(0); // 0 | 1 | 2 | "gen" | "discord"
+  const [completionPayload, setCompletionPayload] = useState(null);
   const [draft, setDraft] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("sa_onboarding_draft") || "{}");
@@ -334,7 +335,7 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
       }
     } catch {}
 
-    onComplete({
+    const payload = {
       preferredName: draft.preferredName,
       schoolName:    draft.schoolName,
       schoolCity:    draft.schoolCity,
@@ -343,11 +344,86 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
       token,
       baseUrl:       base,
       goals:         draft.goals,
-    });
+    };
+    setCompletionPayload(payload);
+    setStep("discord");
+  }
+
+  // Finish onboarding without Discord
+  function finishOnboarding() {
+    if (completionPayload) onComplete(completionPayload);
+  }
+
+  // Save onboarding data, then send the user to Discord OAuth. We await the
+  // save so the account is fully persisted (and logged in) before the full-page
+  // redirect; on return the app lands logged-in with ?discord=connected.
+  async function connectDiscord() {
+    const uid = localStorage.getItem("fschool_uid") || "";
+    try { if (completionPayload) await onComplete(completionPayload); } catch {}
+    window.location.href = `/api/discord?action=login&uid=${encodeURIComponent(uid)}`;
   }
 
   /* ── Progress ───────────────────────────────────────────────────────────── */
-  const progress = step === "gen" ? 100 : ((Number(step) + 1) / 3) * 100;
+  const progress = (step === "gen" || step === "discord") ? 100 : ((Number(step) + 1) / 3) * 100;
+
+  /* ── Discord reward step ─────────────────────────────────────────────────── */
+  if (step === "discord") {
+    return (
+      <div style={{
+        minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center",
+        padding: "24px", background: "var(--color-bg, #0b0b0d)",
+        fontFamily: "var(--font-sans, -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif)",
+      }}>
+        <style>{`@keyframes obUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}} .ob-disc-primary:active{transform:scale(.985)}`}</style>
+        <div style={{ width: "100%", maxWidth: "380px", textAlign: "center", animation: "obUp .5s cubic-bezier(.34,1.56,.64,1) both" }}>
+          <div style={{
+            width: "60px", height: "60px", margin: "0 auto 22px", borderRadius: "18px",
+            background: "rgba(88,101,242,0.12)", border: "1px solid rgba(88,101,242,0.28)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="#5865F2">
+              <path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5a18.3 18.3 0 0 1 4.3 1.4 16.7 16.7 0 0 0-13-.05A18 18 0 0 1 10.78 3.5L10.5 3A19.7 19.7 0 0 0 5.6 4.4 20.6 20.6 0 0 0 2 18.3a19.9 19.9 0 0 0 6 3 14.6 14.6 0 0 0 1.27-2.07 12.9 12.9 0 0 1-2-.96l.5-.36a14.2 14.2 0 0 0 12.2 0l.5.36c-.63.38-1.3.7-2 .96A14.5 14.5 0 0 0 16 21.3a19.8 19.8 0 0 0 6-3 20.5 20.5 0 0 0-1.7-13.9ZM8.7 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6.6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/>
+            </svg>
+          </div>
+
+          <h1 style={{ fontSize: "24px", fontWeight: "700", color: "var(--text-primary, #f5f5f5)", letterSpacing: "-0.4px", marginBottom: "10px" }}>
+            You're in{draft.preferredName ? `, ${draft.preferredName}` : ""}. 🎉
+          </h1>
+          <p style={{ fontSize: "14px", color: "var(--text-dim, rgba(255,255,255,0.45))", lineHeight: 1.65, marginBottom: "28px" }}>
+            Join the beta community on Discord — get your free-month perks, drop feedback with <strong style={{ color: "#a6b0ff", fontWeight: 600 }}>/feedback</strong> to earn points, and help shape what we build next.
+          </p>
+
+          <button
+            className="ob-disc-primary"
+            onClick={connectDiscord}
+            style={{
+              width: "100%", padding: "15px", marginBottom: "12px",
+              background: "#5865F2", color: "#fff", border: "none",
+              borderRadius: "13px", fontSize: "15px", fontWeight: "650",
+              cursor: "pointer", fontFamily: "inherit", transition: "transform .1s ease",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: "9px",
+            }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="#fff">
+              <path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.25.5a18.3 18.3 0 0 1 4.3 1.4 16.7 16.7 0 0 0-13-.05A18 18 0 0 1 10.78 3.5L10.5 3A19.7 19.7 0 0 0 5.6 4.4 20.6 20.6 0 0 0 2 18.3a19.9 19.9 0 0 0 6 3 14.6 14.6 0 0 0 1.27-2.07 12.9 12.9 0 0 1-2-.96l.5-.36a14.2 14.2 0 0 0 12.2 0l.5.36c-.63.38-1.3.7-2 .96A14.5 14.5 0 0 0 16 21.3a19.8 19.8 0 0 0 6-3 20.5 20.5 0 0 0-1.7-13.9ZM8.7 15.3c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Zm6.6 0c-1 0-1.8-.9-1.8-2s.8-2 1.8-2 1.8.9 1.8 2-.8 2-1.8 2Z"/>
+            </svg>
+            Join the community
+          </button>
+
+          <button
+            onClick={finishOnboarding}
+            style={{
+              width: "100%", padding: "12px", background: "transparent", border: "none",
+              color: "var(--text-dim, rgba(255,255,255,0.4))", fontSize: "14px", fontWeight: "500",
+              cursor: "pointer", fontFamily: "inherit",
+            }}
+          >
+            Maybe later
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   /* ── Render ─────────────────────────────────────────────────────────────── */
   return (
