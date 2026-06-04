@@ -1,59 +1,61 @@
 /**
- * Focus Agent
- * 
- * Helps students maintain concentration and manage distractions
- * - Detects when focus is waning
- * - Suggests focus techniques
- * - Blocks distractions
- * - Provides focus sessions
+ * Focus Agent — Reggie's internal capability for focus, deep work, and distraction management.
+ *
+ * This is NOT a separate persona. Reggie uses this when the student needs:
+ * - Help getting started on something they're avoiding
+ * - A focus session structure (Pomodoro, deep work blocks)
+ * - Distraction management
+ * - Burnout or overwhelm support
+ *
+ * The student always hears Reggie's voice. This module injects the right
+ * focus context into Reggie's system prompt.
  */
 
-export class FocusAgent {
-  /**
-   * Detect focus level from behavioral signals
-   */
-  async detectFocusLevel(userId: string): Promise<{
-    focusScore: number;
-    distractions: string[];
-    recommendation: string;
-  }> {
-    // In production, analyze:
-    // - App switching frequency
-    // - Time spent on task
-    // - Typing patterns
-    // - Screen time
-    
-    return {
-      focusScore: 0.7,
-      distractions: ['social media', 'notifications', 'music'],
-      recommendation: 'Try a 25-minute focus session with notifications off',
-    };
-  }
-
-  /**
-   * Suggest focus technique
-   */
-  async suggestFocusTechnique(focusScore: number): Promise<string> {
-    if (focusScore > 0.8) {
-      return 'You\'re in a great focus state! Keep going.';
-    } else if (focusScore > 0.6) {
-      return 'Try the Pomodoro technique: 25 min focus, 5 min break';
-    } else if (focusScore > 0.4) {
-      return 'Your focus is dropping. Take a 10-minute break and come back.';
-    } else {
-      return 'Let\'s reset. Try a 5-minute meditation or walk.';
-    }
-  }
-
-  /**
-   * Enable focus mode
-   */
-  async enableFocusMode(userId: string, duration: number): Promise<void> {
-    // Block notifications
-    // Disable distracting apps
-    // Set timer
-    // Log focus session
-  }
+export interface FocusContext {
+  currentStressLevel?: number;   // 0-1 from brain.signals
+  sessionLengthMinutes?: number; // how long they've been working
+  recentAvoidanceBehavior?: boolean; // from brain.patterns
+  upcomingDeadlines?: string[];  // from fschool.assignments
 }
 
-export default FocusAgent;
+/**
+ * Builds the system prompt addition for focus/deep work mode.
+ * Injected into Reggie's base prompt — does NOT replace it.
+ */
+export function buildFocusAgentPrompt(
+  name: string,
+  brainContext: string,
+  ctx: FocusContext
+): string {
+  const stressNote = ctx.currentStressLevel !== undefined
+    ? ctx.currentStressLevel > 0.7
+      ? `\n\n${name}'s stress level is high right now. Don't push harder — help them decompress first, then redirect.`
+      : ctx.currentStressLevel < 0.3
+        ? `\n\n${name} seems calm. Good time to suggest a deeper focus session.`
+        : ''
+    : '';
+
+  const avoidanceNote = ctx.recentAvoidanceBehavior
+    ? `\n\n${name} has been avoiding something. Don't call it out directly — ask what's feeling heavy right now.`
+    : '';
+
+  const deadlineNote = ctx.upcomingDeadlines?.length
+    ? `\n\nUpcoming deadlines: ${ctx.upcomingDeadlines.join(', ')}. Factor these into any focus plan.`
+    : '';
+
+  return `You are Reggie — ${name}'s personal academic intelligence.
+
+Right now ${name} needs help with focus or getting started. Your job is to help them move, not lecture them.
+
+Focus principles:
+- Don't ask "what do you want to work on?" — you know their deadlines. Make a specific suggestion.
+- If they're overwhelmed, help them pick ONE thing — not a full plan
+- Match your energy to theirs: if they're low, be calm and steady; if they're anxious, be grounding
+- The Pomodoro technique works for most students — suggest 25 min on, 5 min off as a default
+- If they've been working a long time, suggest a break before more work
+- Avoidance is usually about fear of failure or not knowing where to start — address the root, not the symptom
+
+${brainContext}${stressNote}${avoidanceNote}${deadlineNote}
+
+Remember: you know this person's patterns. Use that knowledge.`;
+}

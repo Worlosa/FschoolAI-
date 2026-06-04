@@ -22,6 +22,10 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { contextWindowWriter, BrainContextWindow } from './brain-context-window';
 import { signalIngestion } from './signal-ingestion';
+import { detectCapability, getCapabilityPromptAddition } from '../agents/agent-router';
+import { buildAssignmentAgentPrompt } from '../agents/assignment-agent';
+import { buildCitationAgentPrompt } from '../agents/citation-agent';
+import { fetchCanvasContext, buildCanvasAgentPrompt } from '../agents/canvas-agent';
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -61,8 +65,11 @@ export class BrainChatSession {
       .eq('id', personId)
       .single();
 
-    // ── Step 4: Build enriched system prompt ─────────────────────────────
-    const systemPrompt = this.buildSystemPrompt(person, brainContext);
+    // ── Step 4: Detect capability + build enriched system prompt ─────────
+    const routing = detectCapability(message);
+    const systemPrompt = await this.buildRoutedSystemPrompt(
+      person, brainContext, message, routing.capability, personId
+    );
 
     // ── Step 5: Build messages array ─────────────────────────────────────
     const messages: Anthropic.MessageParam[] = [
@@ -194,6 +201,50 @@ export class BrainChatSession {
   // ─────────────────────────────────────────────────────────────────────────
   // System Prompt Builder
   // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Builds the system prompt with agent capability injection.
+   * Reggie always speaks — but with the right internal context loaded.
+   */
+  private async buildRoutedSystemPrompt(
+    person: any,
+    brainContext: BrainContextWindow | null,
+    message: string,
+    capability: string,
+    personId: string
+  ): Promise<string> {
+    const name = person?.name || 'the student';
+    const brainContextStr = brainContext ? contextWindowWriter.formatAsSystemPrompt(brainContext) : '';
+
+    // Canvas: inject live Canvas data
+    if (capability === 'canvas') {
+      const canvasCtx = await fetchCanvasContext(personId);
+      if (canvasCtx) {
+        return buildCanvasAgentPrompt(name, brainContextStr, canvasCtx);
+      }
+      // Canvas not synced yet — fall through to base prompt
+    }
+
+    // Assignment: inject assignment scaffolding context
+    if (capability === 'assignment') {
+      return buildAssignmentAgentPrompt(name, brainContextStr, {});
+    }
+
+    // Citation: inject citation context
+    if (capability === 'citation') {
+      const styleMatch = message.match(/\b(APA|MLA|Chicago|Harvard|Vancouver)\b/i);
+      const citationStyle = (styleMatch?.[1]?.toUpperCase() as any) || 'APA';
+      return buildCitationAgentPrompt(name, brainContextStr, {
+        citationStyle,
+        claim: message,
+      });
+    }
+
+    // All other capabilities: base prompt + capability-specific addition
+    const basePrompt = this.buildSystemPrompt(person, brainContext);
+    const capabilityAddition = getCapabilityPromptAddition(capability as any, name);
+    return basePrompt + capabilityAddition;
+  }
 
   private buildSystemPrompt(person: any, brainContext: BrainContextWindow | null): string {
     const name = person?.name || 'the student';
