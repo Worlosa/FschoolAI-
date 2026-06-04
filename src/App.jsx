@@ -76,7 +76,7 @@ if (!document.getElementById("app-shell-styles")) {
 }
 
 export default function App() {
-  const { userId, setUserId, refreshUser, saveCanvasCredentials, updateUserField, pendingNav, setPendingNav } = useApp();
+  const { userId, setUserId, refreshUser, userData, saveCanvasCredentials, updateUserField, pendingNav, setPendingNav } = useApp();
 
   const [isLoggedIn, setIsLoggedIn] = useState(
     () => Boolean(localStorage.getItem(LOGGED_IN_KEY))
