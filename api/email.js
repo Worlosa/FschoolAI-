@@ -14,14 +14,20 @@ const supabase = createClient(
 );
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Build the public base URL from the incoming request so verify/reset links
-// point back to the SAME deployment that sent them (prod link from prod,
-// preview link from preview) instead of a hardcoded domain. Falls back to
-// production if headers are missing.
+// Build the public base URL for email links.
+// Only use the request host when it is a known production or custom domain.
+// Vercel preview URLs (*.vercel.app except the production one) require
+// authentication — clicking them from an email lands on the Vercel login page
+// instead of running the function. Always fall back to the production domain
+// for any preview or unknown host so email links work for everyone.
 function getBaseUrl(req) {
   const host  = req.headers["x-forwarded-host"] || req.headers.host;
   const proto = req.headers["x-forwarded-proto"] || "https";
-  return host ? proto + "://" + host : "https://neuro-agi.vercel.app";
+  // Accept: the exact production subdomain, or any custom domain (no .vercel.app).
+  if (host && (host === "neuro-agi.vercel.app" || !host.endsWith(".vercel.app"))) {
+    return `${proto}://${host}`;
+  }
+  return "https://neuro-agi.vercel.app";
 }
 
 export default async function handler(req, res) {
