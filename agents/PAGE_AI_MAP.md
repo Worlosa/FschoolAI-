@@ -27,6 +27,7 @@ These agents are always running. They do not belong to a single page — they ar
 | Token Engine | `token-engine.md` | Awards tokens for validated actions, manages tier progression | 🔴 NOT BUILT |
 | Motivation Engine | `motivation-engine.md` | Detects motivation drops, sends personalized interventions | 🔴 NOT BUILT |
 | UI Preference Agent | `ui-preference-agent.md` | Stores and applies interface customizations from chat commands | 🔴 NOT BUILT |
+| **Voice Preference Agent** | `voice-preference-agent.md` | Lives inside Agent Manager — detects voice change intent in any message, generates custom voice via ElevenLabs Voice Design API, stores in neuro.voice | 🔴 NOT BUILT |
 
 ---
 
@@ -136,6 +137,7 @@ The chat panel is NOT a page — it is a layer that slides up from any page. But
 | Opened from SOCIAL | Social Intelligence + Study Room Orchestrator | "Who should I study with?" |
 | Opened from LEADERBOARD | Motivation Engine + Token Engine | "How do I get to #1?" |
 | UI modification request | UI Preference Agent | "Make my background darker" |
+| Voice change request | **Voice Preference Agent** | "Sound more like a female professor" / "Make your voice deeper" |
 | Grade question | Exam Predictor | "What will I get on the midterm?" |
 | Motivation request | Motivation Engine | "I can't focus" |
 | Content link | Content Connector | "How does this video relate to my class?" |
@@ -156,6 +158,7 @@ Canvas Watcher       ○      ●       ○      ●       ○      ○       �
 Token Engine         ●      ●       ●      ○       ○      ●       ●      ●
 Motivation Engine    ●      ○       ○      ○       ○      ●       ●      ●
 UI Preference Agent  ●      ●       ●      ●       ●      ●       ●      ●
+Voice Pref. Agent    ●      ●       ●      ●       ●      ●       ●      ●
 Situation Synth.     ●      ○       ○      ○       ○      ○       ○      ●
 Assignment Agent     ○      ●       ○      ○       ○      ○       ○      ●
 Exam Predictor       ○      ●       ○      ●       ○      ○       ○      ●
@@ -203,6 +206,7 @@ Leaderboard Agent    ○      ○       ○      ○       ○      ○       �
 16. `content-connector.md` — link outside content to coursework
 17. `focus-agent.md` — attention tracking
 18. `ui-preference-agent.md` — AI-generated interface modifications
+19. `voice-preference-agent.md` — custom voice via chat ("sound more like a professor")
 
 ---
 
