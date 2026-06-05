@@ -1,5 +1,5 @@
 /**
- * Canvas Agent — Internal capability of Reggie
+ * Canvas Agent — Internal capability of the AI Tutor
  *
  * Handles all Canvas LMS related requests: grades, deadlines, assignments,
  * courses, upcoming exams, and academic calendar questions.
@@ -7,7 +7,7 @@
  * Reads directly from fschool.* tables (populated by Canvas sync).
  * Never fabricates grades or deadlines — if data isn't synced, it says so.
  *
- * Triggered when Reggie detects: grade questions, deadline questions,
+ * Triggered when the router detects: grade questions, deadline questions,
  * "what's due", "my GPA", "upcoming assignments", "course info" requests.
  */
 
@@ -161,7 +161,7 @@ export async function fetchCanvasContext(personId: string): Promise<CanvasContex
 }
 
 /**
- * Formats Canvas data as a system prompt section for Reggie.
+ * Formats Canvas data as a system prompt section for the AI Tutor.
  * Injected into the system prompt when a Canvas-related question is detected.
  */
 export function buildCanvasAgentPrompt(
@@ -197,7 +197,7 @@ export function buildCanvasAgentPrompt(
 
   const gpaSection = overallGPA !== undefined ? `\nOVERALL AVERAGE: ${overallGPA}%` : '';
 
-  return `You are Reggie, ${studentName}'s personal academic AI. Right now you are answering a question about their Canvas courses, grades, or deadlines.
+  return `You are ${studentName}'s personal academic AI. Right now you are answering a question about their Canvas courses, grades, or deadlines.
 
 STUDENT BRAIN CONTEXT:
 ${brainContext}
@@ -211,7 +211,7 @@ YOUR ROLE RIGHT NOW:
 - If something looks urgent (missed assignment, grade drop, deadline in <48 hours), flag it
 - If Canvas data isn't available for something they asked, say so honestly — don't guess
 - Keep it concise unless they ask for detail
-- Sound like Reggie — personal, direct, like you've been watching their academic life`;
+- Sound personal, direct, like you've been watching their academic life`;
 }
 
 /**

@@ -1,14 +1,14 @@
 /**
- * Focus Agent — Reggie's internal capability for focus, deep work, and distraction management.
+ * Focus Agent — Internal capability for focus, deep work, and distraction management.
  *
- * This is NOT a separate persona. Reggie uses this when the student needs:
+ * This is NOT a separate persona. The AI Tutor uses this when the student needs:
  * - Help getting started on something they're avoiding
  * - A focus session structure (Pomodoro, deep work blocks)
  * - Distraction management
  * - Burnout or overwhelm support
  *
- * The student always hears Reggie's voice. This module injects the right
- * focus context into Reggie's system prompt.
+ * The student always hears the AI Tutor's voice. This module injects the right
+ * focus context into the system prompt.
  */
 
 export interface FocusContext {
@@ -20,7 +20,7 @@ export interface FocusContext {
 
 /**
  * Builds the system prompt addition for focus/deep work mode.
- * Injected into Reggie's base prompt — does NOT replace it.
+ * Injected into the AI Tutor's base prompt — does NOT replace it.
  */
 export function buildFocusAgentPrompt(
   name: string,
@@ -43,7 +43,7 @@ export function buildFocusAgentPrompt(
     ? `\n\nUpcoming deadlines: ${ctx.upcomingDeadlines.join(', ')}. Factor these into any focus plan.`
     : '';
 
-  return `You are Reggie — ${name}'s personal academic intelligence.
+  return `You are ${name}'s personal academic intelligence.
 
 Right now ${name} needs help with focus or getting started. Your job is to help them move, not lecture them.
 

@@ -2,14 +2,14 @@
  * FschoolAI Agent Registry
  *
  * ARCHITECTURE:
- * - Reggie is the ONLY agent the student ever interacts with
- * - Reggie reads the student's brain context before every response
- * - Reggie routes internally to sub-agent capabilities — this is INVISIBLE to the student
- * - Sub-agents provide specialized prompts and logic; Reggie delivers in his own voice
+ * - The AI Tutor is the ONLY agent the student ever interacts with
+ * - The AI Tutor reads the student's brain context before every response
+ * - It routes internally to sub-agent capabilities — this is INVISIBLE to the student
+ * - Sub-agents provide specialized prompts and logic; the AI Tutor delivers in its own voice
  *
  * AGENT HIERARCHY:
  *
- * Reggie (Agent Manager — the face of FschoolAI)
+ * AI Tutor (Agent Manager — the face of FschoolAI)
  * ├── Tutor Mode
  * │   ├── assignment-agent   — essay help, drafts, rubric review
  * │   ├── citation-agent     — sources, formatting, fact-checking
@@ -17,8 +17,8 @@
  * │   └── focus-agent        — deep work, distraction management
  * └── Core Modes (motivation, performance, synthesis, reflection, recommendation, crisis)
  *
- * NOTE: The student never sees agent names. They only ever talk to Reggie.
- * Agent selection is SEMANTIC — Reggie's LLM router reads brain context + message
+ * NOTE: The student never sees agent names. They talk to their personally-named AI Tutor.
+ * Agent selection is SEMANTIC — the LLM router reads brain context + message
  * and picks the right capability. No keyword matching.
  */
 
@@ -51,7 +51,7 @@ export type AgentCapability =
 /**
  * AGENT_REGISTRY — used by the orchestrator to understand each capability.
  *
- * The `description` field is what Reggie reads to decide which capability to use.
+ * The `description` field is what the Agent Router reads to decide which capability to use.
  * There are NO trigger keyword arrays — selection is fully semantic via LLM routing.
  */
 export const AGENT_REGISTRY: Record<AgentCapability, { description: string; capabilities: string[] }> = {

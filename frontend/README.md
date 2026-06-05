@@ -18,15 +18,15 @@ frontend/
 ## Key Pages
 
 - **Landing** — Marketing page, hero section, feature overview
-- **Onboarding** — Canvas connect, brain setup, Reggie introduction
+- **Onboarding** — Canvas connect, brain setup, AI Tutor introduction
 - **Dashboard** — Student brain overview, grades, upcoming deadlines
-- **Chat** — Reggie AI tutor interface (main product experience)
+- **Chat** — AI Tutor interface (main product experience)
 - **Brain** — Student second brain visualization, knowledge graph
 - **NeuralCard** — NeuroAGI Neural Card claim flow (post-hardware launch)
 
 ## Connection to Brain
 
-The frontend calls the backend API which uses the NeuroAGI Brain SDK (`backend/neuroagi-sdk/`) to read and write to the student's brain. The student always talks to Reggie — routing to sub-agents is invisible.
+The frontend calls the backend API which uses the NeuroAGI Brain SDK (`backend/neuroagi-sdk/`) to read and write to the student's brain. The student always talks to their personally-named AI Tutor — routing to sub-agents is invisible.
 
 ## Development
 

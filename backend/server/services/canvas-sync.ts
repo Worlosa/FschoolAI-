@@ -22,7 +22,7 @@ export class CanvasSyncService {
   /**
    * Sync all Canvas data for a user (with product context)
    */
-  async syncCanvasData(userId: string, product: string = 'reggie'): Promise<void> {
+  async syncCanvasData(userId: string, product: string = 'fschoolai'): Promise<void> {
     try {
       // Get Canvas token
       const { data: token } = await this.supabase

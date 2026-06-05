@@ -2,7 +2,7 @@
  * NeuroAGI Brain SDK
  * 
  * The official API contract between NeuroAGI and any product built on the ecosystem.
- * FschoolAI, Reggie, and all future products MUST use this SDK — never call the brain directly.
+ * FschoolAI and all future products MUST use this SDK — never call the brain directly.
  * 
  * Think of this as the iOS SDK. Developers get these methods. The brain internals stay private.
  */

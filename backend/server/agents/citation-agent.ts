@@ -1,5 +1,5 @@
 /**
- * Citation Agent — Internal capability of Reggie
+ * Citation Agent — Internal capability of the AI Tutor
  *
  * Handles all citation and source-related requests: finding credible sources,
  * formatting citations (APA, MLA, Chicago, Harvard), fact-checking claims,
@@ -8,7 +8,7 @@
  * Uses Composio web search to find real, verifiable sources.
  * Never fabricates citations — if a source can't be verified, it says so.
  *
- * Triggered when Reggie detects: citation help, source finding, bibliography,
+ * Triggered when the router detects: citation help, source finding, bibliography,
  * reference formatting, fact-checking, or plagiarism concern requests.
  */
 
@@ -32,8 +32,8 @@ export interface CitationAgentResponse {
 }
 
 /**
- * Builds the Citation Agent system prompt for Reggie.
- * Reggie uses this internally — the student sees Reggie's voice, not this prompt.
+ * Builds the Citation Agent system prompt.
+ * Used internally — the student sees the AI Tutor's voice, not this prompt.
  */
 export function buildCitationAgentPrompt(
   studentName: string,
@@ -42,7 +42,7 @@ export function buildCitationAgentPrompt(
 ): string {
   const { claim, sourceUrl, sourceTitle, citationStyle, existingBibliography, assignmentTopic } = citationReq;
 
-  return `You are Reggie, ${studentName}'s personal academic AI. Right now you are helping them with citations and sources.
+  return `You are ${studentName}'s personal academic AI. Right now you are helping them with citations and sources.
 
 STUDENT BRAIN CONTEXT:
 ${brainContext}
@@ -76,7 +76,7 @@ ${citationStyle === 'Chicago' ? `
 ${citationStyle === 'Harvard' ? `
 - Author, A.A. (Year) 'Title of article', Journal Name, volume(issue), pp. page–page.` : ''}
 
-Respond as Reggie. Be precise and direct.`;
+Be precise and direct.`;
 }
 
 export default {

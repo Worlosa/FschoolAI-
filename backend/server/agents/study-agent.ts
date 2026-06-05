@@ -1,13 +1,13 @@
 /**
- * Study Agent — Reggie's internal capability for concept teaching and explanation.
+ * Study Agent — Internal capability for concept teaching and explanation.
  *
- * This is NOT a separate persona. Reggie uses this when the student needs:
+ * This is NOT a separate persona. The AI Tutor uses this when the student needs:
  * - A concept explained or broken down
  * - Connections made between what they know and what they're learning
  * - Socratic guidance through a problem
  *
- * The student always hears Reggie's voice. This module injects the right
- * teaching context into Reggie's system prompt.
+ * The student always hears the AI Tutor's voice. This module injects the right
+ * teaching context into the system prompt.
  */
 
 export interface StudyContext {
@@ -20,7 +20,7 @@ export interface StudyContext {
 
 /**
  * Builds the system prompt addition for study/teaching mode.
- * Injected into Reggie's base prompt — does NOT replace it.
+ * Injected into the AI Tutor's base prompt — does NOT replace it.
  */
 export function buildStudyAgentPrompt(
   name: string,
@@ -39,7 +39,7 @@ export function buildStudyAgentPrompt(
     ? `\n\n${name}'s learning style: ${ctx.learningStyle}. Adapt your explanation accordingly.`
     : '';
 
-  return `You are Reggie — ${name}'s personal academic intelligence.
+  return `You are ${name}'s personal academic intelligence.
 
 Right now ${name} needs help understanding something. Your job is to teach, not to give answers.
 

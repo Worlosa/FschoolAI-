@@ -1,12 +1,12 @@
 /**
- * Agent Router — Reggie's Internal Intent Detector
+ * Agent Router — Internal Intent Detector
  *
  * This is NOT exposed to the student. It runs silently before every Claude call
  * to detect what kind of help the student needs, then injects the right
- * capability context into Reggie's system prompt.
+ * capability context into the AI Tutor's system prompt.
  *
- * The student always talks to Reggie. The router just decides which
- * capability Reggie activates internally.
+ * The student always talks to their AI Tutor. The router just decides which
+ * capability to activate internally.
  *
  * Detection is keyword-first (fast, free) with a Claude fallback for ambiguous cases.
  *
@@ -19,7 +19,7 @@
  *   - motivation → encouragement, burnout, staying on track
  *   - reflection → consolidating learning, reviewing what was studied
  *   - crisis     → distress, overwhelm, mental health
- *   - general    → everything else — Reggie handles it directly
+ *   - general    → everything else — AI Tutor handles it directly
  */
 
 export type AgentCapability =
@@ -137,12 +137,12 @@ export function detectCapability(message: string): RoutingResult {
     };
   }
 
-  // No keywords matched — Reggie handles it directly
+  // No keywords matched — AI Tutor handles it directly
   return { capability: 'general', confidence: 'high' };
 }
 
 /**
- * Returns a capability-specific system prompt addition for Reggie.
+ * Returns a capability-specific system prompt addition for the AI Tutor.
  * Used when no specialized agent context is available (study, focus, motivation, etc.)
  */
 export function getCapabilityPromptAddition(capability: AgentCapability, studentName: string): string {
@@ -155,7 +155,7 @@ export function getCapabilityPromptAddition(capability: AgentCapability, student
     canvas: '', // Canvas gets its own full prompt injection
     assignment: '', // Assignment gets its own full prompt injection
     citation: '', // Citation gets its own full prompt injection
-    general: '', // No addition needed — Reggie handles it
+    general: '', // No addition needed — AI Tutor handles it directly
   };
   return additions[capability] || '';
 }

@@ -26,7 +26,7 @@ export class NeuroAGIBrainSDK implements INeuroAGIBrainSDK {
   constructor(config: {
     supabaseUrl: string;
     supabaseKey: string;
-    productId: string; // e.g. 'fschoolai', 'reggie'
+    productId: string; // e.g. 'fschoolai'
   }) {
     this.supabase = createClient(config.supabaseUrl, config.supabaseKey);
     this.productId = config.productId;
@@ -463,8 +463,8 @@ export class NeuroAGIBrainSDK implements INeuroAGIBrainSDK {
  * import { createBrainSDK } from '@neuroagi/brain-sdk';
  * const brain = createBrainSDK({ productId: 'fschoolai' });
  * 
- * // In Reggie:
- * const brain = createBrainSDK({ productId: 'reggie' });
+ * // In another product:
+ * const brain = createBrainSDK({ productId: 'another-product' });
  */
 export function createBrainSDK(config?: { productId?: string }): NeuroAGIBrainSDK {
   return new NeuroAGIBrainSDK({

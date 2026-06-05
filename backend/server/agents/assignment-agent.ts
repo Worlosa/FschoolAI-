@@ -1,11 +1,11 @@
 /**
- * Assignment Agent — Internal capability of Reggie
+ * Assignment Agent — Internal capability of the AI Tutor
  *
  * Handles all assignment-related requests: structuring, drafting, reviewing,
  * and submitting academic work. This agent is NEVER exposed to the student —
- * Reggie always speaks in his own voice. This agent provides the capability.
+ * the AI Tutor always speaks in its own voice. This agent provides the capability.
  *
- * Triggered when Reggie detects: essay help, assignment structure, writing,
+ * Triggered when the router detects: essay help, assignment structure, writing,
  * draft review, submission prep, rubric analysis, or outline requests.
  */
 
@@ -29,8 +29,8 @@ export interface AssignmentAgentResponse {
 }
 
 /**
- * Builds the Assignment Agent system prompt for Reggie.
- * Reggie uses this internally — the student sees Reggie's voice, not this prompt.
+ * Builds the Assignment Agent system prompt.
+ * Used internally — the student sees the AI Tutor's voice, not this prompt.
  */
 export function buildAssignmentAgentPrompt(
   studentName: string,
@@ -39,7 +39,7 @@ export function buildAssignmentAgentPrompt(
 ): string {
   const { assignmentTitle, assignmentDescription, dueDate, courseCode, rubric, wordLimit, studentDraft, pastGrade, pastFeedback } = assignmentCtx;
 
-  return `You are Reggie, ${studentName}'s personal academic AI. Right now you are helping them with an assignment.
+  return `You are ${studentName}'s personal academic AI. Right now you are helping them with an assignment.
 
 STUDENT BRAIN CONTEXT:
 ${brainContext}
@@ -66,7 +66,7 @@ YOUR ROLE RIGHT NOW:
 - Never write full paragraphs for them unprompted — scaffold, don't replace
 - If the rubric exists, always tie your feedback to specific rubric criteria
 
-Respond as Reggie. Be direct, warm, and specific.`;
+Be direct, warm, and specific.`;
 }
 
 export default {

@@ -204,7 +204,7 @@ export class BrainChatSession {
 
   /**
    * Builds the system prompt with agent capability injection.
-   * Reggie always speaks — but with the right internal context loaded.
+   * The AI Tutor always speaks — but with the right internal context loaded.
    */
   private async buildRoutedSystemPrompt(
     person: any,

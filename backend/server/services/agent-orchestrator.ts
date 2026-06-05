@@ -10,7 +10,7 @@
  *
  * Pipeline:
  * 1. brain.getContext(userId) — load full user intelligence
- * 2. Reggie (claude-3-haiku) — fast semantic agent routing
+ * 2. Agent Router (claude-3-haiku) — fast semantic agent routing
  * 3. Agent (claude-3-5-sonnet) — context-aware, personalized response
  * 4. brain.update() — compound learning after every interaction
  */
@@ -130,13 +130,13 @@ Under 200 words. Never minimize their feelings.`,
   },
 };
 
-// ─── Semantic Agent Router (Reggie) ──────────────────────────────────────────
+// ─── Semantic Agent Router ───────────────────────────────────────────────────
 
 async function selectAgent(
   message: string,
   brainContext: string
 ): Promise<{ agent: keyof typeof AGENTS; reason: string }> {
-  const routerPrompt = `You are Reggie, an AI agent manager. Select the best agent for this student.
+  const routerPrompt = `You are the AI Tutor and Agent Manager. Select the best agent for this student.
 
 Agents:
 - study: explaining concepts, teaching, academic questions
@@ -206,7 +206,7 @@ export class AgentOrchestrator {
       console.warn('[Orchestrator] Brain fetch failed, proceeding without context:', err);
     }
 
-    // ── Step 2: Select agent semantically via Reggie ────────────────────────
+    // ── Step 2: Select agent semantically via Agent Router ──────────────────
     const { agent: agentKey, reason: agentReason } = await selectAgent(message, brainSummary);
     const agent = AGENTS[agentKey];
 

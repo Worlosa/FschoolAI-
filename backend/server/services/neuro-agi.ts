@@ -2,7 +2,7 @@
  * NeuroAGI Platform Service
  * 
  * Unified brain management system for all products:
- * - Manages user brains across FschoolAI, Reggie, and future products
+ * - Manages user brains across FschoolAI and future products
  * - Provides unified API for brain access
  * - Handles product switching and context
  * - Generates cross-product insights
@@ -17,7 +17,7 @@ interface UserBrain {
     name: string;
     email: string;
     role: string; // 'student', 'teacher', 'admin', etc.
-    products: string[]; // ['fschoolai', 'reggie']
+    products: string[]; // ['fschoolai']
   };
   signals: {
     behavioral: any[];
@@ -284,7 +284,7 @@ export class NeuroAGIService {
    */
   private async getProductContexts(userId: string): Promise<Record<string, ProductContext>> {
     try {
-      const products = ['fschoolai', 'reggie'];
+      const products = ['fschoolai'];
       const contexts: Record<string, ProductContext> = {};
 
       for (const product of products) {
@@ -329,48 +329,41 @@ export class NeuroAGIService {
       const brain = await this.getUserBrain(userId);
       const insights: CrossProductInsight[] = [];
 
-      // Insight 1: Learning from teaching
+      // Insight 1: Stress detection
       const fschoolaiEmotional = brain.signals.emotional.filter(
         (s: any) => s.product === 'fschoolai'
       );
-      const reggieEmotional = brain.signals.emotional.filter(
-        (s: any) => s.product === 'reggie'
-      );
-
-      if (fschoolaiEmotional.length > 0 && reggieEmotional.length > 0) {
+      if (fschoolaiEmotional.length > 0) {
         const fschoolaiStress = fschoolaiEmotional.filter(
           (s: any) => s.emotion_type === 'stress'
         ).length;
-        const reggieStress = reggieEmotional.filter(
-          (s: any) => s.emotion_type === 'stress'
-        ).length;
 
-        if (fschoolaiStress > reggieStress) {
+        if (fschoolaiStress > fschoolaiEmotional.length * 0.5) {
           insights.push({
-            title: 'Teaching Stress Detected',
-            description: 'You experience more stress while teaching than learning. Consider stress management techniques.',
-            sourceProducts: ['fschoolai', 'reggie'],
+            title: 'High Stress Detected',
+            description: 'Over half your recent emotional signals indicate stress. Consider stress management techniques.',
+            sourceProducts: ['fschoolai'],
             confidence: 0.8,
             actionable: true,
-            recommendation: 'Try the "Take a Break" coping strategy between classes.',
+            recommendation: 'Try the "Take a Break" coping strategy between study sessions.',
           });
         }
       }
 
-      // Insight 2: Knowledge transfer
-      const reggieKnowledge = brain.signals.knowledge.filter(
-        (s: any) => s.product === 'reggie'
+      // Insight 2: Knowledge mastery
+      const knowledgeSignals = brain.signals.knowledge.filter(
+        (s: any) => s.product === 'fschoolai'
       );
-      if (reggieKnowledge.length > 0) {
+      if (knowledgeSignals.length > 0) {
         const avgMastery =
-          reggieKnowledge.reduce((sum: number, k: any) => sum + k.mastery_level, 0) /
-          reggieKnowledge.length;
+          knowledgeSignals.reduce((sum: number, k: any) => sum + k.mastery_level, 0) /
+          knowledgeSignals.length;
 
         if (avgMastery > 0.8) {
           insights.push({
             title: 'Strong Learning Progress',
             description: 'Your learning mastery is above 80%. You could help other students.',
-            sourceProducts: ['reggie'],
+            sourceProducts: ['fschoolai'],
             confidence: 0.9,
             actionable: true,
             recommendation: 'Consider becoming a tutor or study group leader.',
@@ -378,18 +371,17 @@ export class NeuroAGIService {
         }
       }
 
-      // Insight 3: Behavioral patterns
+      // Insight 3: Activity patterns
       const fschoolaiActivity = brain.productContexts['fschoolai']?.recentActivity || [];
-      const reggieActivity = brain.productContexts['reggie']?.recentActivity || [];
 
-      if (fschoolaiActivity.length > reggieActivity.length) {
+      if (fschoolaiActivity.length > 10) {
         insights.push({
-          title: 'Teaching-Focused Activity',
-          description: 'You spend more time on teaching (FschoolAI) than learning (Reggie).',
-          sourceProducts: ['fschoolai', 'reggie'],
+          title: 'Active Learner',
+          description: 'You have strong engagement with the platform. Keep building momentum.',
+          sourceProducts: ['fschoolai'],
           confidence: 0.85,
           actionable: true,
-          recommendation: 'Allocate more time to your own learning to stay sharp.',
+          recommendation: 'Consider setting a daily learning streak goal to maintain consistency.',
         });
       }
 

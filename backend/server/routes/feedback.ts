@@ -3,7 +3,7 @@
 // POST /api/feedback/agent
 //
 // Called by the FschoolAI frontend after every agent response.
-// The UI shows a simple thumbs up / thumbs down after Reggie responds.
+// The UI shows a simple thumbs up / thumbs down after the AI Tutor responds.
 // This endpoint records the feedback and feeds it into the brain.
 // ============================================================
 
@@ -47,7 +47,7 @@ router.post('/agent', async (req: Request, res: Response) => {
 });
 
 // GET /api/feedback/agent/performance/:userId
-// Returns per-agent performance scores for a user (used by Reggie for routing)
+// Returns per-agent performance scores for a user (used by Agent Router for routing)
 router.get('/agent/performance/:userId', async (req: Request, res: Response) => {
   const { userId } = req.params;
   const performance = await agentFeedback.getAgentPerformance(userId);
