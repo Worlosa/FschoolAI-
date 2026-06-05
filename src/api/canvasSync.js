@@ -146,14 +146,23 @@ function scoreToGpa(pct) {
   return 1.0;
 }
 
-/** Helper — upsert a single blob row into canvas_data */
+/**
+ * Save a single blob row into canvas_data.
+ * Uses delete-then-insert instead of upsert to avoid 400 errors when the
+ * Supabase onConflict constraint lookup fails (missing or mis-named index).
+ */
 async function saveBlob(userId, dataType, payload, now) {
   await supabase
     .from('canvas_data')
-    .upsert(
-      { user_id: userId, data_type: dataType, payload, synced_at: now },
-      { onConflict: 'user_id,data_type' }
-    );
+    .delete()
+    .eq('user_id', userId)
+    .eq('data_type', dataType);
+
+  const { error } = await supabase
+    .from('canvas_data')
+    .insert({ user_id: userId, data_type: dataType, payload, synced_at: now });
+
+  if (error) console.error('canvas_data save failed:', dataType, error.message);
 }
 
 /**
@@ -271,9 +280,10 @@ export async function syncCanvasData(userId, canvasToken, canvasBaseUrl) {
       is_manual:            false,
       updated_at:           now,
     }));
-    await supabase
+    const { error: pastAssignErr } = await supabase
       .from('assignments')
       .upsert(pastAssignRows.filter(r => r.canvas_assignment_id), { onConflict: 'user_id,canvas_assignment_id' });
+    if (pastAssignErr) console.error('assignments save failed (past):', pastAssignErr.message);
   }
 
   // ── 2. Per-course data (parallel within each course, sequential across courses) ──
@@ -348,7 +358,10 @@ export async function syncCanvasData(userId, canvasToken, canvasBaseUrl) {
       .from('assignments')
       .upsert(assignmentRows, { onConflict: 'user_id,canvas_assignment_id' });
 
-    if (assignError) throw new Error(`Assignments upsert failed: ${assignError.message}`);
+    if (assignError) {
+      console.error('assignments save failed:', assignError.message);
+      throw new Error(`Assignments upsert failed: ${assignError.message}`);
+    }
   }
 
   // ── 5. Save blob data to canvas_data ────────────────────────────
