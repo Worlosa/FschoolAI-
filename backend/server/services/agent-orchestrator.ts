@@ -24,8 +24,8 @@ const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const neuroAGI = new NeuroAGIService();
 
 const supabase = createClient(
-  process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY || ''
+  process.env.SUPABASE_URL || process.env.BRAIN_SUPABASE_URL || process.env.SUPABASE_URL || '',
+  process.env.SUPABASE_SERVICE_KEY || process.env.BRAIN_SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 );
 
 // ─── Types ────────────────────────────────────────────────────────────────────

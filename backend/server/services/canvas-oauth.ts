@@ -28,8 +28,8 @@ interface TokenResponse {
 export class CanvasOAuthService {
   private config: OAuthConfig;
   private supabase = createClient(
-    process.env.VITE_SUPABASE_URL || '',
-    process.env.VITE_SUPABASE_ANON_KEY || ''
+    process.env.FSCHOOL_SUPABASE_URL || process.env.SUPABASE_URL || '',
+    process.env.FSCHOOL_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
   );
 
   constructor(config: OAuthConfig) {
