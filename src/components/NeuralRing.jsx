@@ -818,6 +818,36 @@ export default function NeuralRing() {
       }
       .nr-speaking { animation: neuralSpeak 0.8s ease-in-out infinite; }
       @keyframes blink { 0%, 100% { opacity: 0.4; } 50% { opacity: 0; } }
+
+      /* ── Message entrance + thinking dots ── */
+      @media (prefers-reduced-motion: no-preference) {
+        @keyframes nrMsgIn {
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: none; }
+        }
+        @keyframes nrBorderPulse {
+          0%   { box-shadow: 0 0 0 1px rgba(196,154,60,0.55); }
+          100% { box-shadow: 0 0 0 1px rgba(196,154,60,0); }
+        }
+        @keyframes nrDot {
+          0%, 60%, 100% { transform: scale(0.75); opacity: 0.35; }
+          30%            { transform: scale(1.15); opacity: 1; }
+        }
+        .nr-msg-in  { animation: nrMsgIn 0.24s cubic-bezier(0.22,1,0.36,1) both; }
+        .nr-msg-new { animation: nrBorderPulse 1.2s ease-out both; }
+        .nr-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #C49A3C; }
+        .nr-dot:nth-child(1) { animation: nrDot 0.9s ease-in-out infinite 0s; }
+        .nr-dot:nth-child(2) { animation: nrDot 0.9s ease-in-out infinite 0.15s; }
+        .nr-dot:nth-child(3) { animation: nrDot 0.9s ease-in-out infinite 0.30s; }
+      }
+      .nr-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #C49A3C; }
+
+      /* ── Markdown styles ── */
+      .nr-md p            { margin: 0 0 6px; }
+      .nr-md p:last-child  { margin: 0; }
+      .nr-md strong        { color: #C49A3C; font-weight: 600; }
+      .nr-md ul            { margin: 4px 0; padding-left: 18px; }
+      .nr-md li            { margin: 3px 0; }
     `;
     document.head.appendChild(style);
     return () => style.remove();
@@ -1289,8 +1319,9 @@ export default function NeuralRing() {
                 </div>
               ) : (
                 messages.map((m, i) => (
-                  <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "84%" }}>
+                  <div key={i} className="nr-msg-in" style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "84%" }}>
                     <div
+                      className={m.role === "assistant" && i === messages.length - 1 ? "nr-msg-new" : ""}
                       style={{
                         background: m.role === "user" ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.05)",
                         borderRadius: m.role === "user" ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
@@ -1440,8 +1471,10 @@ export default function NeuralRing() {
                 ))
               )}
               {loading && !streamingMsg && (
-                <div style={{ alignSelf: "flex-start", color: "rgba(255,255,255,0.3)", fontSize: "13px", padding: "6px 4px" }}>
-                  Thinking…
+                <div style={{ alignSelf: "flex-start", padding: "10px 14px", background: "rgba(255,255,255,0.04)", borderRadius: "16px 16px 16px 4px", border: "1px solid rgba(255,255,255,0.07)", display: "flex", gap: "5px", alignItems: "center" }}>
+                  <span className="nr-dot" />
+                  <span className="nr-dot" />
+                  <span className="nr-dot" />
                 </div>
               )}
               {streamingMsg ? (
