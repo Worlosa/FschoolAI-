@@ -52,7 +52,14 @@ const VIZ_KEYWORDS = [
   "flashcard", "quiz", "pomodoro", "calendar", "planner", "budget",
   "sorting", "pathfinding", "neural", "algorithm",
 ];
-const NAV_OVERRIDE_KEYWORDS = ["go to", "navigate", "open", "show my", "what are my", "study plan", "remind me", "schedule", "assignment"];
+const NAV_OVERRIDE_KEYWORDS = [
+  "go to", "navigate", "open", "show my", "what are my",
+  "study plan", "remind me", "schedule", "assignment",
+  // Quiz intents — must bypass viz routing and go through normal Claude path
+  // so the [QUIZ_START] format triggers InlineQuiz
+  "quiz me", "quiz on", "quiz about", "test me on", "test me about",
+  "ask me questions", "ask me about", "flashcard me", "drill me",
+];
 
 function isVizRequest(text) {
   const lower = text.toLowerCase();
@@ -85,7 +92,7 @@ STRICT RULES — breaking any of these will cause a crash:
      RadarChart, Radar, ScatterChart, Scatter, Cell, XAxis, YAxis, CartesianGrid,
      Tooltip, Legend, ResponsiveContainer, PolarGrid, PolarAngleAxis, PolarRadiusAxis
 6. Use realistic sample data when no real data is provided.
-7. Dark theme: background #111111, primary text rgba(255,255,255,0.9), accent #e8ff6b.
+7. Design language: dark background #1a1814, gold accent #C49A3C, cream text #F6F2E9. NEVER neon green, neon yellow, or bright saturated accents.
 8. Make it interactive where it makes sense (buttons, sliders, hover effects).
 9. Return ONLY the <artifact> block — no explanation, no markdown fences, nothing else.`;
 
@@ -239,12 +246,17 @@ NAVIGATION: When the user wants to go somewhere or study a course, append this E
 <nav>{"page":"pagename","course":"EXACT course string","mode":"flashcards or guide"}</nav>
 Omit "course"/"mode" when not relevant. Only use <nav> for clear navigation intent.
 
-QUIZ FORMAT: When the student asks to be quizzed on a topic or course, respond with EXACTLY this format — introductory text BEFORE the block, nothing after:
+QUIZ FORMAT: When the student asks to be quizzed, respond with EXACTLY this format — one short intro line BEFORE the block, nothing after:
 [QUIZ_START]
 Q: question text | A: answer text
 Q: question text | A: answer text
 [QUIZ_END]
-Generate exactly 5 Q/A pairs. Use the course material above.
+Generate exactly 5 Q/A pairs.
+CRITICAL — quiz content rules:
+- Questions MUST come from the student's actual courses, assignments, syllabus, and modules listed in your context above. NEVER generic trivia (no "capital of France", no general knowledge).
+- If the student names a course, quiz only on that course's material.
+- If no course is specified, quiz on the course with the nearest upcoming deadline.
+- If you have no course content in context at all, do NOT generate a quiz. Instead reply: "I need your Canvas synced to quiz you on real material — head to the Canvas page to connect."
 
 RESPONSE STYLE — CRITICAL:
 - Keep responses SHORT. 2–4 sentences for most answers. Max 6 sentences unless the student explicitly asks for detail.
@@ -451,6 +463,36 @@ function buildSmartChips(assignments, courses, userData) {
 
   return chips.slice(0, 4);
 }
+
+// ── Artifact type detection ────────────────────────────────────────────────────
+function detectArtifactType(msg) {
+  const t = (msg || "").toLowerCase();
+  if (/quiz\s+me|test\s+me|exam\s+me|drill\s+me|give\s+me\s+a\s+quiz/i.test(t)) return "quiz";
+  if (/flashcard|flash\s+card/i.test(t))                                         return "flashcard";
+  if (/study\s+plan|schedule\s+me|planner|timetable|plan\s+my/i.test(t))        return "plan";
+  if (/diagram|flowchart|mind\s+map/i.test(t))                                   return "diagram";
+  if (/dashboard/i.test(t))                                                       return "dashboard";
+  if (/chart|graph|plot|histogram|scatter|visuali/i.test(t))                     return "chart";
+  if (/game|snake|puzzle/i.test(t))                                               return "game";
+  if (/timer|pomodoro|countdown/i.test(t))                                        return "timer";
+  if (/tracker|kanban|todo/i.test(t))                                             return "tracker";
+  if (/calculator/i.test(t))                                                       return "calculator";
+  return "viz";
+}
+
+const ARTIFACT_LABELS = {
+  quiz:       { button: "Start Quiz →",       header: "Quiz"        },
+  flashcard:  { button: "Open Flashcards →",  header: "Flashcards"  },
+  plan:       { button: "View Plan →",        header: "Study Plan"  },
+  diagram:    { button: "View Diagram →",     header: "Diagram"     },
+  dashboard:  { button: "View Dashboard →",   header: "Dashboard"   },
+  chart:      { button: "View Chart →",       header: "Chart"       },
+  game:       { button: "Play →",             header: "Game"        },
+  timer:      { button: "Open →",             header: "Tool"        },
+  tracker:    { button: "Open →",             header: "Tracker"     },
+  calculator: { button: "Open →",             header: "Calculator"  },
+  viz:        { button: "Open →",             header: "Visualization"},
+};
 
 // ── Inline quiz component (renders inside chat when Claude returns quiz format) ─
 function InlineQuiz({ cards, userId, courseId }) {
@@ -729,6 +771,7 @@ export default function NeuralRing() {
 
   // ── Visualization artifact state ────────────────────────────────────────────
   const [artifactCode, setArtifactCode] = useState(null);
+  const [artifactType, setArtifactType] = useState("viz"); // tracks latest artifact type for panel header
   const [artifactOpen, setArtifactOpen] = useState(false);
 
   // ── Stop button — cancels in-flight fetch + audio ───────────────────────────
@@ -1159,6 +1202,7 @@ export default function NeuralRing() {
     try {
       // ── Visualization routing — send to Claude artifact builder ───────────
       if (isVizRequest(userMsg.content)) {
+        const aType = detectArtifactType(userMsg.content);
         const raw = await fetch("/api/claude", {
           method:  "POST",
           headers: { "Content-Type": "application/json" },
@@ -1167,7 +1211,8 @@ export default function NeuralRing() {
         const { code, text: displayText } = parseArtifact(raw);
         if (code) {
           setArtifactCode(code);
-          setMessages(m => [...m, { role: "assistant", content: displayText, hasArtifact: true }]);
+          setArtifactType(aType);
+          setMessages(m => [...m, { role: "assistant", content: displayText, hasArtifact: true, artifactType: aType }]);
         } else {
           setMessages(m => [...m, { role: "assistant", content: displayText }]);
         }
@@ -1409,16 +1454,16 @@ export default function NeuralRing() {
                       {m.quiz && <InlineQuiz cards={m.quiz} userId={userId} courseId={null} />}
                       {m.hasArtifact && (
                         <button
-                          onClick={() => setArtifactOpen(true)}
+                          onClick={() => { setArtifactType(m.artifactType || "viz"); setArtifactOpen(true); }}
                           style={{
                             display: "block", marginTop: "10px",
-                            background: "rgba(232,255,107,0.12)", border: "1px solid rgba(232,255,107,0.3)",
-                            borderRadius: "8px", padding: "7px 14px", color: "#e8ff6b",
+                            background: "rgba(196,154,60,0.1)", border: "1px solid rgba(196,154,60,0.3)",
+                            borderRadius: "8px", padding: "7px 14px", color: "#C49A3C",
                             fontSize: "12px", fontWeight: "600", cursor: "pointer",
                             fontFamily: "inherit", width: "100%", textAlign: "center",
                           }}
                         >
-                          View Visualization →
+                          {(ARTIFACT_LABELS[m.artifactType] ?? ARTIFACT_LABELS.viz).button}
                         </button>
                       )}
                     </div>
@@ -1613,7 +1658,7 @@ export default function NeuralRing() {
         </>
       )}
       {artifactOpen && artifactCode && (
-        <ArtifactPanel code={artifactCode} onClose={() => setArtifactOpen(false)} />
+        <ArtifactPanel code={artifactCode} type={artifactType} onClose={() => setArtifactOpen(false)} />
       )}
     </>,
     document.body

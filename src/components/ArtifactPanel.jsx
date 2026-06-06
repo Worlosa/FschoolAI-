@@ -109,7 +109,14 @@ window.addEventListener('load', function () {
 </html>`;
 }
 
-export default function ArtifactPanel({ code, onClose }) {
+const PANEL_HEADERS = {
+  quiz: "Quiz", flashcard: "Flashcards", plan: "Study Plan",
+  diagram: "Diagram", dashboard: "Dashboard", chart: "Chart",
+  game: "Game", timer: "Tool", tracker: "Tracker",
+  calculator: "Calculator", viz: "Visualization",
+};
+
+export default function ArtifactPanel({ code, type = "viz", onClose }) {
   const [loaded, setLoaded] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -173,11 +180,11 @@ export default function ArtifactPanel({ code, onClose }) {
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <div style={{
               width: 8, height: 8, borderRadius: "50%",
-              background: "#e8ff6b",
-              boxShadow: "0 0 8px rgba(232,255,107,0.6)",
+              background: "#C49A3C",
+              boxShadow: "0 0 8px rgba(196,154,60,0.5)",
             }} />
             <span style={{ color: "var(--text-primary)", fontSize: "14px", fontWeight: "600" }}>
-              Visualization
+              {PANEL_HEADERS[type] ?? "Visualization"}
             </span>
             <span style={{ color: "rgba(255,255,255,0.3)", fontSize: "11px" }}>
               Claude Artifact
