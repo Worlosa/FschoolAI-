@@ -2,9 +2,10 @@
 // Flashcard study session: fullscreen, one card at a time, 3D flip, swipe-to-judge.
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { groq } from "../api/groq";
-import { useApp } from "../context/AppContext";
-import { supabase } from "../api/supabase";
+import { groq }         from "../api/groq";
+import { useApp }        from "../context/AppContext";
+import { supabase }      from "../api/supabase";
+import { awardTokens }   from "../api/tokens";
 
 
 const SYSTEM =
@@ -741,6 +742,7 @@ export default function Study() {
           setToast("⚠️ Flashcards generated but couldn't save: " + saveErr.message);
         } else {
           setToast("✓ Flashcards saved!");
+          awardTokens("flashcards_generated", { courseId: String(dbId) }).catch(() => {});
         }
       }
     } else {

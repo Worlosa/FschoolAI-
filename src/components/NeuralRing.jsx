@@ -12,11 +12,12 @@
 
 import { useRef, useEffect, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { groq } from "../api/groq";
-import { claude } from "../api/claude";
-import { useApp } from "../context/AppContext";
-import { supabase } from "../api/supabase";
-import ArtifactPanel from "./ArtifactPanel";
+import { groq }       from "../api/groq";
+import { claude }      from "../api/claude";
+import { useApp }      from "../context/AppContext";
+import { supabase }    from "../api/supabase";
+import { awardTokens } from "../api/tokens";
+import ArtifactPanel   from "./ArtifactPanel";
 
 // ── Claude proxy helper (tutor brain — better quality than Groq for conversation) ──
 async function claudeTutor(messages, system, signal) {
@@ -520,8 +521,15 @@ function InlineQuiz({ cards, userId, courseId }) {
     const next = [...results, correct];
     setResults(next);
     setFlipped(false);
-    if (idx + 1 >= cards.length) setDone(true);
-    else setIdx(i => i + 1);
+    if (idx + 1 >= cards.length) {
+      setDone(true);
+      const score = next.filter(Boolean).length;
+      const total = cards.length;
+      awardTokens("quiz_completed", { score, total }).catch(() => {});
+      if (score === total) awardTokens("quiz_perfect", { score, total }).catch(() => {});
+    } else {
+      setIdx(i => i + 1);
+    }
   }
 
   async function saveCards() {

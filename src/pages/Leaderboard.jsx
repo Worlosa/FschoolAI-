@@ -5,8 +5,30 @@
 /* Hallmark · macrostructure: App Shell · tone: luxury-minimal · anchor hue: teal
  * pre-emit critique: P5 H5 E5 S4 R5 V4 */
 
-import { useState } from "react";
-import { useApp } from "../context/AppContext";
+import { useState, useEffect } from "react";
+import { useApp }              from "../context/AppContext";
+import { supabase }            from "../api/supabase";
+
+const TIER_COLORS = {
+  "Brain Owner": "rgba(196,154,60,0.9)",
+  Mastermind:    "rgba(175,130,255,0.85)",
+  Scholar:       "rgba(100,220,180,0.85)",
+};
+function TierBadge({ tier }) {
+  const color = TIER_COLORS[tier];
+  if (!color) return null;
+  return (
+    <span style={{
+      fontSize: "9px", fontWeight: "600", padding: "2px 6px",
+      borderRadius: "8px", letterSpacing: "0.5px",
+      background: `${color.replace("0.9", "0.1").replace("0.85", "0.1")}`,
+      border: `1px solid ${color.replace("0.9", "0.25").replace("0.85", "0.25")}`,
+      color, marginLeft: "5px", flexShrink: 0,
+    }}>
+      {tier}
+    </span>
+  );
+}
 
 const TABS  = ["University", "City", "Country", "Continent", "Global"];
 const SORTS = ["GPA", "Streak", "Study Time"];
@@ -113,8 +135,17 @@ const ALL_PLACEHOLDER_STUDENTS = [
 
 export default function Leaderboard() {
   const { userId, userData } = useApp();
-  const [tab,  setTab]  = useState(0);
-  const [sort, setSort] = useState("GPA");
+  const [tab,         setTab]         = useState(0);
+  const [sort,        setSort]        = useState("GPA");
+  const [myTokenData, setMyTokenData] = useState(null); // { points, tier } from leaderboard table
+
+  // Fetch real token/tier data for the current user
+  useEffect(() => {
+    if (!userId) return;
+    supabase.from("leaderboard").select("points, tier").eq("user_id", userId).maybeSingle()
+      .then(({ data }) => { if (data) setMyTokenData(data); })
+      .catch(() => {});
+  }, [userId]);
 
   const tabName   = TABS[tab];
   const sortCol   = SORT_COL[sort];
@@ -318,17 +349,20 @@ export default function Leaderboard() {
 
                 {/* Name + sublabel */}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{
-                    color:         isMe ? "rgba(0,210,190,0.95)" : "var(--text-primary)",
-                    fontSize:      isTop3 ? "15px" : "13px",
-                    fontWeight:    isTop3 ? "600" : "500",
-                    overflow:      "hidden",
-                    textOverflow:  "ellipsis",
-                    whiteSpace:    "nowrap",
-                    letterSpacing: "-0.2px",
-                  }}>
-                    {row.name ?? "Anonymous"}{isMe ? " · You" : ""}
-                  </p>
+                  <div style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+                    <p style={{
+                      color:         isMe ? "rgba(0,210,190,0.95)" : "var(--text-primary)",
+                      fontSize:      isTop3 ? "15px" : "13px",
+                      fontWeight:    isTop3 ? "600" : "500",
+                      overflow:      "hidden",
+                      textOverflow:  "ellipsis",
+                      whiteSpace:    "nowrap",
+                      letterSpacing: "-0.2px",
+                    }}>
+                      {row.name ?? "Anonymous"}{isMe ? " · You" : ""}
+                    </p>
+                    {isMe && myTokenData?.tier && <TierBadge tier={myTokenData.tier} />}
+                  </div>
                   {sublabel && (
                     <p style={{
                       color:        "var(--text-dim)",

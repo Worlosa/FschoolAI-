@@ -13,6 +13,8 @@ import Onboarding           from "./pages/Onboarding";
 import { useApp }           from "./context/AppContext";
 import { supabase }         from "./api/supabase";
 import { usePageTracking }  from "./hooks/usePageTracking";
+import { awardTokens }      from "./api/tokens";
+import TokenToast           from "./components/TokenToast";
 
 import Work        from "./pages/Work";
 import Canvas      from "./pages/Canvas";
@@ -186,6 +188,13 @@ export default function App() {
 
   // ── Page tracking ──────────────────────────────────────────────────────────
   usePageTracking(isLoggedIn ? currentPage : null, userId);
+
+  // ── Daily token awards — fire once per session when user is logged in ───────
+  useEffect(() => {
+    if (!userId || !isLoggedIn) return;
+    awardTokens("daily_login").catch(() => {});
+    awardTokens("streak_day").catch(() => {});
+  }, [userId, isLoggedIn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Navigation ─────────────────────────────────────────────────────────────
   const navigate = useCallback((pageKey) => {
@@ -516,6 +525,7 @@ export default function App() {
       onTouchEnd={onTouchEnd}
     >
       {overlays}
+      <TokenToast />
 
       <div
         className="app-page-transition"

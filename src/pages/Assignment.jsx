@@ -5,9 +5,10 @@
 
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { groq } from "../api/groq";
+import { groq }          from "../api/groq";
 import { buildStudentContext } from "../data/mockData";
-import { useApp } from "../context/AppContext";
+import { useApp }        from "../context/AppContext";
+import { awardTokens }   from "../api/tokens";
 
 // ── Monitor agent — fires once per assignment, returns targeted nudge ─────────
 function useMonitorAgent(assignment, userData, userId) {
@@ -110,6 +111,7 @@ export default function Assignment() {
   const [suggestInput, setSuggestInput] = useState("");
   const [editingIdx, setEditingIdx] = useState(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [markedDone,  setMarkedDone]  = useState(false);
   const draftRef = useRef(null);
 
   // ── Monitor agent — proactive nudge for the selected assignment ───────────
@@ -391,6 +393,18 @@ export default function Assignment() {
               <button onClick={() => navigator.clipboard.writeText(draft)} style={{ flex: 1, background: "var(--color-surface-hover)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-btn)", padding: "12px", color: "var(--text-primary)", fontSize: "14px", cursor: "pointer", fontFamily: "inherit", transition: "background var(--dur-base) var(--ease-apple)" }} onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.12)")} onMouseLeave={e => (e.currentTarget.style.background = "var(--color-surface-hover)")}>Copy</button>
               <button onClick={generateDraft} disabled={generating} style={{ flex: 1, background: "var(--color-surface-hover)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-btn)", padding: "12px", color: "var(--text-primary)", fontSize: "14px", cursor: generating ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: generating ? 0.5 : 1 }} onMouseEnter={e => { if (!generating) e.currentTarget.style.background = "rgba(255,255,255,0.12)"; }} onMouseLeave={e => (e.currentTarget.style.background = "var(--color-surface-hover)")}>{generating ? "Regenerating…" : "Regenerate"}</button>
             </div>
+            <button
+              onClick={() => {
+                if (markedDone) return;
+                setMarkedDone(true);
+                const aId = selected?.id ?? selected?.canvas_assignment_id;
+                if (aId) awardTokens("assignment_submitted", { assignmentId: String(aId) }).catch(() => {});
+              }}
+              disabled={markedDone}
+              style={{ width: "100%", marginTop: "10px", background: markedDone ? "rgba(52,199,89,0.1)" : "transparent", border: `1px solid ${markedDone ? "rgba(52,199,89,0.3)" : "rgba(255,255,255,0.1)"}`, borderRadius: "var(--radius-btn)", padding: "11px", color: markedDone ? "rgba(100,220,130,0.85)" : "rgba(255,255,255,0.35)", fontSize: "13px", cursor: markedDone ? "default" : "pointer", fontFamily: "inherit", transition: "all 0.2s" }}
+            >
+              {markedDone ? "✓ Marked as done" : "Mark as done"}
+            </button>
           </>
         )}
       </div>

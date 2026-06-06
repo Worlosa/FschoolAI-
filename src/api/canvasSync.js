@@ -32,7 +32,8 @@ import {
   normalizeQuiz,
   normalizePastCourses,
 } from '../../canvas-module/canvasTransform.js';
-import { supabase } from './supabase.js';
+import { supabase }      from './supabase.js';
+import { awardTokens } from './tokens.js';
 
 const PROXY_URL = '/api/canvas';
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -398,6 +399,9 @@ export async function syncCanvasData(userId, canvasToken, canvasBaseUrl) {
       return generateAndSaveFlashcards(userId, dbId, course.name, courseAssn, allModules);
     })
   ).catch(() => {/* non-fatal */});
+
+  // Award canvas_sync token (non-blocking, server deduplicates daily)
+  awardTokens("canvas_sync").catch(() => {});
 
   return {
     courses,
