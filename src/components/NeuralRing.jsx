@@ -93,7 +93,7 @@ STRICT RULES — breaking any of these will cause a crash:
 async function logChat(userId, role, content, page) {
   try {
     await supabase.from("chat_logs").insert({
-      user_id: userId, role, content, page: page ?? null,
+      student_id: userId, role, content, page: page ?? null,
       created_at: new Date().toISOString(),
     });
   } catch { /* non-fatal */ }
@@ -467,7 +467,7 @@ export default function NeuralRing() {
         const { data: impData } = await supabase
           .from("tutor_impressions")
           .select("impression, created_at")
-          .eq("user_id", userId)
+          .eq("student_id", userId)
           .order("created_at", { ascending: false })
           .limit(10);
         if (impData?.length) setImpressions(impData);
@@ -476,7 +476,7 @@ export default function NeuralRing() {
         const { data: logData } = await supabase
           .from("chat_logs")
           .select("content, created_at")
-          .eq("user_id", userId)
+          .eq("student_id", userId)
           .eq("role", "assistant")
           .order("created_at", { ascending: false })
           .limit(1);
@@ -491,7 +491,7 @@ export default function NeuralRing() {
         const { data: mindData } = await supabase
           .from("tutor_mind")
           .select("mind_doc")
-          .eq("user_id", userId)
+          .eq("student_id", userId)
           .maybeSingle();
         if (mindData?.mind_doc) setLivingMind(mindData.mind_doc);
 
