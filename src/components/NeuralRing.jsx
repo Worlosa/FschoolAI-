@@ -758,6 +758,10 @@ export default function NeuralRing() {
   const sessionStartedAt  = useRef(null);
   const exchangeCountRef  = useRef(0); // increments each AI response
 
+  // Ref so speakAndType always reads the LATEST preferred voice without
+  // needing to re-memoize the callback every time userData changes.
+  const voiceIdRef     = useRef(userData?.preferred_voice_id ?? null);
+
   const canvasRef      = useRef(null);
   const rafRef         = useRef(null);
   const rotRef         = useRef(0);
@@ -828,6 +832,11 @@ export default function NeuralRing() {
     setRingName(name);
     setRingNameInput(name);
   }, [userData?.ring_name]);
+
+  // Keep voiceIdRef current so speakAndType always uses the latest preference
+  useEffect(() => {
+    voiceIdRef.current = userData?.preferred_voice_id ?? null;
+  }, [userData?.preferred_voice_id]);
 
   // ── Load impressions + last session from Supabase on mount ──────────────────
   useEffect(() => {
@@ -1178,7 +1187,7 @@ export default function NeuralRing() {
     try {
       setSpeaking(true);
       // Decode audio first so we have the real duration
-      const { duration, play } = await fetchAndDecodeAudio(plain, userData?.preferred_voice_id || null);
+      const { duration, play } = await fetchAndDecodeAudio(plain, voiceIdRef.current);
       // Now start both simultaneously — typewriter matches actual audio length
       await Promise.all([
         play((src) => { audioSourceRef.current = src; }).finally(() => {

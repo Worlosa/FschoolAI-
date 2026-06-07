@@ -55,7 +55,8 @@ export default function Identity() {
   const [selectedVoice, setSelectedVoice] = useState(userData?.preferred_voice_id ?? null);
   const [voiceSaving,  setVoiceSaving]  = useState(false);
   const [voiceSaved,   setVoiceSaved]   = useState(false);
-  const audioRef = useState(() => typeof Audio !== "undefined" ? new Audio() : null)[0];
+  // useRef is correct for a mutable DOM object — stable across renders, no re-render on change
+  const audioPreviewRef = useRef(null);
 
   // Sync selectedVoice from userData once loaded
   const [voiceInitDone, setVoiceInitDone] = useState(false);
@@ -74,6 +75,11 @@ export default function Identity() {
       .finally(() => setVoiceLoad(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Clean up audio on unmount
+  useEffect(() => {
+    return () => { audioPreviewRef.current?.pause(); };
+  }, []);
+
   async function pickVoice(voiceId) {
     if (voiceSaving) return;
     setSelectedVoice(voiceId);
@@ -86,11 +92,40 @@ export default function Identity() {
     setVoiceSaving(false);
   }
 
-  function previewVoice(previewUrl) {
-    if (!audioRef || !previewUrl) return;
-    audioRef.pause();
-    audioRef.src = previewUrl;
-    audioRef.play().catch(() => {});
+  // Play ElevenLabs preview URL directly as audio src — no fetch, no headers needed.
+  // Falls back to a short TTS sample via our proxy if the preview URL fails.
+  function previewVoice(voiceId, previewUrl) {
+    if (!audioPreviewRef.current) audioPreviewRef.current = new Audio();
+    const audio = audioPreviewRef.current;
+    audio.pause();
+
+    if (previewUrl) {
+      audio.src = previewUrl;
+      audio.play().catch(() => {
+        // CDN URL failed (CORS or expired) — generate sample via our proxy instead
+        _generatePreview(voiceId, audio);
+      });
+    } else {
+      _generatePreview(voiceId, audio);
+    }
+  }
+
+  async function _generatePreview(voiceId, audio) {
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "Hi, I'm your AI tutor.", voiceId }),
+      });
+      if (!res.ok) return;
+      const { audio: b64 } = await res.json();
+      if (!b64) return;
+      const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: "audio/mpeg" }));
+      audio.src = url;
+      audio.play().catch(() => {});
+      audio.onended = () => URL.revokeObjectURL(url);
+    } catch { /* non-fatal */ }
   }
 
   const commitName = useCallback(async () => {
@@ -282,7 +317,7 @@ export default function Identity() {
                   </div>
                   {v.preview_url && (
                     <button
-                      onClick={e => { e.stopPropagation(); previewVoice(v.preview_url); }}
+                      onClick={e => { e.stopPropagation(); previewVoice(v.voice_id, v.preview_url); }}
                       style={{ background: "none", border: "none", color: "rgba(255,255,255,0.3)", cursor: "pointer", padding: "4px 8px", borderRadius: "6px", fontSize: "13px", fontFamily: "inherit", flexShrink: 0, transition: "color 0.15s" }}
                       onMouseEnter={e => e.currentTarget.style.color = "rgba(255,255,255,0.7)"}
                       onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,0.3)"}
