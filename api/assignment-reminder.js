@@ -29,8 +29,6 @@ async function sbFetch(path, params = {}) {
       apikey:        SB_KEY,
       Authorization: `Bearer ${SB_KEY}`,
       "Content-Type": "application/json",
-      "Accept-Profile":  "neuroagi",   // app data lives in the `neuroagi` schema, not public.*
-      "Content-Profile": "neuroagi",
     },
   });
   return res.json();
