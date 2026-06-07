@@ -163,6 +163,7 @@ export default function Leaderboard() {
       setLbLoading(true);
       try {
         const { data } = await supabase
+          .schema("public")        // leaderboard + joined public.users live in public, not neuroagi
           .from("leaderboard")
           .select("user_id, points, tier, users ( name, school, city, country, continent, leaderboard_opt_in )")
           .order("points", { ascending: false })

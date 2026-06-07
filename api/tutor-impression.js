@@ -71,6 +71,8 @@ RULES:
       "Authorization": `Bearer ${supabaseKey}`,
       "Content-Type":  "application/json",
       "Prefer":        "return=minimal",
+      "Accept-Profile":  "neuroagi",   // app data lives in the `neuroagi` schema, not public.*
+      "Content-Profile": "neuroagi",
     };
 
     await fetch(`${supabaseUrl}/rest/v1/tutor_impressions`, {
