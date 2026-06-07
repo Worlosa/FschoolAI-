@@ -4,8 +4,10 @@
 const SUPABASE_URL  = "https://wqgxpouhbwhwpzudrptp.supabase.co";
 const SUPABASE_ANON = "sb_publishable_e-3KMudaL-iXf5GGsuiQaA_VW21ZZFA";
 
-// Use public schema so extension data is visible in the main app.
-const SB_PROFILE = { "Accept-Profile": "public", "Content-Profile": "public" };
+// Write to the isolated `neuroagi` schema — the SAME schema the app reads from
+// (src/supabase.js sets db.schema = 'neuroagi'). Both sides MUST match or synced
+// data (and login, which reads the users table) is invisible. (not public.* — Vincent's.)
+const SB_PROFILE = { "Accept-Profile": "neuroagi", "Content-Profile": "neuroagi" };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 async function sha256(text) {

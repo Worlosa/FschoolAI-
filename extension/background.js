@@ -6,8 +6,10 @@
 const SUPABASE_URL  = "https://wqgxpouhbwhwpzudrptp.supabase.co";
 const SUPABASE_ANON = "sb_publishable_e-3KMudaL-iXf5GGsuiQaA_VW21ZZFA";
 
-// Use public schema so extension data is visible in the main app.
-const SB_PROFILE = { "Accept-Profile": "public", "Content-Profile": "public" };
+// Write to the isolated `neuroagi` schema — the SAME schema the app reads from
+// (src/supabase.js sets db.schema = 'neuroagi'). Both sides MUST match or synced
+// data is invisible to the app. (not public.* — that namespace is Vincent's.)
+const SB_PROFILE = { "Accept-Profile": "neuroagi", "Content-Profile": "neuroagi" };
 
 // ── Claude extraction via Vercel proxy ────────────────────────────────────────
 // We route through our own API to keep ANTHROPIC_API_KEY server-side.
