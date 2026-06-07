@@ -63,8 +63,23 @@ export default async function handler(req, res) {
         .eq("user_id", userId).order("created_at", { ascending: false }).limit(10),
     ]);
 
-    const points     = user?.points ?? 0;
+    const points      = user?.points ?? 0;
     const todayEarned = (todayRows ?? []).reduce((s, e) => s + (e.tokens ?? 0), 0);
+
+    // Reconcile leaderboard.points drift — if users.points differs, sync it (non-blocking)
+    if (user?.points != null) {
+      supabase.from("leaderboard").select("points").eq("user_id", userId).maybeSingle()
+        .then(({ data: lb }) => {
+          if (lb && lb.points !== user.points) {
+            supabase.from("leaderboard").upsert({
+              user_id:    userId,
+              points:     user.points,
+              tier:       getTier(user.points),
+              updated_at: new Date().toISOString(),
+            }, { onConflict: "user_id" }).then(() => {}).catch(() => {});
+          }
+        }).catch(() => {});
+    }
 
     return res.status(200).json({
       points,
@@ -196,14 +211,16 @@ export default async function handler(req, res) {
     const prevTier = getTier(newPoints - tokens);
     const tierUp   = tier !== prevTier;
 
-    // Upsert leaderboard (non-fatal — table may not exist yet)
-    supabase.from("leaderboard").upsert({
+    // Upsert leaderboard — only include streak when it's being updated this award
+    // (omitting it preserves the stored streak; writing null would erase it)
+    const lbPayload = {
       user_id:    userId,
       points:     newPoints,
-      streak:     streakPatch?.streak ?? null,
       tier,
       updated_at: new Date().toISOString(),
-    }, { onConflict: "user_id" }).then(() => {}).catch(() => {});
+    };
+    if (streakPatch?.streak != null) lbPayload.streak = streakPatch.streak;
+    supabase.from("leaderboard").upsert(lbPayload, { onConflict: "user_id" }).then(() => {}).catch(() => {});
 
     // Award milestone bonus if hit
     let milestoneResult = null;
@@ -217,6 +234,13 @@ export default async function handler(req, res) {
       });
       const bonusPoints = newPoints + ACTIONS.streak_milestone.tokens;
       await supabase.from("users").update({ points: bonusPoints }).eq("id", userId);
+      // Sync leaderboard with milestone bonus (was previously missing — caused points drift)
+      supabase.from("leaderboard").upsert({
+        user_id:    userId,
+        points:     bonusPoints,
+        tier:       getTier(bonusPoints),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id" }).then(() => {}).catch(() => {});
       milestoneResult = { milestone: milestoneBonus, bonusTokens: ACTIONS.streak_milestone.tokens };
     }
 

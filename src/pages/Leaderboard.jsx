@@ -131,37 +131,47 @@ export default function Leaderboard() {
 
   useEffect(() => { const t = setTimeout(() => setMounted(true), 30); return () => clearTimeout(t); }, []);
 
-  // Fetch real leaderboard data — all tabs use this, no placeholders
+  // Fetch real leaderboard data — two separate queries, no FK dependency
   useEffect(() => {
     async function fetchLb() {
       setLbLoading(true);
       try {
-        const { data } = await supabase
+        // 1. Leaderboard rows (points + tier)
+        const { data: lbData } = await supabase
           .from("leaderboard")
-          .select(`
-            user_id, points, tier,
-            users ( name, school, city, country, continent,
-                    leaderboard_opt_in, gpa, streak, study_time )
-          `)
+          .select("user_id, points, tier")
           .order("points", { ascending: false })
           .limit(50);
-        if (data?.length) {
-          setRealRows(data.map(r => ({
+
+        if (!lbData?.length) { setLbLoading(false); return; }
+
+        // 2. Profile data for those IDs (two-query pattern avoids FK join issues)
+        const ids = lbData.map(r => r.user_id);
+        const { data: usersData } = await supabase
+          .from("users")
+          .select("id, name, school, city, country, continent, leaderboard_opt_in, gpa, streak, study_time")
+          .in("id", ids);
+
+        const uMap = {};
+        (usersData ?? []).forEach(u => { uMap[u.id] = u; });
+
+        setRealRows(lbData.map(r => {
+          const u = uMap[r.user_id];
+          // leaderboard_opt_in=false → show as Anonymous Scholar, NEVER drop the row
+          return {
             id:         r.user_id,
-            name:       r.users?.leaderboard_opt_in === false
-                          ? "Anonymous Scholar"
-                          : (r.users?.name ?? "Anonymous"),
-            school:     r.users?.school     ?? "",
-            city:       r.users?.city       ?? "",
-            country:    r.users?.country    ?? "",
-            continent:  r.users?.continent  ?? "",
-            points:     r.points            ?? 0,
-            tier:       r.tier              ?? "Basic",
-            gpa:        r.users?.gpa        ?? null,
-            streak:     r.users?.streak     ?? null,
-            study_time: r.users?.study_time ?? null,
-          })));
-        }
+            name:       u?.leaderboard_opt_in === false ? "Anonymous Scholar" : (u?.name ?? "Anonymous"),
+            school:     u?.school     ?? "",
+            city:       u?.city       ?? "",
+            country:    u?.country    ?? "",
+            continent:  u?.continent  ?? "",
+            points:     r.points ?? 0,
+            tier:       r.tier   ?? "Basic",
+            gpa:        u?.gpa        ?? null,
+            streak:     u?.streak     ?? null,
+            study_time: u?.study_time ?? null,
+          };
+        }));
       } catch { /* table may not exist yet */ }
       setLbLoading(false);
     }
