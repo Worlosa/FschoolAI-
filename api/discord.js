@@ -79,10 +79,16 @@ async function awardPoints(userId, action) {
   return { awarded: true, tokens: cfg.tokens, newPoints };
 }
 
-async function readRawBody(req) {
-  const chunks = [];
-  for await (const chunk of req) chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
-  return Buffer.concat(chunks);
+function readRawBody(req) {
+  // Event-based read — more reliable than for-await-of on Vercel's Node 18+ ESM runtime.
+  // for-await-of on IncomingMessage can yield zero chunks when bodyParser:false is active
+  // in certain Vercel configurations, producing an empty buffer that breaks Ed25519 verify.
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on("data", chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+    req.on("end",  () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
 }
 
 export default async function handler(req, res) {
@@ -184,11 +190,17 @@ export default async function handler(req, res) {
     const timestamp = req.headers["x-signature-timestamp"];
     const raw = await readRawBody(req);
 
-    // Verify the request really came from Discord (Ed25519)
-    const verified = signature && timestamp && nacl.sign.detached.verify(
-      Buffer.concat([Buffer.from(timestamp), raw]),
-      Buffer.from(signature, "hex"),
-      Buffer.from(process.env.DISCORD_PUBLIC_KEY, "hex")
+    // Diagnostic: empty raw body means bodyParser:false is not working
+    if (!raw.length) {
+      console.error("[discord/interactions] raw body is EMPTY — bodyParser:false may be ineffective in this runtime");
+    }
+
+    // Verify the request really came from Discord (Ed25519).
+    // .trim() guards against Vercel env var editor adding trailing newlines to the key.
+    const verified = signature && timestamp && raw.length > 0 && nacl.sign.detached.verify(
+      Buffer.concat([Buffer.from(timestamp.trim()), raw]),
+      Buffer.from(signature.trim(), "hex"),
+      Buffer.from((process.env.DISCORD_PUBLIC_KEY || "").trim(), "hex")
     );
     if (!verified) return res.status(401).send("invalid request signature");
 
