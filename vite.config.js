@@ -57,6 +57,7 @@ const canvasProxyPlugin = {
 import { readFileSync } from "fs";
 import { resolve }      from "path";
 import tutorContextHandler from "./api/tutor-context.js";
+import extractHandler from "./api/extract.js";
 
 function loadEnvKey(key) {
   try {
@@ -255,7 +256,31 @@ const tutorContextProxyPlugin = {
   },
 };
 
+// Extract proxy — runs the real api/extract.js handler (PDF/text → plain text)
+// under the dev server so file-content extraction works with `npm run dev`.
+const extractProxyPlugin = {
+  name: "extract-proxy",
+  configureServer(server) {
+    server.middlewares.use("/api/extract", async (req, res) => {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      if (req.method === "OPTIONS") { res.statusCode = 200; res.end(); return; }
+      let body = "";
+      req.on("data", c => { body += c; });
+      req.on("end", async () => {
+        try { req.body = body ? JSON.parse(body) : {}; } catch { req.body = {}; }
+        res.status = (code) => { res.statusCode = code; return res; };
+        res.json   = (obj)  => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(obj)); };
+        try { await extractHandler(req, res); }
+        catch (err) {
+          res.statusCode = 502; res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ text: "", error: err.message }));
+        }
+      });
+    });
+  },
+};
+
 export default defineConfig({
-  plugins: [react(), canvasProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin],
+  plugins: [react(), canvasProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin],
   server:  { port: 5173 },
 });

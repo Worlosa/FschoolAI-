@@ -169,7 +169,8 @@ Examples:
       }
 
       // Embed the course via the files→courses FK so each file shows its course.
-      let url = `${supabaseUrl}/rest/v1/files?user_id=eq.${userId}&select=name,file_type,status,folder,source_url,courses(name,course_code)&order=name.asc&limit=25`;
+      // `content_text` = extracted file text (when present) so the tutor can read it.
+      let url = `${supabaseUrl}/rest/v1/files?user_id=eq.${userId}&select=name,file_type,status,folder,source_url,content_text,courses(name,course_code)&order=name.asc&limit=25`;
       if (keyword) {
         const kw  = encodeURIComponent(keyword);
         const ors = [`name.ilike.*${kw}*`, `folder.ilike.*${kw}*`];
@@ -183,16 +184,25 @@ Examples:
           // NOTE for the model: this is the file INDEX. You have names + links, NOT
           // the file contents — point the student to source_url; do not pretend to
           // have read the file.
-          context = "FILES (synced index — you have names + links, NOT contents; share source_url, don't invent contents):\n" + rows
+          const anyText = rows.some(f => f.content_text);
+          const header = anyText
+            ? "FILES (some include extracted CONTENT — use it to answer; share source_url for the rest):\n"
+            : "FILES (synced index — you have names + links, NOT contents; share source_url, don't invent contents):\n";
+          context = header + rows
             .map(f => {
               const course = f.courses?.course_code || f.courses?.name || "";
-              return [
+              const line = [
                 `• ${f.name}`,
                 f.file_type ? `(${f.file_type})` : null,
                 course      ? `— ${course}` : null,
                 f.status    ? `— ${f.status}` : null,
                 f.source_url ? `— ${f.source_url}` : null,
               ].filter(Boolean).join(" ");
+              // When the query targets specific files (keyword), include their text.
+              const body = keyword && f.content_text
+                ? `\n   content: ${String(f.content_text).slice(0, 4000)}`
+                : "";
+              return line + body;
             })
             .join("\n");
         } else {

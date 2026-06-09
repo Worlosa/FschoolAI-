@@ -331,6 +331,60 @@ async function ingestApiData(userId, data) {
   };
 }
 
+// ── File content extraction (phase 2 / layer b) ───────────────────────────────
+// For each synced file we fetch its bytes through the student's LMS session (only
+// the extension can — the urls are cookie-gated), send them to /api/extract
+// (PDF/text → plain text), and store the result in files.content_text so the
+// tutor can READ the file, not just link it. Bounded + skips already-extracted.
+// NOTE: points at the same Vercel base as the Claude proxy — /api/extract must be
+// DEPLOYED there. For local testing, set EXTRACT_URL to http://localhost:5173/api/extract.
+const EXTRACT_URL = "https://neuro-agi-topaz.vercel.app/api/extract";
+const MAX_EXTRACT_PER_SYNC = 10;
+const MAX_FILE_BYTES = 6_000_000;
+
+function abToBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  let bin = "";
+  const CH = 0x8000;
+  for (let i = 0; i < bytes.length; i += CH) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+  return btoa(bin);
+}
+
+async function extractFileContents(userId, files) {
+  const targets = (files || []).filter(f => f.source_url && f.id).slice(0, MAX_EXTRACT_PER_SYNC);
+  for (const f of targets) {
+    try {
+      const key = encodeURIComponent(String(f.id));
+      // Skip files we've already extracted (content_text already set).
+      const chk = await fetch(
+        `${SUPABASE_URL}/rest/v1/files?user_id=eq.${userId}&lms_file_id=eq.${key}&content_text=not.is.null&select=id`,
+        { headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, ...SB_PROFILE } }
+      );
+      if ((await chk.json())?.length) continue;
+
+      // Fetch the file via the student's session (cookies).
+      const resp = await fetch(f.source_url, { credentials: "include" });
+      if (!resp.ok) continue;
+      const buf = await resp.arrayBuffer();
+      if (buf.byteLength > MAX_FILE_BYTES) continue;
+
+      const ex = await fetch(EXTRACT_URL, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ base64: abToBase64(buf), file_type: f.file_type, name: f.name }),
+      }).then(r => (r.ok ? r.json() : null)).catch(() => null);
+
+      if (ex?.text) {
+        await fetch(`${SUPABASE_URL}/rest/v1/files?user_id=eq.${userId}&lms_file_id=eq.${key}`, {
+          method:  "PATCH",
+          headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, "Content-Type": "application/json", Prefer: "return=minimal", ...SB_PROFILE },
+          body:    JSON.stringify({ content_text: ex.text }),
+        });
+      }
+    } catch { /* skip this file */ }
+  }
+}
+
 async function extract(userId, pageContent, stepHint) {
   const { text, tables, url, title } = pageContent;
 
@@ -649,6 +703,7 @@ async function autoSync(userId, tabId) {
 
   if (api?.lms && (api.courses?.length || api.assignments?.length)) {
     await ingestApiData(userId, api);
+    extractFileContents(userId, api.files).catch(() => {});  // background: fill content_text
     const stats = await getCurrentStats(userId);
     const caps = [{ step: "courses", auto: true, timestamp: Date.now() }];
     if (api.assignments?.length) caps.push({ step: "assignments", auto: true, timestamp: Date.now() });
@@ -741,6 +796,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === "NEUROAGI_API_INGEST") {
     (async () => {
       const counts = await ingestApiData(msg.userId, msg.data);
+      extractFileContents(msg.userId, msg.data.files).catch(() => {});  // background: fill content_text
       const stats  = await getCurrentStats(msg.userId);
       return { ok: true, counts, stats };
     })().then(sendResponse).catch(err => sendResponse({ ok: false, error: err.message }));
