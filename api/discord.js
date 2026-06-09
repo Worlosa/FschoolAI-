@@ -8,8 +8,8 @@
 //   DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_BOT_TOKEN,
 //   DISCORD_PUBLIC_KEY        (Developer Portal → General Information → Public Key)
 //   DISCORD_GUILD_ID          (right-click your server → Copy Server ID, with Dev Mode on)
-//   DISCORD_REDIRECT_URI      (EXACTLY: https://neuro-agi.vercel.app/api/discord?action=callback)
-//   APP_BASE_URL              (https://neuro-agi.vercel.app — where to send users after connecting)
+//   DISCORD_REDIRECT_URI      (EXACTLY: https://neuro-agi-topaz.vercel.app/api/discord?action=callback)
+//   APP_BASE_URL              (https://neuro-agi-topaz.vercel.app — where to send users after connecting)
 //   SUPABASE_URL, SUPABASE_SERVICE_KEY
 //
 // IMPORTANT: this file uses tweetnacl for interaction signature verification.
@@ -21,10 +21,63 @@ import nacl from "tweetnacl";
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
 const DISCORD_API = "https://discord.com/api/v10";
-const WELCOME_POINTS = 5; // points granted for connecting Discord (beta-community reward)
 
 // Vercel: we need the raw body for signature verification, so disable automatic parsing.
 export const config = { api: { bodyParser: false } };
+
+// ── Inline token-award helper ─────────────────────────────────────────────────
+// Routes awards through token_events + users.points + leaderboard so they are
+// leaderboard-visible. Token amounts match api/token-engine.js — keep in sync.
+const DISCORD_AWARD_CFG = {
+  discord_connected: { tokens: 5,  lifetimeMax: 1    }, // once per account
+  feedback_given:    { tokens: 1,  lifetimeMax: null }, // every /feedback submission
+};
+
+async function awardPoints(userId, action) {
+  const cfg = DISCORD_AWARD_CFG[action];
+  if (!cfg) return { awarded: false, reason: "unknown_action" };
+
+  // Lifetime-limit check (discord_connected is once-only)
+  if (cfg.lifetimeMax) {
+    const { count, error: ltErr } = await supabase
+      .from("token_events")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("action", action);
+    if (ltErr) console.error(`[discord/awardPoints] token_events lifetime-check error (${action}):`, ltErr.message);
+    if ((count ?? 0) >= cfg.lifetimeMax) return { awarded: false, reason: "lifetime_limit" };
+  }
+
+  const dt = new Date().toISOString().slice(0, 10);
+
+  // 1. Write token event
+  const { error: evtErr } = await supabase.from("token_events").insert({
+    user_id:   userId,
+    action,
+    tokens:    cfg.tokens,
+    awarded_on: dt,
+  });
+  if (evtErr) console.error(`[discord/awardPoints] token_events.insert error (${action}):`, evtErr.message, "| user_id:", userId);
+
+  // 2. Read + increment users.points
+  const { data: userRow, error: userReadErr } = await supabase
+    .from("users").select("points").eq("id", userId).maybeSingle();
+  if (userReadErr) console.error(`[discord/awardPoints] users.select error (${action}):`, userReadErr.message, "| user_id:", userId);
+
+  const newPoints = (userRow?.points ?? 0) + cfg.tokens;
+  const { error: userUpdErr } = await supabase
+    .from("users").update({ points: newPoints }).eq("id", userId);
+  if (userUpdErr) console.error(`[discord/awardPoints] users.update (points) error (${action}):`, userUpdErr.message, "| user_id:", userId);
+
+  // 3. Sync leaderboard
+  const { error: lbErr } = await supabase.from("leaderboard").upsert(
+    { user_id: userId, points: newPoints, updated_at: new Date().toISOString() },
+    { onConflict: "user_id" }
+  );
+  if (lbErr) console.error(`[discord/awardPoints] leaderboard.upsert error (${action}):`, lbErr.message, "| user_id:", userId);
+
+  return { awarded: true, tokens: cfg.tokens, newPoints };
+}
 
 async function readRawBody(req) {
   const chunks = [];
@@ -57,7 +110,7 @@ export default async function handler(req, res) {
   // ── GET ?action=callback ──────────────────────────────────────────
   if (action === "callback") {
     const { code, state: uid } = req.query;
-    const appBase = process.env.APP_BASE_URL || "https://neuro-agi.vercel.app";
+    const appBase = process.env.APP_BASE_URL || "https://neuro-agi-topaz.vercel.app";
     if (!code || !uid) return res.writeHead(302, { Location: `${appBase}/?discord=error` }).end();
 
     try {
@@ -98,20 +151,28 @@ export default async function handler(req, res) {
       );
       const joined = joinRes.status === 201 || joinRes.status === 204;
 
-      // 4. Link the Discord id to the fschool user (+ welcome points, once)
-      const { data: existing } = await supabase
-        .from("users").select("discord_user_id, feedback_points").eq("id", uid).maybeSingle();
+      // 4. Check if this account already had Discord linked (for idempotency)
+      const { data: existing, error: lookupErr } = await supabase
+        .from("users").select("discord_user_id").eq("id", uid).maybeSingle();
+      if (lookupErr) console.error("[discord/callback] users.select error:", lookupErr.message, "| uid:", uid);
 
-      const patch = { discord_user_id: me.id };
-      if (existing && !existing.discord_user_id) {
-        patch.feedback_points = (existing.feedback_points || 0) + WELCOME_POINTS;
+      // 5. Write discord_user_id to users table
+      const { error: linkErr } = await supabase
+        .from("users").update({ discord_user_id: me.id }).eq("id", uid);
+      if (linkErr) console.error("[discord/callback] users.update (discord_user_id) error:", linkErr.message, "| uid:", uid);
+
+      // 6. Award connection tokens through engine — once per account (lifetimeMax:1),
+      //    hits leaderboard.points + token_events (leaderboard-visible).
+      //    Only fires on first link; awardPoints handles the lifetime check internally.
+      if (!existing?.discord_user_id) {
+        const award = await awardPoints(uid, "discord_connected");
+        console.log("[discord/callback] discord_connected award result:", award);
       }
-      await supabase.from("users").update(patch).eq("id", uid);
 
       const status = joined ? "connected" : "connected_nojoin";
       return res.writeHead(302, { Location: `${appBase}/?discord=${status}` }).end();
     } catch (err) {
-      console.error("[discord/callback]", err.message);
+      console.error("[discord/callback] unhandled error:", err.message);
       return res.writeHead(302, { Location: `${appBase}/?discord=error` }).end();
     }
   }
@@ -142,9 +203,11 @@ export default async function handler(req, res) {
       const content   = body.data.options?.find(o => o.name === "message")?.value || "";
 
       try {
-        const { data: user } = await supabase
+        // Look up the fschool user by their Discord ID
+        const { data: user, error: userLookupErr } = await supabase
           .from("users").select("id, feedback_points")
           .eq("discord_user_id", discordId).maybeSingle();
+        if (userLookupErr) console.error("[discord/interactions] users.select error:", userLookupErr.message, "| discordId:", discordId);
 
         if (!user) {
           return res.status(200).json({
@@ -156,22 +219,33 @@ export default async function handler(req, res) {
           });
         }
 
-        await supabase.from("feedback").insert({
+        // Write to feedback table (tracks submission history)
+        const { error: fbErr } = await supabase.from("feedback").insert({
           user_id:         user.id,
           discord_user_id: discordId,
           content,
           points_awarded:  1,
         });
-        await supabase.from("users")
+        if (fbErr) console.error("[discord/interactions] feedback.insert error:", fbErr.message, "| user_id:", user.id);
+
+        // Increment feedback_points counter (separate tracking field, not leaderboard-visible)
+        const { error: fpErr } = await supabase
+          .from("users")
           .update({ feedback_points: (user.feedback_points || 0) + 1 })
           .eq("id", user.id);
+        if (fpErr) console.error("[discord/interactions] users.update (feedback_points) error:", fpErr.message, "| user_id:", user.id);
 
+        // Award leaderboard-visible token through engine (hits token_events + leaderboard)
+        const award = await awardPoints(user.id, "feedback_given");
+        console.log("[discord/interactions] feedback_given award result:", award);
+
+        const newFeedbackCount = (user.feedback_points || 0) + 1;
         return res.status(200).json({
           type: 4,
-          data: { flags: 64, content: `Thanks — feedback logged. You're at ${(user.feedback_points || 0) + 1} points. 🙌` },
+          data: { flags: 64, content: `Thanks — feedback logged (${newFeedbackCount} submitted). +1 token added to your leaderboard. 🙌` },
         });
       } catch (err) {
-        console.error("[discord/interactions]", err.message);
+        console.error("[discord/interactions] unhandled error:", err.message);
         return res.status(200).json({ type: 4, data: { flags: 64, content: "Something went wrong saving that. Try again in a sec." } });
       }
     }
