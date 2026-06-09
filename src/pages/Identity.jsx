@@ -36,7 +36,7 @@ function fmtEventDate(iso) {
 }
 
 export default function Identity() {
-  const { userData, courses, assignments, canvasToken, updateUserField, tokenSummary } = useApp();
+  const { userData, courses, assignments, canvasToken, updateUserField, tokenSummary, userId } = useApp();
 
   // Editable name
   const currentName = userData?.name || localStorage.getItem("fschool_name") || "";
@@ -209,6 +209,48 @@ export default function Identity() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Discord connection */}
+      {userData && (
+        <div style={{ marginBottom: "32px" }}>
+          <p style={{ fontSize: "11px", color: "var(--text-dim)", letterSpacing: "2px", textTransform: "uppercase", marginBottom: "12px" }}>
+            Community
+          </p>
+          {userData.discord_user_id ? (
+            <div style={{
+              display: "flex", alignItems: "center", gap: "12px",
+              padding: "14px 16px",
+              background: "var(--color-surface)",
+              border: "1px solid var(--color-border)",
+              borderRadius: "var(--radius-card)",
+            }}>
+              <img src="/discord-logo.svg" alt="Discord" style={{ width: "20px", height: "20px", opacity: 0.55, flexShrink: 0 }} />
+              <span style={{ color: "var(--text-secondary)", fontSize: "13px" }}>Discord connected</span>
+              <span style={{ color: "rgba(52,199,89,0.8)", fontSize: "13px", fontWeight: "600", marginLeft: "auto" }}>✓</span>
+            </div>
+          ) : (
+            <a
+              href={userId ? `/api/discord?action=login&uid=${userId}` : "#"}
+              style={{
+                display: "flex", alignItems: "center", gap: "12px",
+                padding: "14px 16px",
+                background: "var(--color-surface)",
+                border: "1px solid var(--color-border)",
+                borderRadius: "var(--radius-card)",
+                textDecoration: "none",
+                cursor: userId ? "pointer" : "not-allowed",
+                transition: "border-color 0.15s",
+              }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(88,101,242,0.45)"}
+              onMouseLeave={e => e.currentTarget.style.borderColor = "var(--color-border)"}
+            >
+              <img src="/discord-logo.svg" alt="Discord" style={{ width: "20px", height: "20px", flexShrink: 0 }} />
+              <span style={{ color: "var(--text-primary)", fontSize: "13px", fontWeight: "500" }}>Connect Discord</span>
+              <span style={{ color: "var(--text-dim)", fontSize: "12px", marginLeft: "auto" }}>+5 tokens →</span>
+            </a>
+          )}
         </div>
       )}
 
