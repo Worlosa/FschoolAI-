@@ -316,6 +316,100 @@ RULES:
 - ${isFirstMessage ? "FIRST MESSAGE RULE: Greet them warmly by name in one short sentence only. No assignments, no stats, no courses." : "Only mention assignments or deadlines if directly relevant to what they asked."}`; 
 }
 
+// ── Voice-mode system prompt — written for the ear, not for reading ──────────
+// Used ONLY when voiceModeRef.current is true. Text chat keeps buildChatSystem.
+function buildVoiceSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, voicesForContext = [], leaderboardRank = null) {
+  const now = Date.now();
+  const name = userData?.name?.split(" ")[0] || "there";
+
+  const upcomingStr = (assignments || [])
+    .filter(a => a.dueAt && new Date(a.dueAt).getTime() > now)
+    .sort((a, b) => new Date(a.dueAt) - new Date(b.dueAt))
+    .slice(0, 3)
+    .map(a => `${a.name} due ${new Date(a.dueAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`)
+    .join("; ") || "nothing urgent due";
+
+  const courseList = courseOptions.length ? courseOptions.join(", ") : "no courses loaded yet";
+
+  const statLine = [
+    userData?.gpa        ? `GPA ${userData.gpa.toFixed(2)}`      : null,
+    userData?.streak     ? `${userData.streak}-day streak`        : null,
+    userData?.study_time ? `${userData.study_time} mins studied`  : null,
+  ].filter(Boolean).join(", ");
+
+  const rankLine = leaderboardRank
+    ? `Leaderboard: #${leaderboardRank.rank} with ${leaderboardRank.points} tokens (${leaderboardRank.tier}${leaderboardRank.above ? ` — ${leaderboardRank.above.gap} tokens behind #${leaderboardRank.rank - 1}` : " — top"}).`
+    : "";
+
+  const impressionLine = (impressions || []).slice(0, 2).map(i => i.impression).join(" ");
+  const livingMindLine = livingMind ? `Student model: ${livingMind.slice(0, 200)}` : "";
+
+  const voiceList = voicesForContext.slice(0, 8)
+    .map(v => {
+      const lbls = Object.values(v.labels ?? {}).filter(Boolean).join("/");
+      return `${v.name}${lbls ? ` (${lbls})` : ""}`;
+    }).join(", ");
+
+  const flashcardTopics = Object.entries(flashcardMap || {})
+    .flatMap(([, d]) => (d?.cards || []).slice(0, 2).map(c => c.question))
+    .slice(0, 4).join("; ");
+
+  return `You are in a VOICE conversation with ${name}. You are their academic AI, FschoolAI — direct, warm, knowledgeable.
+
+VOICE RULES — ABSOLUTE:
+- Speak like a real person talking. Short, natural spoken sentences only.
+- ZERO markdown ever: no asterisks, no bullet points, no numbered lists, no headings. They are read aloud literally and sound broken.
+- Never read long content verbatim. Summarize, then offer.
+- One idea at a time. Say the most important thing first.
+- Max 2-3 sentences per reply unless the student asks for more.
+- When quizzing: ask ONE question then stop and wait. Never list all questions.
+- Contractions are good. Sound human.
+
+STUDENT:
+${name}${statLine ? ` — ${statLine}` : ""}${userData?.school ? ` — ${userData.school}` : ""}
+Upcoming: ${upcomingStr}
+Courses: ${courseList}
+${rankLine}
+${impressionLine ? `Known: ${impressionLine}` : ""}
+${livingMindLine}
+${flashcardTopics ? `Recently studied: ${flashcardTopics}` : ""}
+${lastSession ? `Last session: ${lastSession}` : ""}
+
+TOKEN COACHING — you know this, use it to coach concretely:
+Daily login 2 pts · Canvas sync 5 pts · Flashcards 10 pts · Quiz 8 pts (+5 perfect) · Assignment 15 pts · Streak day 3 pts · Streak milestone 25 pts
+Tier thresholds: Scholar 20 pts → Mastermind 100 pts → Brain Owner 500 pts.
+If asked "how do I climb" → give a specific 2-step plan using the above numbers.
+
+APP KNOWLEDGE — you ARE FschoolAI, guide the student:
+FschoolAI is your academic OS. It syncs your Canvas grades, helps you study with AI flashcards and quizzes, tracks your assignments, and rewards you with tokens for every action. Ask me anything about your courses, grades, or schedule.
+Pages I can take you to: home/dashboard (work), assignments, study/flashcards (study), Canvas/courses (canvas), toolkit (toolkit), leaderboard/rankings (leaderboard), profile/settings (identity).
+
+NAVIGATION: To navigate, append at the very end of your reply:
+<nav>{"page":"pagename"}</nav>
+Valid pages: work · assignment · study · canvas · toolkit · leaderboard · identity
+Speak a brief confirmation first: "Taking you to assignments now." then the tag.
+Never navigate without confirming in speech.
+
+VOICE CONTROL (one hidden tag at end, stripped before display):
+[VOICE:name] — switch voice; choose from: ${voiceList || "available voices"}. Confirm: "Switching to Aria now."
+[SPEED:0.7-1.3] — change speed. Confirm: "Slowing down."
+[TONE:calm|energetic|neutral|serious] — mood shift. Confirm: "Shifting to calm."
+Only one tag per reply.
+
+QUIZ FORMAT (voice mode): When the student asks to be quizzed, output the full set so I can parse it and run it one question at a time:
+[QUIZ_START]
+Q: question | A: answer
+[QUIZ_END]
+One intro line before, nothing after. Quiz ONLY on the student's real course material from context. If none, say so plainly.
+
+STYLE:
+- Never mention GPA, streak, or tokens unless asked.
+- Never dump assignment lists unless asked.
+- Never say course codes (like GGRC25H3) — use the course name.
+- If they sound stressed: one warm sentence, then one small concrete next step.
+- Match their energy. Casual when they're casual, focused when they need help.`;
+}
+
 function parseNav(raw) {
   const tagMatch = raw.match(NAV_REGEX);
   if (tagMatch) {
@@ -342,6 +436,12 @@ const TONE_PRESETS = {
   neutral:   { stability: 0.5, similarity_boost: 0.75, style: 0.3 },
   serious:   { stability: 0.7, similarity_boost: 0.7,  style: 0.2 },
 };
+
+// ── Voice command matchers — detected in STT transcript before hitting Claude ─
+const VOICE_STOP_WORDS   = /^(stop|wait|hold on|pause|cancel|never ?mind|no|nope)\b\.?$/i;
+const VOICE_REPEAT_WORDS = /^(say that again|repeat|repeat that|again|what did you say|come again|huh)\??\.?$/i;
+const VOICE_SPEED_FAST   = /\b(faster|speed up|too slow|quicker|hurry)\b/i;
+const VOICE_SPEED_SLOW   = /\b(slower|slow down|too fast|slow it down)\b/i;
 
 // ── Voice intent tag parser ──────────────────────────────────────────────────
 // Extracts [VOICE:x], [SPEED:x], [TONE:x], [READ:x], [QUIZ:x] from Claude reply
@@ -826,6 +926,11 @@ export default function NeuralRing() {
   const voiceRmsRef        = useRef(0);      // current RMS level 0–1 (no re-render)
   const voiceModeRef       = useRef(false);  // mirrors voiceMode state for async closures
   const speakingRef        = useRef(false);  // mirrors speaking state for RAF barge-in
+  // Voice intelligence refs
+  const interruptedTextRef = useRef(null);   // partial text when barge-in happens
+  const lastSpokenTextRef  = useRef("");     // last assistant text (for "say that again")
+  const streamingMsgRef    = useRef("");     // mirrors streamingMsg for stopResponse capture
+  const voiceQuizRef       = useRef(null);   // { questions:[{q,a}], idx, score } | null
 
   const canvasRef      = useRef(null);
   const rafRef         = useRef(null);
@@ -862,6 +967,11 @@ export default function NeuralRing() {
   const [reasonPicker, setReasonPicker] = useState(null); // msgIndex | null
   const messagesEndRef          = useRef(null);
 
+  // Voice intelligence state
+  const [activeVoiceId,      setActiveVoiceId]      = useState(null); // drives instant chip highlight
+  const [voiceQuizProgress,  setVoiceQuizProgress]  = useState(null); // {current, total} | null
+  const [leaderboardRank,    setLeaderboardRank]     = useState(null); // {rank,points,tier,above}
+
   const [muted,        setMuted]        = useState(() => {
     try { return localStorage.getItem("fschool_muted") === "1"; } catch { return false; }
   });
@@ -876,6 +986,11 @@ export default function NeuralRing() {
 
   // ── Stop button — cancels in-flight fetch + audio ───────────────────────────
   const stopResponse = useCallback(() => {
+    // Capture partial text for barge-in interrupt context (voice mode only)
+    if (speakingRef.current) {
+      const partial = streamingMsgRef.current || lastSpokenTextRef.current;
+      if (partial) interruptedTextRef.current = partial;
+    }
     // Cancel in-flight fetch
     abortCtrlRef.current?.abort();
     abortCtrlRef.current = null;
@@ -884,10 +999,10 @@ export default function NeuralRing() {
     audioSourceRef.current = null;
     // Stop typewriter
     if (typeTimerRef.current) { clearInterval(typeTimerRef.current); typeTimerRef.current = null; }
-    setSpeaking(false);
+    setSpeaking(false); speakingRef.current = false;
     setLoading(false);
     setStreamingMsg("");
-  }, []);
+  }, []); // uses only refs — stable
 
   const sheetStartY             = useRef(null);
   const [sheetDragY, setSheetDragY] = useState(0);
@@ -904,6 +1019,33 @@ export default function NeuralRing() {
   useEffect(() => { toneRef.current      = userData?.preferred_tone     ?? "neutral"; }, [userData?.preferred_tone]);
   useEffect(() => { voiceModeRef.current = voiceMode;  }, [voiceMode]);
   useEffect(() => { speakingRef.current  = speaking;   }, [speaking]);
+  useEffect(() => { streamingMsgRef.current = streamingMsg; }, [streamingMsg]);
+  // Keep activeVoiceId in sync when userData loads / changes from DB
+  useEffect(() => {
+    if (userData?.preferred_voice_id) setActiveVoiceId(userData.preferred_voice_id);
+  }, [userData?.preferred_voice_id]);
+  // Fetch leaderboard rank when voice mode opens
+  useEffect(() => {
+    if (!voiceMode || !userId) return;
+    (async () => {
+      try {
+        const { data: lb } = await supabase
+          .from("leaderboard")
+          .select("user_id, points, tier")
+          .order("points", { ascending: false })
+          .limit(50);
+        if (!lb?.length) return;
+        const idx = lb.findIndex(r => r.user_id === userId);
+        if (idx < 0) return;
+        setLeaderboardRank({
+          rank:   idx + 1,
+          points: lb[idx].points,
+          tier:   lb[idx].tier,
+          above:  idx > 0 ? { gap: lb[idx - 1].points - lb[idx].points } : null,
+        });
+      } catch (_) {}
+    })();
+  }, [voiceMode, userId]); // eslint-disable-line
 
   // Fetch voice list once — needed for Claude context + [VOICE:x] tag resolution
   useEffect(() => {
@@ -1389,15 +1531,23 @@ export default function NeuralRing() {
   // handle all other nav (e.g. "I want to study calculus") — this is just a fast
   // path for the obvious verbs that never need AI interpretation.
   const NAV_INTENTS = [
-    { re: /take me to study|open study|go to study/i,               page: "study"       },
-    { re: /open toolkit|go to toolkit/i,                             page: "toolkit"     },
-    { re: /show.*leaderboard|open leaderboard|go to leaderboard/i,  page: "leaderboard" },
-    { re: /go to canvas|open canvas/i,                               page: "canvas"      },
-    { re: /go to assignments|open assignments|show assignments/i,    page: "assignment"  },
-    { re: /go home|go to dashboard|open work/i,                      page: "work"        },
-    { re: /go to courses|open courses|my courses/i,                  page: "courses"     },
-    { re: /go to identity|open identity|my profile/i,                page: "identity"    },
+    { re: /\b(take me to|go to|open|let'?s|start)\s*(study|flashcard|flash card|review)\b/i,           page: "study"       },
+    { re: /\b(open|go to|take me to)?\s*toolkit\b|\bmy tools\b|\bbrain mode\b/i,                       page: "toolkit"     },
+    { re: /\b(show|open|go to|take me to)?\s*(leaderboard|ranking|scoreboard|my rank|standings)\b/i,  page: "leaderboard" },
+    { re: /\b(go to|open|sync|take me to)?\s*(canvas|my courses?|course page)\b/i,                    page: "canvas"      },
+    { re: /\b(go to|open|show|take me to)?\s*(assignments?|my assignments?|homework)\b/i,             page: "assignment"  },
+    { re: /\b(go home|take me home|open dashboard|go to dashboard|go to work|my work)\b/i,            page: "work"        },
+    { re: /\b(my profile|open profile|go to profile|settings|identity|go to identity)\b/i,            page: "identity"    },
   ];
+  const NAV_PAGE_LABELS = {
+    work:        "your dashboard",
+    assignment:  "assignments",
+    study:       "study",
+    canvas:      "Canvas",
+    toolkit:     "toolkit",
+    leaderboard: "your leaderboard",
+    identity:    "your profile",
+  };
 
   // ── Voice mode: auto-listen + silence detection + barge-in ──────────────────
   async function startAutoListen() {
@@ -1498,12 +1648,71 @@ export default function NeuralRing() {
     setVoiceMode(false);
     setMicDenied(false);
     sphereStateRef.current = "idle";
+    // Clear voice quiz state
+    voiceQuizRef.current = null;
+    setVoiceQuizProgress(null);
+    interruptedTextRef.current = null;
+  }
+
+  // ── Voice quiz: judge a spoken answer, advance, or finish ─────────────────
+  async function _judgeVoiceQuizAnswer(answer) {
+    const quiz = voiceQuizRef.current;
+    if (!quiz) return;
+    sphereStateRef.current = "thinking";
+
+    const question = quiz.questions[quiz.idx];
+    try {
+      const judgeRes = await fetch("/api/claude", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [{ role: "user", content: `Question: ${question.q}\nCorrect answer: ${question.a}\nStudent said: "${answer}"` }],
+          system: `You are judging a spoken quiz answer. Reply in ONE concise spoken sentence. If correct, start with "Correct!" If wrong, start with "Not quite —" and give the short correct answer. Warm, brief. No lists, no markdown.`,
+          max_tokens: 80,
+        }),
+      });
+      const judgeData = judgeRes.ok ? await judgeRes.json() : {};
+      const feedback  = judgeData.content?.trim() || (/^(correct|yes|right|yeah)/i.test(answer) ? "Correct!" : `Not quite — ${question.a}.`);
+      const isCorrect = /^correct/i.test(feedback);
+      const newScore  = quiz.score + (isCorrect ? 1 : 0);
+      const newIdx    = quiz.idx + 1;
+      const total     = quiz.questions.length;
+
+      if (newIdx >= total) {
+        // ── Quiz complete ────────────────────────────────────────────────────
+        voiceQuizRef.current = null;
+        setVoiceQuizProgress(null);
+        const weak = !isCorrect ? ` Your weakest spot was ${question.q.slice(0, 50)}.` : "";
+        const resultText = `${feedback} That's ${newScore} out of ${total}.${weak} Want to drill any of those again?`;
+        setMessages(m => [...m, { role: "user", content: answer }, { role: "assistant", content: resultText }]);
+        setLoading(false);
+        awardTokens("quiz_completed", { score: newScore, total }).catch(() => {});
+        if (newScore === total) awardTokens("quiz_perfect", { score: newScore, total }).catch(() => {});
+        lastSpokenTextRef.current = resultText;
+        await speakAndType(resultText);
+        if (voiceModeRef.current && !micDenied) await startAutoListen();
+        return;
+      }
+
+      // ── Next question ────────────────────────────────────────────────────
+      voiceQuizRef.current = { ...quiz, idx: newIdx, score: newScore };
+      setVoiceQuizProgress({ current: newIdx + 1, total });
+      const nextQ    = quiz.questions[newIdx];
+      const nextText = `${feedback} Question ${newIdx + 1}: ${nextQ.q}`;
+      setMessages(m => [...m, { role: "user", content: answer }, { role: "assistant", content: nextText }]);
+      lastSpokenTextRef.current = nextText;
+      await speakAndType(nextText);
+      if (voiceModeRef.current && !micDenied) await startAutoListen();
+    } catch (err) {
+      console.warn("[voice quiz]", err.message);
+      sphereStateRef.current = "idle";
+      if (voiceModeRef.current && !micDenied) await startAutoListen();
+    }
   }
 
   async function _transcribeAndSend(blob, mimeType) {
     sphereStateRef.current = "thinking";
     try {
-      // Convert blob → base64 JSON for /api/stt
       const base64 = await new Promise((res, rej) => {
         const fr = new FileReader();
         fr.onload = () => res(fr.result.split(",")[1]);
@@ -1518,8 +1727,53 @@ export default function NeuralRing() {
       if (!sttRes.ok) throw new Error(`STT ${sttRes.status}`);
       const { text } = await sttRes.json();
       if (!text?.trim()) { sphereStateRef.current = "idle"; return; }
-      // Inject into chat exactly like a typed message
-      await sendMessage(text.trim());
+      const trimmed = text.trim();
+
+      // ── Stop-word detection — halt without sending to Claude ─────────────
+      if (VOICE_STOP_WORDS.test(trimmed)) {
+        interruptedTextRef.current = null;
+        sphereStateRef.current = "idle";
+        return;
+      }
+
+      // ── "Say that again" — re-speak last response ──────────────────────
+      if (VOICE_REPEAT_WORDS.test(trimmed) && lastSpokenTextRef.current) {
+        sphereStateRef.current = "idle";
+        await speakAndType(lastSpokenTextRef.current);
+        if (voiceModeRef.current && !micDenied) await startAutoListen();
+        return;
+      }
+
+      // ── Speed modulation via spoken command ────────────────────────────
+      if (VOICE_SPEED_FAST.test(trimmed)) {
+        const next = Math.min(1.3, (speedRef.current || 1.0) + 0.15);
+        speedRef.current = next;
+        updateUserField("preferred_speed", next).catch(() => {});
+        const reply = next >= 1.25 ? "At maximum speed." : "Speaking faster.";
+        sphereStateRef.current = "idle";
+        await speakAndType(reply);
+        if (voiceModeRef.current && !micDenied) await startAutoListen();
+        return;
+      }
+      if (VOICE_SPEED_SLOW.test(trimmed)) {
+        const next = Math.max(0.7, (speedRef.current || 1.0) - 0.15);
+        speedRef.current = next;
+        updateUserField("preferred_speed", next).catch(() => {});
+        const reply = next <= 0.75 ? "At minimum speed." : "Slowing down.";
+        sphereStateRef.current = "idle";
+        await speakAndType(reply);
+        if (voiceModeRef.current && !micDenied) await startAutoListen();
+        return;
+      }
+
+      // ── Active voice quiz — route answer to judge ─────────────────────
+      if (voiceQuizRef.current) {
+        await _judgeVoiceQuizAnswer(trimmed);
+        return;
+      }
+
+      // ── Normal message ─────────────────────────────────────────────────
+      await sendMessage(trimmed);
     } catch (err) {
       console.warn("[voice] STT error:", err.message);
       sphereStateRef.current = "idle";
@@ -1539,11 +1793,21 @@ export default function NeuralRing() {
     // ── Instant nav shortcut (pre-API) ────────────────────────────────────────
     const navMatch = NAV_INTENTS.find(n => n.re.test(text));
     if (navMatch) {
-      const reply = "On it.";
+      const reply = voiceModeRef.current
+        ? `Taking you to ${NAV_PAGE_LABELS[navMatch.page] || navMatch.page}.`
+        : "On it.";
       logChat(userId, "assistant", reply, null);
       setMessages(m => [...m, { role: "assistant", content: reply }]);
       setLoading(false);
-      setTimeout(() => { setPendingNav({ page: navMatch.page }); setChatOpen(false); }, 380);
+      if (voiceModeRef.current) {
+        // Speak confirmation, navigate, keep voice mode alive
+        lastSpokenTextRef.current = reply;
+        await speakAndType(reply);
+        setTimeout(() => setPendingNav({ page: navMatch.page }), 200);
+        if (voiceModeRef.current && !micDenied) await startAutoListen();
+      } else {
+        setTimeout(() => { setPendingNav({ page: navMatch.page }); setChatOpen(false); }, 380);
+      }
       return;
     }
 
@@ -1581,12 +1845,9 @@ export default function NeuralRing() {
         .then(d => { dynamicContext = d?.context ?? null; })
         .catch(() => {});
 
-      const system = buildChatSystem(
-        courseOptions, userData, assignments,
-        flashcardMap, syllabus, impressions, lastSession, livingMind,
-        messages.length === 0,  // isFirstMessage — no prior exchanges yet
-        availableVoices   // full list so Claude can match any voice by description
-      );
+      const system = voiceModeRef.current
+        ? buildVoiceSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, availableVoices, leaderboardRank)
+        : buildChatSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, messages.length === 0, availableVoices);
 
       // Wait briefly for context fetch (max 1.2s) — if still pending, proceed without it
       await Promise.race([contextFetch, new Promise(r => setTimeout(r, 1200))]);
@@ -1599,6 +1860,13 @@ export default function NeuralRing() {
       // Use Claude for tutor brain; fall back to Groq if key missing
       // Strip UI-only props (hasArtifact) so they don't reach the Anthropic/Groq API
       const apiMessages = [...messages, userMsg].map(({ role, content }) => ({ role, content }));
+      // Inject barge-in interrupted context so Claude can merge vs switch intent
+      const interruptText = interruptedTextRef.current;
+      interruptedTextRef.current = null;
+      if (interruptText && voiceModeRef.current) {
+        // Insert the partial prior response as assistant context before the new user message
+        apiMessages.splice(-1, 0, { role: "assistant", content: interruptText.slice(0, 300) + "…" });
+      }
       let raw;
       let voiceTTSDone = null; // resolves when all sentence-chunked TTS finishes
 
@@ -1707,8 +1975,9 @@ export default function NeuralRing() {
         }).filter(x => x.score > 0).sort((a, b) => b.score - a.score);
         const match = scored[0]?.v;
         if (match) {
-          voiceIdRef.current = match.voice_id;
-          updateUserField("preferred_voice_id", match.voice_id).catch(() => {});
+          voiceIdRef.current = match.voice_id;         // sync — next TTS chunk uses this
+          setActiveVoiceId(match.voice_id);             // instant chip highlight
+          updateUserField("preferred_voice_id", match.voice_id).catch(() => {}); // persist async
         }
       }
       // Apply SPEED tag
@@ -1734,12 +2003,27 @@ export default function NeuralRing() {
       // ── Quiz detection (before parseNav so tags don't confuse nav parser) ───
       const quizCards = parseQuiz(rawClean);
       if (quizCards) {
+        if (voiceModeRef.current) {
+          // ── Voice quiz: one question at a time, spoken ───────────────────
+          voiceQuizRef.current = { questions: quizCards, idx: 0, score: 0 };
+          setVoiceQuizProgress({ current: 1, total: quizCards.length });
+          const firstQ = quizCards[0];
+          const intro  = `Alright, ${quizCards.length} questions. First one: ${firstQ.q}`;
+          logChat(userId, "assistant", intro, null);
+          setMessages(m => [...m, { role: "assistant", content: intro }]);
+          setLoading(false);
+          lastSpokenTextRef.current = intro;
+          await speakAndType(intro);
+          if (voiceModeRef.current && !micDenied) await startAutoListen();
+          return;
+        }
+        // ── Text mode: show full card set ────────────────────────────────
         const preText = rawClean.replace(/\[QUIZ_START\][\s\S]*?\[QUIZ_END\]/, "").trim();
         const display = preText || "Here's your quiz:";
         logChat(userId, "assistant", display, null);
         setMessages(m => [...m, { role: "assistant", content: display, quiz: quizCards }]);
         setLoading(false);
-        return; // don't TTS the quiz block
+        return;
       }
 
       const { cmd, text: displayText } = parseNav(rawClean);
@@ -1775,8 +2059,10 @@ export default function NeuralRing() {
         // Streaming voice path: TTS already queued — add message now, wait for audio
         setMessages(m => [...m, { role: "assistant", content: cleanText }]);
         setStreamingMsg("");
+        lastSpokenTextRef.current = cleanText;
         await voiceTTSDone;
       } else {
+        lastSpokenTextRef.current = cleanText;
         await speakAndType(cleanText);
       }
       // Auto-restart listening after reply ends, if still in voice mode
@@ -2155,6 +2441,32 @@ export default function NeuralRing() {
                 animation: "nrVoiceIn 0.32s cubic-bezier(0.22,1,0.36,1) both",
                 zIndex: 5,
               }}>
+                {/* Voice quiz progress — top-centre, Fraunces small-caps dots */}
+                {voiceQuizProgress && (
+                  <div style={{
+                    position: "absolute", top: "14px", left: "50%", transform: "translateX(-50%)",
+                    display: "flex", flexDirection: "column", alignItems: "center", gap: "6px",
+                    pointerEvents: "none",
+                  }}>
+                    <span style={{ fontFamily: "'Fraunces',Georgia,serif", fontSize: "10px", fontVariant: "small-caps", letterSpacing: "0.14em", color: "rgba(196,154,60,0.65)" }}>
+                      question {voiceQuizProgress.current} / {voiceQuizProgress.total}
+                    </span>
+                    <div style={{ display: "flex", gap: "5px" }}>
+                      {Array.from({ length: voiceQuizProgress.total }).map((_, i) => (
+                        <div key={i} style={{
+                          width: 6, height: 6, borderRadius: "50%",
+                          background: i < voiceQuizProgress.current - 1
+                            ? "rgba(196,154,60,0.55)"
+                            : i === voiceQuizProgress.current - 1
+                              ? "#C49A3C"
+                              : "rgba(255,255,255,0.1)",
+                          transition: "background 0.3s ease",
+                        }} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Exit — top-right ghost × */}
                 <button
                   onClick={exitVoiceMode}
@@ -2217,7 +2529,7 @@ export default function NeuralRing() {
                     scrollbarWidth: "none", msOverflowStyle: "none",
                   }}>
                     {availableVoices.slice(0, 8).map(v => {
-                      const isActive = (voiceIdRef.current ?? userData?.preferred_voice_id) === v.voice_id;
+                      const isActive = (activeVoiceId ?? voiceIdRef.current ?? userData?.preferred_voice_id) === v.voice_id;
                       const lbls = [v.labels?.accent, v.labels?.gender].filter(Boolean).join("/");
                       return (
                         <button
