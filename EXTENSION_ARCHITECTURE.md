@@ -711,3 +711,21 @@ The agents above are backend (Johan's responsibility). Aryan's job is to make su
 - Emit behavioral signals to `/api/extension/signal` for every meaningful LMS action
 
 The rest is Johan's pipeline.
+
+---
+
+## Cross-Reference: Memory Architecture
+
+The extension captures data and sends it to the backend. What happens to that data after it arrives is covered in two companion documents:
+
+- **`MEMORY_ARCHITECTURE.md`** — how personal student files are stored in `neuroagi.files`, summarized by Claude Haiku, and recalled by Reggie via the `recall_memory` tool. Covers the two-tier memory model (long-term brain DB + working memory context window), the LLM-routed recall strategy, prompt caching, and the 4-phase build plan.
+
+- **`LIBRARY_ARCHITECTURE.md`** — how shared course content (lectures, syllabi, rubrics) is stored in `public.course_content`, deduplicated by content hash, and shared across all students in the same course. Covers the network effect moat, the FschoolAI vs NeuroAGI boundary, and how every agent consumes the library.
+
+**The boundary rule:**
+- Extension sends a student's personal file → `POST /api/brain/ingest` → `neuroagi.files`
+- Extension captures a lecture/rubric/syllabus page → `POST /api/extension/content` → `public.course_content`
+
+Both routes require JWT auth (Phase 0 in the memory spec). Neither should write to Supabase directly.
+
+See `ARYAN_NEXT_STEPS.md` for the prioritized action list for this week.
