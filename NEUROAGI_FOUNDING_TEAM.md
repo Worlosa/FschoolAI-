@@ -158,8 +158,8 @@ Every human being has a brain that is completely disconnected from their digital
 
 **If you are the neuroscientist, the ML architect, or the hardware engineer who has been waiting for this problem — reach out.**
 
-**Vincent Yang — vincent@neuro-agi.com**
-**neuro-agi.com**
+**Vincent Yang — Aryandes20@gmail.com**
+**www.neuro-agi.com**
 
 ---
 
