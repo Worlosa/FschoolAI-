@@ -26,7 +26,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "No valid messages after sanitization" });
 
   const body = {
-    model:      "claude-haiku-4-5-20251001",
+    model:      "claude-sonnet-4-6",   // primary tutor model — Sonnet follows prompts correctly
     max_tokens: Math.min(Number(max_tokens) || 400, 4096),
     messages:   cleanMessages,
   };

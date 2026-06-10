@@ -1662,17 +1662,16 @@ export default function NeuralRing() {
 
     const question = quiz.questions[quiz.idx];
     try {
-      const judgeRes = await fetch("/api/claude", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [{ role: "user", content: `Question: ${question.q}\nCorrect answer: ${question.a}\nStudent said: "${answer}"` }],
-          system: `You are judging a spoken quiz answer. Reply in ONE concise spoken sentence. If correct, start with "Correct!" If wrong, start with "Not quite —" and give the short correct answer. Warm, brief. No lists, no markdown.`,
-          max_tokens: 80,
-        }),
-      });
-      const judgeData = judgeRes.ok ? await judgeRes.json() : {};
-      const feedback  = judgeData.content?.trim() || (/^(correct|yes|right|yeah)/i.test(answer) ? "Correct!" : `Not quite — ${question.a}.`);
+      // Lightweight judge call — Groq (fast, cheap, no Claude quota needed for ~80 token judgments)
+      const judgeSystem = `You are judging a spoken quiz answer. Reply in ONE concise spoken sentence. If correct, start with "Correct!" If wrong, start with "Not quite —" and give the short correct answer. Warm, brief. No lists, no markdown.`;
+      const judgeMsgs   = [{ role: "user", content: `Question: ${question.q}\nCorrect answer: ${question.a}\nStudent said: "${answer}"` }];
+      let feedback;
+      try {
+        feedback = (await groq(judgeMsgs, judgeSystem)).trim();
+      } catch (_) {
+        // Fallback: simple keyword match if Groq is unavailable
+        feedback = /^(correct|yes|right|yeah)/i.test(answer) ? "Correct!" : `Not quite — ${question.a}.`;
+      }
       const isCorrect = /^correct/i.test(feedback);
       const newScore  = quiz.score + (isCorrect ? 1 : 0);
       const newIdx    = quiz.idx + 1;
@@ -1950,16 +1949,26 @@ export default function NeuralRing() {
           });
         } catch (err) {
           if (err?.name === "AbortError") throw err;
-          console.warn("[vdiag] STREAM FAILED → non-streaming fallback | error:", err.message);
-          raw = await claudeTutor(apiMessages, finalSystem, abortCtrlRef.current?.signal);
+          // Streaming failed — try non-streaming Sonnet, then Groq as last resort
+          try {
+            console.warn("[tutor] Sonnet stream failed, trying non-streaming:", err.message);
+            raw = await claudeTutor(apiMessages, finalSystem, abortCtrlRef.current?.signal);
+            console.log("[tutor] served by: claude-sonnet-4-6 (non-streaming fallback)");
+          } catch (claudeErr) {
+            console.warn("[tutor] Sonnet also failed, falling back to Groq:", claudeErr.message);
+            raw = await groq(apiMessages, finalSystem);
+            console.log("[tutor] served by: groq/llama-3.1-8b-instant (double fallback)");
+          }
         }
       } else {
-        console.log("[vdiag] non-voice else branch | voiceModeRef.current:", voiceModeRef.current, "muted:", muted);
+        // Text chat / muted voice — non-streaming Sonnet, Groq fallback
         try {
           raw = await claudeTutor(apiMessages, finalSystem, abortCtrlRef.current?.signal);
+          console.log("[tutor] served by: claude-sonnet-4-6");
         } catch (claudeErr) {
-          console.warn("[vdiag] Claude failed, using Groq fallback | error:", claudeErr?.message);
+          console.warn("[tutor] Sonnet failed, falling back to Groq:", claudeErr.message);
           raw = await groq(apiMessages, finalSystem);
+          console.log("[tutor] served by: groq/llama-3.1-8b-instant (fallback)");
         }
       }
 
