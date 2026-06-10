@@ -203,11 +203,31 @@ extension/
 
 | Issue | Priority | Effort |
 |---|---|---|
+| **Claude proxy on Pratik's personal Vercel** — see below | **Critical** | 2–3 hrs |
 | Hardcoded anon key — no JWT auth | High | 2–3 hrs |
 | Missing `university_id` in sync payloads | Medium | 1 hr |
 | Missing `professor_name` in sync payloads | Medium | 1 hr |
 | Manifest name still says "NeuroAgi" | Low | 2 min |
 | Schema fix branch not yet merged | High | 30 min |
+
+### ⚠️ Critical Dependency: Claude Proxy on Pratik's Personal Vercel
+
+The extension currently calls Claude through a hardcoded URL in `background.js`:
+
+```javascript
+const res = await fetch("https://neuro-agi-topaz.vercel.app/api/claude", { ... });
+```
+
+`neuro-agi-topaz.vercel.app` is **Pratik's personal Vercel project** — not the main `fschool-ai.vercel.app` account owned by Vincent. This creates two risks:
+
+1. **Single point of failure** — if Pratik's Vercel project is deleted, renamed, or hits its free tier limit, the Chrome extension stops working entirely with no warning.
+2. **Key ownership ambiguity** — the Anthropic API key used by this proxy may be different from the key Vincent just rotated. Confirm with Pratik which key is set in `neuro-agi-topaz`'s Vercel environment variables.
+
+**Resolution (your Task 0 — before anything else):**
+1. Confirm with Pratik which Anthropic key is in `neuro-agi-topaz` → update it to the new key if it is the old one.
+2. Work with Johan to add a `/api/claude` proxy route to the main `fschool-ai.vercel.app` backend.
+3. Update `extension/background.js` line 15: change `https://neuro-agi-topaz.vercel.app/api/claude` to `https://fschool-ai.vercel.app/api/claude`.
+4. Test the extension end-to-end, then the `neuro-agi-topaz` dependency can be retired.
 
 ---
 
