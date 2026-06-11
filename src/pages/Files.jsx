@@ -30,9 +30,28 @@ function statusLabel(status) {
   return null;
 }
 
+// Open the file: prefer the stored binary (a signed URL into the private bucket
+// → opens the actual document, PDFs inline, no LMS session needed); fall back to
+// the original session-gated LMS link.
+async function openFile(file) {
+  if (file.storagePath) {
+    try {
+      const res = await fetch("/api/file-url", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ path: file.storagePath }),
+      });
+      const { url } = res.ok ? await res.json() : {};
+      if (url) { window.open(url, "_blank", "noopener,noreferrer"); return; }
+    } catch { /* fall through to the LMS link */ }
+  }
+  if (file.sourceUrl) window.open(file.sourceUrl, "_blank", "noopener,noreferrer");
+}
+
 function FileRow({ file, color }) {
   const size  = formatSize(file.sizeBytes);
   const stat  = statusLabel(file.status);
+  const openable = file.storagePath || file.sourceUrl;
   const inner = (
     <>
       <div style={{ minWidth: 0, flex: 1 }}>
@@ -58,10 +77,12 @@ function FileRow({ file, color }) {
 
   const rowStyle = { ...card, padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", textDecoration: "none" };
 
-  // The source_url is session-gated on the LMS, so it only opens if the student
-  // is logged into that portal — but it's the correct, stable pointer.
-  return file.sourceUrl
-    ? <a href={file.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ ...rowStyle, cursor: "pointer" }}>{inner}</a>
+  // A stored file opens its real document via a signed URL; otherwise we fall
+  // back to the session-gated LMS link. Either way it's one click.
+  return openable
+    ? <div role="button" tabIndex={0} onClick={() => openFile(file)}
+           onKeyDown={e => { if (e.key === "Enter" || e.key === " ") openFile(file); }}
+           style={{ ...rowStyle, cursor: "pointer" }}>{inner}</div>
     : <div style={rowStyle}>{inner}</div>;
 }
 

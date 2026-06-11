@@ -58,6 +58,7 @@ import { readFileSync } from "fs";
 import { resolve }      from "path";
 import tutorContextHandler from "./api/tutor-context.js";
 import extractHandler from "./api/extract.js";
+import fileUrlHandler from "./api/file-url.js";
 
 function loadEnvKey(key) {
   try {
@@ -280,7 +281,33 @@ const extractProxyPlugin = {
   },
 };
 
+// File-URL proxy — runs the real api/file-url.js handler (mints signed URLs for
+// stored course files) under the dev server so "open file" works with `npm run dev`.
+const fileUrlProxyPlugin = {
+  name: "file-url-proxy",
+  configureServer(server) {
+    server.middlewares.use("/api/file-url", async (req, res) => {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      if (req.method === "OPTIONS") { res.statusCode = 200; res.end(); return; }
+      process.env.SUPABASE_URL         = loadEnvKey("SUPABASE_URL");
+      process.env.SUPABASE_SERVICE_KEY = loadEnvKey("SUPABASE_SERVICE_KEY");
+      let body = "";
+      req.on("data", c => { body += c; });
+      req.on("end", async () => {
+        try { req.body = body ? JSON.parse(body) : {}; } catch { req.body = {}; }
+        res.status = (code) => { res.statusCode = code; return res; };
+        res.json   = (obj)  => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(obj)); };
+        try { await fileUrlHandler(req, res); }
+        catch (err) {
+          res.statusCode = 502; res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ error: err.message }));
+        }
+      });
+    });
+  },
+};
+
 export default defineConfig({
-  plugins: [react(), canvasProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin],
+  plugins: [react(), canvasProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin, fileUrlProxyPlugin],
   server:  { port: 5173 },
 });

@@ -41,6 +41,72 @@ export default async function handler(req, res) {
     "Content-Profile": "neuroagi",   // not public.* (that's Vincent's)
   };
 
+  // Resolve a keyword → matching files (with extracted content_text when present).
+  // Shared by `file_lookup` AND `assignment_detail`: for many courses the actual
+  // instructions live in an attached file, NOT the assignment's `description`
+  // field (which is often empty), so an assignment query must also surface files.
+  async function fetchFilesContext(kw, { contentChars = 4000, limit = 25 } = {}) {
+    let courseIds = [];
+    if (kw) {
+      const cr = await fetch(
+        `${supabaseUrl}/rest/v1/courses?user_id=eq.${userId}&select=id&or=(name.ilike.*${encodeURIComponent(kw)}*,course_code.ilike.*${encodeURIComponent(kw)}*)`,
+        { headers: sbHeaders }
+      );
+      if (cr.ok) courseIds = (await cr.json()).map(c => c.id);
+    }
+
+    // Files with extracted content rank first (nulls last) so the model sees
+    // readable text, not just an index of links — and so content-bearing files
+    // aren't pushed off the end by the row `limit`.
+    let url = `${supabaseUrl}/rest/v1/files?user_id=eq.${userId}&select=name,file_type,status,folder,source_url,storage_path,content_text,courses(name,course_code)&order=content_text.desc.nullslast,name.asc&limit=${limit}`;
+    if (kw) {
+      const k   = encodeURIComponent(kw);
+      const ors = [`name.ilike.*${k}*`, `folder.ilike.*${k}*`];
+      if (courseIds.length) ors.push(`course_id.in.(${courseIds.join(",")})`);
+      url += `&or=(${ors.join(",")})`;
+    }
+    const r = await fetch(url, { headers: sbHeaders });
+    if (!r.ok) return null;
+    const rows = await r.json();
+    if (!rows.length) return null;
+
+    // Mint a signed link (private bucket) for stored files so the tutor can hand
+    // the student a URL that opens the actual document. Done in parallel, capped.
+    await Promise.all(
+      rows.filter(f => f.storage_path).slice(0, 10).map(async (f) => {
+        try {
+          const s = await fetch(`${supabaseUrl}/storage/v1/object/sign/course-files/${f.storage_path}`, {
+            method:  "POST",
+            headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, "Content-Type": "application/json" },
+            body:    JSON.stringify({ expiresIn: 3600 }),
+          });
+          if (s.ok) f._openUrl = `${supabaseUrl}/storage/v1${(await s.json()).signedURL}`;
+        } catch { /* leave unlinked — content_text + source_url still available */ }
+      })
+    );
+
+    const anyText = rows.some(f => f.content_text);
+    const header = anyText
+      ? "FILES (some include extracted CONTENT — use it to answer; 'open' is a ready-to-share link to the actual file):\n"
+      : "FILES (synced index — share the 'open' link or source_url; don't invent contents):\n";
+    return header + rows
+      .map(f => {
+        const course = f.courses?.course_code || f.courses?.name || "";
+        const line = [
+          `• ${f.name}`,
+          f.file_type ? `(${f.file_type})` : null,
+          course      ? `— ${course}` : null,
+          f.status    ? `— ${f.status}` : null,
+          f._openUrl   ? `— open: ${f._openUrl}` : (f.source_url ? `— ${f.source_url}` : null),
+        ].filter(Boolean).join(" ");
+        const body = kw && f.content_text
+          ? `\n   content: ${String(f.content_text).slice(0, contentChars)}`
+          : "";
+        return line + body;
+      })
+      .join("\n");
+  }
+
   // ── 1. Classify the query ──────────────────────────────────────────────────
   let queryType = "none";
   let keyword   = null;
@@ -154,61 +220,20 @@ Examples:
             .join("\n");
         }
       }
+      // The assignment's own `description` is frequently empty — the real brief
+      // lives in an attached file. Always append matching file content so
+      // "guide me through <assignment>" can actually read the instructions.
+      if (keyword) {
+        const filesCtx = await fetchFilesContext(keyword, { contentChars: 6000, limit: 8 });
+        if (filesCtx) context = (context ? context + "\n\n" : "") + filesCtx;
+      }
     }
 
     else if (queryType === "file_lookup") {
-      // Resolve keyword → matching course ids so a course name ("Linear Algebra")
-      // and a file/topic name ("Haskell project") both work.
-      let courseIds = [];
-      if (keyword) {
-        const cr = await fetch(
-          `${supabaseUrl}/rest/v1/courses?user_id=eq.${userId}&select=id&or=(name.ilike.*${encodeURIComponent(keyword)}*,course_code.ilike.*${encodeURIComponent(keyword)}*)`,
-          { headers: sbHeaders }
-        );
-        if (cr.ok) courseIds = (await cr.json()).map(c => c.id);
-      }
-
-      // Embed the course via the files→courses FK so each file shows its course.
-      // `content_text` = extracted file text (when present) so the tutor can read it.
-      let url = `${supabaseUrl}/rest/v1/files?user_id=eq.${userId}&select=name,file_type,status,folder,source_url,content_text,courses(name,course_code)&order=name.asc&limit=25`;
-      if (keyword) {
-        const kw  = encodeURIComponent(keyword);
-        const ors = [`name.ilike.*${kw}*`, `folder.ilike.*${kw}*`];
-        if (courseIds.length) ors.push(`course_id.in.(${courseIds.join(",")})`);
-        url += `&or=(${ors.join(",")})`;
-      }
-      const r = await fetch(url, { headers: sbHeaders });
-      if (r.ok) {
-        const rows = await r.json();
-        if (rows.length) {
-          // NOTE for the model: this is the file INDEX. You have names + links, NOT
-          // the file contents — point the student to source_url; do not pretend to
-          // have read the file.
-          const anyText = rows.some(f => f.content_text);
-          const header = anyText
-            ? "FILES (some include extracted CONTENT — use it to answer; share source_url for the rest):\n"
-            : "FILES (synced index — you have names + links, NOT contents; share source_url, don't invent contents):\n";
-          context = header + rows
-            .map(f => {
-              const course = f.courses?.course_code || f.courses?.name || "";
-              const line = [
-                `• ${f.name}`,
-                f.file_type ? `(${f.file_type})` : null,
-                course      ? `— ${course}` : null,
-                f.status    ? `— ${f.status}` : null,
-                f.source_url ? `— ${f.source_url}` : null,
-              ].filter(Boolean).join(" ");
-              // When the query targets specific files (keyword), include their text.
-              const body = keyword && f.content_text
-                ? `\n   content: ${String(f.content_text).slice(0, 4000)}`
-                : "";
-              return line + body;
-            })
-            .join("\n");
-        } else {
-          context = "FILES: none matching that in the synced index.";
-        }
-      }
+      // Resolves the keyword against file name/folder AND course (so "Linear
+      // Algebra" and "Haskell project" both work) and surfaces extracted content.
+      context = await fetchFilesContext(keyword)
+        ?? "FILES: none matching that in the synced index.";
     }
 
     else if (queryType === "flashcard_detail") {

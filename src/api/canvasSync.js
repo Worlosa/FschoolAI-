@@ -418,14 +418,27 @@ export async function syncCanvasData(userId, canvasToken, canvasBaseUrl) {
  * FIX: manual courses have no canvas_course_id — use DB id as fallback.
  */
 export async function loadCanvasData(userId) {
+  // Files index. `storage_path` only exists once supabase-files-storage-migration.sql
+  // has run; selecting an unknown column makes PostgREST 400 the WHOLE query (→ the
+  // Files page shows "No files yet"). So fall back to the column set without it,
+  // keeping the page working pre-migration — storage_path is null then anyway.
+  const FILE_COLS      = 'id, course_id, assignment_id, name, file_type, size_bytes, source_url, folder, status, storage_path';
+  const FILE_COLS_BASE = 'id, course_id, assignment_id, name, file_type, size_bytes, source_url, folder, status';
+  const loadFiles = async () => {
+    const res = await supabase.from('files').select(FILE_COLS).eq('user_id', userId);
+    if (res.error && /storage_path/.test(res.error.message || '')) {
+      return supabase.from('files').select(FILE_COLS_BASE).eq('user_id', userId);
+    }
+    return res;
+  };
+
   const [cResult, aResult, blobResult, fcResult, fileResult] = await Promise.all([
     supabase.from('courses').select('*').eq('user_id', userId),
     supabase.from('assignments').select('*, courses(id, canvas_course_id, course_code, name)').eq('user_id', userId),
     // Single query for all blob types — avoids 5 separate requests and 400s on missing rows
     supabase.from('canvas_data').select('data_type, payload').eq('user_id', userId),
     supabase.from('flashcards').select('course_id, cards, generated_at').eq('user_id', userId),
-    // Extension-synced file index (structured `files` table).
-    supabase.from('files').select('id, course_id, assignment_id, name, file_type, size_bytes, source_url, folder, status').eq('user_id', userId),
+    loadFiles(),
   ]);
 
   // Build a lookup map from the single blob query
@@ -504,6 +517,7 @@ export async function loadCanvasData(userId) {
     fileType:       f.file_type,
     sizeBytes:      f.size_bytes,
     sourceUrl:      f.source_url,
+    storagePath:    f.storage_path,   // path in the private `course-files` bucket (null until uploaded)
     folder:         f.folder,
     status:         f.status,
   }));

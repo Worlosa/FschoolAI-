@@ -331,16 +331,40 @@ async function ingestApiData(userId, data) {
   };
 }
 
-// ── File content extraction (phase 2 / layer b) ───────────────────────────────
+// ── File content extraction + binary storage (phase 2 / layer b) ──────────────
 // For each synced file we fetch its bytes through the student's LMS session (only
-// the extension can — the urls are cookie-gated), send them to /api/extract
-// (PDF/text → plain text), and store the result in files.content_text so the
-// tutor can READ the file, not just link it. Bounded + skips already-extracted.
+// the extension can — the urls are cookie-gated), then do TWO things:
+//   1. Upload the raw bytes to the private `course-files` Storage bucket so the
+//      student can open the ACTUAL document later (PDFs open inline) via a
+//      server-minted signed URL — no LMS session needed. → files.storage_path
+//   2. Send the bytes to /api/extract (PDF/text → plain text) so the tutor can
+//      READ the file's contents, not just link it. → files.content_text
+// Bounded + skips files that already have BOTH stored.
 // NOTE: points at the same Vercel base as the Claude proxy — /api/extract must be
 // DEPLOYED there. For local testing, set EXTRACT_URL to http://localhost:5173/api/extract.
 const EXTRACT_URL = "https://neuro-agi-topaz.vercel.app/api/extract";
 const MAX_EXTRACT_PER_SYNC = 10;
-const MAX_FILE_BYTES = 6_000_000;
+const MAX_FILE_BYTES = 25_000_000;   // matches the bucket's file_size_limit
+
+const MIME_BY_EXT = {
+  pdf:  "application/pdf",
+  doc:  "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ppt:  "application/vnd.ms-powerpoint",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  xls:  "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  txt:  "text/plain", csv: "text/csv", md: "text/markdown", rtf: "application/rtf",
+  png:  "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+};
+
+// Best-effort file extension for a synced file (from file_type, else its name).
+function fileExt(f) {
+  const t = String(f.file_type || "").toLowerCase();
+  if (t && MIME_BY_EXT[t]) return t;
+  const m = String(f.name || "").toLowerCase().match(/\.([a-z0-9]{1,5})$/);
+  return m ? m[1] : "";
+}
 
 function abToBase64(buf) {
   const bytes = new Uint8Array(buf);
@@ -351,16 +375,30 @@ function abToBase64(buf) {
 }
 
 async function extractFileContents(userId, files) {
-  const targets = (files || []).filter(f => f.source_url && f.id).slice(0, MAX_EXTRACT_PER_SYNC);
+  const candidates = (files || []).filter(f => f.source_url && f.id);
+  if (!candidates.length) return;
+
+  // Pull the set of files that are already DONE (have both content_text AND a
+  // stored binary) in ONE query, then skip them. Doing this up front (instead of
+  // slicing the first N and per-file probing) means each sync advances to the
+  // NEXT unfinished files — otherwise the first N would be retried forever and
+  // files past them would never be reached.
+  let done = new Set();
+  try {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/files?user_id=eq.${userId}&content_text=not.is.null&storage_path=not.is.null&select=lms_file_id`,
+      { headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, ...SB_PROFILE } }
+    );
+    if (r.ok) done = new Set((await r.json()).map(x => String(x.lms_file_id)));
+  } catch { /* if the probe fails, fall through and (re)attempt */ }
+
+  const targets = candidates
+    .filter(f => !done.has(String(f.id)))
+    .slice(0, MAX_EXTRACT_PER_SYNC);
+
   for (const f of targets) {
     try {
       const key = encodeURIComponent(String(f.id));
-      // Skip files we've already extracted (content_text already set).
-      const chk = await fetch(
-        `${SUPABASE_URL}/rest/v1/files?user_id=eq.${userId}&lms_file_id=eq.${key}&content_text=not.is.null&select=id`,
-        { headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, ...SB_PROFILE } }
-      );
-      if ((await chk.json())?.length) continue;
 
       // Fetch the file via the student's session (cookies).
       const resp = await fetch(f.source_url, { credentials: "include" });
@@ -368,17 +406,39 @@ async function extractFileContents(userId, files) {
       const buf = await resp.arrayBuffer();
       if (buf.byteLength > MAX_FILE_BYTES) continue;
 
+      // 1. Upload the raw bytes to the private bucket so the real document is
+      //    openable later. Path = "<userId>/<sanitized lms_file_id>.<ext>"; the
+      //    stored Content-Type is what makes a PDF open inline on download.
+      const ext  = fileExt(f);
+      const safe = String(f.id).replace(/[^A-Za-z0-9._-]/g, "_") + (ext ? `.${ext}` : "");
+      const path = `${userId}/${safe}`;
+      const ctype = (resp.headers.get("content-type") || "").split(";")[0].trim()
+                    || MIME_BY_EXT[ext] || "application/octet-stream";
+      let storagePath = null;
+      try {
+        const up = await fetch(`${SUPABASE_URL}/storage/v1/object/course-files/${path}`, {
+          method:  "POST",
+          headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, "Content-Type": ctype, "x-upsert": "true" },
+          body:    buf,
+        });
+        if (up.ok) storagePath = path;
+      } catch { /* storage upload failed — keep going, still extract text */ }
+
+      // 2. Extract readable text for the tutor.
       const ex = await fetch(EXTRACT_URL, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ base64: abToBase64(buf), file_type: f.file_type, name: f.name }),
       }).then(r => (r.ok ? r.json() : null)).catch(() => null);
 
-      if (ex?.text) {
+      const patch = {};
+      if (ex?.text)     patch.content_text = ex.text;
+      if (storagePath)  patch.storage_path = storagePath;
+      if (Object.keys(patch).length) {
         await fetch(`${SUPABASE_URL}/rest/v1/files?user_id=eq.${userId}&lms_file_id=eq.${key}`, {
           method:  "PATCH",
           headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, "Content-Type": "application/json", Prefer: "return=minimal", ...SB_PROFILE },
-          body:    JSON.stringify({ content_text: ex.text }),
+          body:    JSON.stringify(patch),
         });
       }
     } catch { /* skip this file */ }
@@ -703,7 +763,9 @@ async function autoSync(userId, tabId) {
 
   if (api?.lms && (api.courses?.length || api.assignments?.length)) {
     await ingestApiData(userId, api);
-    extractFileContents(userId, api.files).catch(() => {});  // background: fill content_text
+    // Await (don't fire-and-forget): an MV3 service worker is killed once its
+    // triggering event settles, which would abort an unawaited extraction loop.
+    await extractFileContents(userId, api.files).catch(() => {});  // fill content_text
     const stats = await getCurrentStats(userId);
     const caps = [{ step: "courses", auto: true, timestamp: Date.now() }];
     if (api.assignments?.length) caps.push({ step: "assignments", auto: true, timestamp: Date.now() });
@@ -796,7 +858,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === "NEUROAGI_API_INGEST") {
     (async () => {
       const counts = await ingestApiData(msg.userId, msg.data);
-      extractFileContents(msg.userId, msg.data.files).catch(() => {});  // background: fill content_text
+      // Await so the service worker stays alive until extraction finishes (an
+      // unawaited promise is dropped when the worker is torn down post-response).
+      await extractFileContents(msg.userId, msg.data.files).catch(() => {});  // fill content_text
       const stats  = await getCurrentStats(msg.userId);
       return { ok: true, counts, stats };
     })().then(sendResponse).catch(err => sendResponse({ ok: false, error: err.message }));
