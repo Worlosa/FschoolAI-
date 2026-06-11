@@ -1,13 +1,39 @@
 # NeuroAGI + FschoolAI — Complete Ecosystem Walkthrough
 *For someone with zero knowledge of either company*
 
+> **v3.0 — Updated June 2026.** NeuroAGI is not a student product. Students are v1. The platform is universal. See `NEUROAGI_PLATFORM_STRATEGY_V3.md` for the full strategic framing.
+
 ---
 
 ## Start Here: The One-Sentence Version
 
-**NeuroAGI** builds the brain. **FschoolAI** is the first app that runs on it.
+**NeuroAGI** builds the Personal World Model — a sovereign, compounding AI that models one specific human's reality. **FschoolAI** is the first app that runs on it. **Neural Card** is the physical sensor layer. **Chinese AI hardware** is the ambient intelligence ecosystem. **The brain belongs to the user.**
 
-That's it. Everything else is the detail of how those two things connect.
+This is the Apple iOS model applied to human intelligence. Apple built the iPhone (hardware + OS), proved the platform with its own apps, then opened the App Store. NeuroAGI does the same — except the device is the brain, and the OS is the Personal World Model.
+
+### The Full Ecosystem Stack
+
+```
+NeuroAGI Brain OS      ← Personal World Model (sovereign, owned by user)
+        ↓
+FschoolAI              ← First-party app (students — v1)
+        ↓
+Third-party Agents     ← Developer platform (Phase 3 — any domain)
+        ↓
+Neural Card            ← Physical sensor layer (Phase 2)
+        ↓
+Chinese AI Hardware    ← Ambient intelligence (Phase 4 — Haier, Midea, Xiaomi)
+        ↓
+All running on the same brain — owned by the user
+```
+
+### Why This Is Not Just EdTech
+
+Students are v1 because they have the most structured context and the most measurable outcomes. But the architecture is human-specific, not student-specific. Phase 3 opens the developer platform to any domain — fitness, professional work, creative work, research. Phase 4 connects the brain to every AI-enabled physical device in a person's life. The brain is the centre of all of it.
+
+### The Critical Architecture Principle
+
+The brain is **agent-agnostic** — not FschoolAI-specific. Every brain table is designed so that any agent (fitness, professional, creative) can read from and write to the same brain. FschoolAI is the first agent that happens to be very good at the academic context. This is what makes the platform possible.
 
 ---
 
@@ -266,5 +292,35 @@ Everything else follows from that.
 
 ---
 
-*Last updated: May 28, 2026*
+---
+
+## Part 8: The Expanded Ecosystem — Beyond Students
+
+| Vertical | What the Brain Models | When |
+|---|---|-|
+| **Students** | Academic knowledge, learning patterns, course context | Now — FschoolAI |
+| **Professionals** | Work context, skill graph, project history, meeting patterns | Phase 3 |
+| **Researchers** | Literature graph, hypothesis history, collaboration network | Phase 3 |
+| **Creatives** | Creative process, inspiration patterns, project evolution | Phase 4 |
+| **Everyone** | Full life context — physical + digital + cognitive | Phase 5 |
+
+## Part 9: The Hardware Layer — Neural Card + Chinese AI Ecosystem
+
+The Neural Card attaches to an iPhone via MagSafe. On-device processing via Whisper — raw audio never leaves the device. Only abstracted signals are written to the brain. The digital layer (FschoolAI) tells you what the student is doing. The physical layer (Neural Card) tells you how they are doing it and in what state. The fusion of both is the Personal World Model.
+
+China is building AI into every physical product — Haier, Midea, Xiaomi, TCL. Every device has its own app, its own cloud, its own data silo. NeuroAGI's position: the Brain OS becomes the unified intelligence layer that every AI-enabled device connects to. Aurora Chen's supply chain network and Alibaba leadership relationships are the direct path to these partnerships.
+
+## Part 10: The Privacy Architecture
+
+The privacy model is not a feature — it is the reason the ecosystem is possible at all.
+
+- **On-device processing first:** Raw audio never leaves the Neural Card
+- **Transparent permission system:** Users see exactly what each agent accesses, scoped and revocable
+- **DID ownership:** Brain anchored to user's cryptographic key, not a NeuroAGI account
+
+OpenAI and Google cannot offer this because their business model requires owning the data. NeuroAGI's business model is platform fees and hardware — not user data. The privacy architecture is what makes developers trust the platform and users grant permissions.
+
+---
+
+*v3.0 — Updated June 2026*
 *Repos: vincentyang0702-pixel/FschoolAI- | vincentyang0702-pixel/neuroagi-core | vincentyang0702-pixel/fschoolai-backend*
