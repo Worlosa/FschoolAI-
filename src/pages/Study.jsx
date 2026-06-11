@@ -697,6 +697,39 @@ export default function Study() {
         if (courseFiles.length) parts.push(`PROFESSOR FILES / SLIDES:\n${courseFiles.join("\n")}`);
       }
 
+      // 6. Shared course library (course_content) — richer text from the puzzle library.
+      // Populated by the extension as students browse their LMS.
+      // Contains full extracted text, summaries, and concepts — far richer than canvas_data blobs.
+      try {
+        const selectedCourseObj = liveCourses.find(c => `${c.courseCode} — ${c.name}` === course);
+        const canvasCourseId = selectedCourseObj?.canvasCourseId ?? String(selectedCourseObj?.id ?? "");
+        if (canvasCourseId) {
+          const { data: libraryRows } = await supabase
+            .from("course_content")
+            .select("content_type, summary, concepts, text, week_number, module_name, professor_name")
+            .eq("canvas_course_id", canvasCourseId)
+            .order("week_number", { ascending: false, nullsFirst: false })
+            .limit(8);
+          if (libraryRows?.length) {
+            const libParts = libraryRows.map(r => {
+              const label = r.module_name
+                ? `${r.content_type} — ${r.module_name}`
+                : r.week_number
+                ? `${r.content_type} Week ${r.week_number}`
+                : r.content_type;
+              const body = r.summary || (r.text || "").slice(0, 400);
+              const concepts = Array.isArray(r.concepts) && r.concepts.length
+                ? `\n  Concepts: ${r.concepts.slice(0, 5).join(", ")}`
+                : "";
+              return `• [LIBRARY] ${label}: ${body}${concepts}`;
+            });
+            parts.push(`COURSE LIBRARY (shared content from all students in this course):\n${libParts.join("\n\n")}`);
+          }
+        }
+      } catch (libErr) {
+        console.warn("[Study] course_content library query failed:", libErr.message);
+      }
+
       return parts.length ? parts.join("\n\n") : "";
     } catch (e) {
       console.warn("[Study] buildCourseContext error:", e.message);
