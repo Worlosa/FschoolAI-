@@ -105,6 +105,8 @@ export function AppProvider({ children }) {
   const [tokenSummary, setTokenSummary] = useState(null);
   // Per-course-card change badges: { [courseId]: { newAssignments, gradedAssignments, scoreChanged, scoreDelta } }
   const [cardChanges, setCardChanges] = useState({});
+  // Files synced by the browser extension (files table). Populated on mount.
+  const [files, setFiles] = useState([]);
 
   // Helper — apply any result object (from loadCanvasData or syncCanvasData)
   // to the relevant state setters. Only overwrites when the array is non-empty
@@ -161,6 +163,26 @@ export function AppProvider({ children }) {
 
       const cached = await loadCanvasData(userId);
       applyCanvasResult(cached);
+
+      // Load files synced by the browser extension (non-fatal if table doesn't exist yet)
+      try {
+        const { data: filesData } = await supabase
+          .from("files")
+          .select("id, course_id, lms_file_id, name, file_type, size_bytes, source_url, folder, status, storage_path")
+          .eq("user_id", userId)
+          .order("updated_at", { ascending: false })
+          .limit(500);
+        if (filesData?.length) {
+          setFiles(filesData.map(f => ({
+            ...f,
+            courseDbId:  f.course_id,   // Files.jsx groups by this field
+            sizeBytes:   f.size_bytes,
+            fileType:    f.file_type,
+            sourceUrl:   f.source_url,
+            storagePath: f.storage_path,
+          })));
+        }
+      } catch { /* files table may not exist yet — page shows empty state */ }
 
       // Establish a baseline snapshot if none exists yet, so the first manual
       // refresh doesn't flag every existing assignment as "new". We don't show
@@ -430,6 +452,7 @@ export function AppProvider({ children }) {
       flashcardMap,
       syllabus,
       pastCourses,
+      files,
       pendingNav,
       setPendingNav,
       studyConfig,

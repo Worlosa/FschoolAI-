@@ -23,6 +23,7 @@ import Study       from "./pages/Study";
 import Toolkit     from "./pages/Toolkit";
 import Identity    from "./pages/Identity";
 import Leaderboard from "./pages/Leaderboard";
+import Files       from "./pages/Files";
 
 const PAGES = {
   work:        Work,
@@ -32,6 +33,7 @@ const PAGES = {
   toolkit:     Toolkit,
   identity:    Identity,
   leaderboard: Leaderboard,
+  files:       Files,
 };
 
 const LOGGED_IN_KEY = "fschool_logged_in";
