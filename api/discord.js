@@ -10,8 +10,8 @@
 //   DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_BOT_TOKEN,
 //   DISCORD_PUBLIC_KEY     (Developer Portal → General Information → Public Key)
 //   DISCORD_GUILD_ID       (right-click server → Copy Server ID)
-//   DISCORD_REDIRECT_URI   (https://neuro-agi-topaz.vercel.app/api/discord?action=callback)
-//   APP_BASE_URL           (https://neuro-agi-topaz.vercel.app)
+//   DISCORD_REDIRECT_URI   (https://fschool-ai.vercel.app/api/discord?action=callback)
+//   APP_BASE_URL           (https://fschool-ai.vercel.app)
 //   DISCORD_ADMIN_SECRET   (any secret string — used to guard post-feedback-button)
 //   SUPABASE_URL, SUPABASE_SERVICE_KEY
 
@@ -159,7 +159,7 @@ export default async function handler(req, res) {
   // ── GET ?action=callback ──────────────────────────────────────────────────
   if (action === "callback") {
     const { code, state: uid } = req.query;
-    const appBase = process.env.APP_BASE_URL || "https://neuro-agi-topaz.vercel.app";
+    const appBase = process.env.APP_BASE_URL || "https://fschool-ai.vercel.app";
     if (!code || !uid) return res.writeHead(302, { Location: `${appBase}/?discord=error` }).end();
 
     try {
