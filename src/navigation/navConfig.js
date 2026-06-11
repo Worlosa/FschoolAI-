@@ -21,7 +21,7 @@ export const DOT_GRID = [
 
 export const LABEL = {
   work:        "Work",
-  canvas:      "Canvas",
+  canvas:      "Courses",
   assignment:  "Assignment",
   study:       "Study",
   toolkit:     "Toolkit",

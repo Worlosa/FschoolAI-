@@ -4,22 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useApp } from "../context/AppContext";
 import { groq }   from "../api/groq";
 
-// ── Static fallback graph ─────────────────────────────────────────────────────
-const FALLBACK_NODES = [
-  { id: "wm",   label: "Working Memory",  course: "PSYC 302", x: 90,  y: 62,  desc: "Short-term system that holds and manipulates information for reasoning and learning — capacity is ~4 chunks." },
-  { id: "cl",   label: "Cognitive Load",  course: "PSYC 302", x: 200, y: 106, desc: "Total mental effort in working memory, split across intrinsic, extraneous, and germane load." },
-  { id: "dp",   label: "Dynamic Prog.",   course: "CS 355",   x: 318, y: 55,  desc: "Optimization technique that solves overlapping subproblems once and stores results in a table." },
-  { id: "memo", label: "Memoization",     course: "CS 355",   x: 372, y: 118, desc: "Top-down DP strategy: cache return values so repeated calls are O(1) lookups." },
-  { id: "pff",  label: "Five Forces",     course: "BUS 410",  x: 48,  y: 185, desc: "Porter's framework measuring industry attractiveness via five competitive pressures." },
-  { id: "ca",   label: "Comp. Advantage", course: "BUS 410",  x: 165, y: 218, desc: "Sustainable edge over rivals through cost leadership, differentiation, or niche focus." },
-  { id: "ode",  label: "Linear ODEs",     course: "MATH 241", x: 290, y: 192, desc: "Differential equations where the unknown appears linearly, solved via integrating factors or characteristic equations." },
-  { id: "if",   label: "Int. Factor",     course: "MATH 241", x: 358, y: 228, desc: "Multiplier μ(x) that converts a non-exact first-order ODE into exact form." },
-];
-const FALLBACK_EDGES = [
-  { from: "wm", to: "cl" }, { from: "dp", to: "memo" }, { from: "pff", to: "ca" }, { from: "ode", to: "if" },
-  { from: "wm", to: "dp" }, { from: "cl", to: "pff" }, { from: "memo", to: "ode" },
-];
-const FALLBACK_COLORS = { "PSYC 302": "#64b4ff", "CS 355": "#64dc9b", "BUS 410": "#ffc364", "MATH 241": "#be82ff" };
+// FALLBACK_NODES removed — real data or empty state only. No fake courses shown.
 const NODE_POSITIONS = [
   { x: 90,  y: 62  }, { x: 200, y: 106 }, { x: 318, y: 55  }, { x: 372, y: 118 },
   { x: 48,  y: 185 }, { x: 165, y: 218 }, { x: 290, y: 192 }, { x: 358, y: 228 },
@@ -72,7 +57,7 @@ function KnowledgeGraph({ courses, assignments }) {
 
   useEffect(() => {
     if (!courses || courses.length === 0) {
-      setGraphData({ nodes: FALLBACK_NODES, edges: FALLBACK_EDGES, courseColors: FALLBACK_COLORS });
+      setGraphData(null); // no canvas data → show empty state, not fake nodes
       return;
     }
     const cacheKey = `kg_v2_${courses.map(c => c.id || c.name).sort().join("_")}`;
@@ -81,7 +66,7 @@ function KnowledgeGraph({ courses, assignments }) {
     setLoading(true);
     buildGraphFromCanvas(courses, assignments)
       .then(data => { localStorage.setItem(cacheKey, JSON.stringify(data)); setGraphData(data); })
-      .catch(() => { setGraphData({ nodes: FALLBACK_NODES, edges: FALLBACK_EDGES, courseColors: FALLBACK_COLORS }); })
+      .catch(() => { setGraphData(null); }) // error → empty state, not fake nodes
       .finally(() => setLoading(false));
   }, [courses, assignments]);
 
@@ -97,6 +82,21 @@ function KnowledgeGraph({ courses, assignments }) {
   const adjacentIds = hovered ? new Set(edges.filter(e => e.from === hovered || e.to === hovered).flatMap(e => [e.from, e.to])) : null;
   const isNodeActive = (id) => !hovered || adjacentIds.has(id);
   const isEdgeActive = (e)  => !hovered || e.from === hovered || e.to === hovered;
+
+  // Empty state — no fake nodes, no graph section at all when there's nothing real to show
+  if (!loading && (!graphData || !graphData.nodes?.length)) {
+    return (
+      <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--radius-card)", padding: "24px 16px", marginBottom: "24px", textAlign: "center" }}>
+        <p style={{ fontSize: "11px", color: "var(--text-dim)", letterSpacing: "2px", textTransform: "uppercase", marginBottom: "16px" }}>Knowledge Graph</p>
+        <p style={{ color: "var(--text-secondary)", fontSize: "14px", fontWeight: "500", marginBottom: "6px" }}>
+          {courses?.length === 0 ? "Connect Canvas to build your knowledge map" : "Your knowledge map builds as you study"}
+        </p>
+        <p style={{ color: "var(--text-dim)", fontSize: "12px" }}>
+          {courses?.length === 0 ? "Sync Canvas and the graph populates automatically." : "Keep studying — concepts will appear here as you go."}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--radius-card)", padding: "16px", marginBottom: "24px", overflow: "hidden" }}>

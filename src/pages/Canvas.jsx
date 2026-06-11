@@ -594,7 +594,7 @@ function PastCoursesSection({ pastCourses, addedIds, adding, onAdd, onAddManual 
   );
 }
 
-/* ─── Main Canvas page ────────────────────────────────────── */
+/* ─── Main Courses page ───────────────────────────────────── */
 
 export default function Canvas() {
   const {
@@ -607,9 +607,10 @@ export default function Canvas() {
     pastCourses,
   } = useApp();
 
-  const [showUpload,    setShowUpload]    = useState(false);
-  const [addingPast,    setAddingPast]    = useState(false);
-  const [addedPastIds,  setAddedPastIds]  = useState(() => {
+  const [showUpload,      setShowUpload]      = useState(false);
+  const [addingPast,      setAddingPast]      = useState(false);
+  const [canvasExpanded,  setCanvasExpanded]  = useState(false);
+  const [addedPastIds,    setAddedPastIds]    = useState(() => {
     try { return new Set(JSON.parse(localStorage.getItem("fschool_added_past") || "[]")); }
     catch { return new Set(); }
   });
@@ -701,28 +702,37 @@ export default function Canvas() {
     setAddingPast(false);
   }
 
-  if (!canvasToken) {
-    return (
-      <div>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
-          <h1 style={{ fontSize: "26px", fontWeight: "600", color: "var(--text-primary)", letterSpacing: "-0.3px" }}>
-            Canvas
+  const hasCourses = courses.length > 0;
+
+  return (
+    <div>
+
+      {/* ── Page header ─────────────────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "24px" }}>
+        <div>
+          <h1 style={{ fontSize: "26px", fontWeight: "600", color: "var(--text-primary)", letterSpacing: "-0.3px", marginBottom: "3px" }}>
+            Courses
           </h1>
-          <RefreshButton syncStatus={syncStatus} onClick={refreshFromSupabase} style={{ marginLeft: "auto" }} />
-        </div>
-        <p style={{ color: "var(--text-dim)", fontSize: "14px", marginBottom: "4px" }}>Not connected</p>
-        <ConnectCanvas onConnect={saveCanvasCredentials} />
-        <div style={{ marginTop: "20px", padding: "14px 16px", background: "rgba(255,204,0,0.05)", border: "1px solid rgba(255,204,0,0.12)", borderRadius: "12px" }}>
-          <p style={{ color: "rgba(255,204,0,0.7)", fontSize: "12px", lineHeight: "1.65" }}>
-            <strong>Note:</strong> Canvas restricts direct browser requests from third-party origins (CORS). If sync fails, you may need a proxy server.
+          <p style={{ color: "var(--text-dim)", fontSize: "14px" }}>
+            {hasCourses
+              ? `${courses.length} course${courses.length !== 1 ? "s" : ""}`
+              : syncStatus === "syncing" ? "Syncing…" : "Add a course to get started"}
           </p>
         </div>
+        {canvasToken && (
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", paddingTop: "4px" }}>
+            <SyncBadge status={syncStatus} />
+            <RefreshButton syncStatus={syncStatus} onClick={refreshFromSupabase} />
+          </div>
+        )}
+      </div>
 
-        {/* Manual courses don't need Canvas — let users build their list now */}
-        <p style={{ color: "var(--text-secondary)", fontSize: "13px", fontWeight: "600", margin: "26px 0 10px" }}>
-          Or add courses manually
-        </p>
-        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+      {/* ── Announcements ────────────────────────────────────── */}
+      <AnnouncementsSection announcements={announcements} />
+
+      {/* ── Course cards — primary content ───────────────────── */}
+      {hasCourses ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px" }}>
           {courses.map(c => (
             <CourseCard
               key={c.id ?? c.course_code ?? c.courseCode}
@@ -734,89 +744,20 @@ export default function Canvas() {
               onSeen={markCardSeen}
             />
           ))}
-
-          <PastCoursesSection
-            pastCourses={pastCourses || []}
-            addedIds={addedPastIds}
-            adding={addingPast}
-            onAdd={handleAddPastCourse}
-            onAddManual={handleAddManualPast}
-          />
-
-          <button
-            onClick={() => setShowUpload(true)}
-            style={{
-              width: "100%", padding: "18px",
-              background: "transparent",
-              border: "1px dashed rgba(255,255,255,0.12)",
-              borderRadius: "var(--radius-card)",
-              color: "var(--text-dim)", fontSize: "13px", fontWeight: "500",
-              cursor: "pointer", fontFamily: "inherit",
-              display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
-            }}
-          >
-            <span style={{ fontSize: "16px", lineHeight: 1 }}>+</span>
-            Add course manually
-          </button>
         </div>
-
-        {showUpload && (
-          <ManualUploadSheet
-            onClose={() => setShowUpload(false)}
-            onSave={(course, newAssignments) => {
-              addManualCourse(course, newAssignments);
-              setShowUpload(false);
-            }}
-          />
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      {/* header */}
-      <h1 style={{ fontSize: "26px", fontWeight: "600", color: "var(--text-primary)", marginBottom: "4px", letterSpacing: "-0.3px" }}>
-        Canvas
-      </h1>
-      <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "24px" }}>
-        <p style={{ color: "var(--text-dim)", fontSize: "14px" }}>
-          {courses.length > 0 ? `${courses.length} course${courses.length !== 1 ? "s" : ""}` : "Syncing courses…"}
-        </p>
-        <SyncBadge status={syncStatus} />
-        <RefreshButton syncStatus={syncStatus} onClick={refreshFromSupabase} style={{ marginLeft: "auto" }} />
-      </div>
-
-      {syncStatus === "cors-error" && (
-        <div style={{ marginBottom: "16px", padding: "14px 16px", background: "rgba(255,59,48,0.06)", border: "1px solid rgba(255,59,48,0.15)", borderRadius: "12px" }}>
-          <p style={{ color: "rgba(255,100,90,0.85)", fontSize: "12px", lineHeight: "1.65" }}>
-            Canvas blocked the request (CORS). Your cached data is shown below if a previous sync succeeded.
+      ) : syncStatus !== "syncing" && (
+        <div style={{ textAlign: "center", padding: "32px 16px", marginBottom: "20px" }}>
+          <p style={{ color: "var(--text-secondary)", fontSize: "15px", fontWeight: "500", marginBottom: "6px" }}>
+            No courses yet
+          </p>
+          <p style={{ color: "var(--text-dim)", fontSize: "13px", lineHeight: "1.65" }}>
+            Add a course manually below, or connect Canvas to sync your full schedule automatically.
           </p>
         </div>
       )}
 
-      {courses.length === 0 && syncStatus !== "syncing" && (
-        <ConnectCanvas onConnect={saveCanvasCredentials} />
-      )}
-
-      {/* announcements */}
-      <AnnouncementsSection announcements={announcements} />
-
-      {/* courses */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-        {courses.map(c => (
-          <CourseCard
-            key={c.id ?? c.course_code ?? c.courseCode}
-            course={c}
-            assignments={assignments}
-            modules={modules}
-            assignmentGroups={assignmentGroups}
-            changes={cardChanges[String(c.id)]}
-            onSeen={markCardSeen}
-          />
-        ))}
-
-        {/* ── Past courses section (always shown — has its own empty state + manual add) ── */}
+      {/* ── Past courses + manual add ────────────────────────── */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "24px" }}>
         <PastCoursesSection
           pastCourses={pastCourses || []}
           addedIds={addedPastIds}
@@ -824,8 +765,6 @@ export default function Canvas() {
           onAdd={handleAddPastCourse}
           onAddManual={handleAddManualPast}
         />
-
-        {/* ── Manual upload trigger ── */}
         <button
           onClick={() => setShowUpload(true)}
           style={{
@@ -838,18 +777,70 @@ export default function Canvas() {
             display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
             transition: "border-color 0.15s, color 0.15s",
           }}
-          onMouseEnter={e => {
-            e.currentTarget.style.borderColor = "rgba(255,255,255,0.25)";
-            e.currentTarget.style.color = "var(--text-secondary)";
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)";
-            e.currentTarget.style.color = "var(--text-dim)";
-          }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.25)"; e.currentTarget.style.color = "var(--text-secondary)"; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "var(--text-dim)"; }}
         >
           <span style={{ fontSize: "16px", lineHeight: 1 }}>+</span>
           Add course manually
         </button>
+      </div>
+
+      {/* ── Canvas connect — expandable disclosure ────────────── */}
+      {/* Collapsed by default — optional integration, not a wall. */}
+      <div style={{ marginBottom: "24px" }}>
+        <button
+          onClick={() => setCanvasExpanded(e => !e)}
+          style={{
+            width: "100%",
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "12px 16px",
+            background: canvasToken ? "rgba(52,199,89,0.04)" : "rgba(255,255,255,0.03)",
+            border: `1px solid ${canvasToken ? "rgba(52,199,89,0.15)" : "rgba(255,255,255,0.09)"}`,
+            borderRadius: canvasExpanded ? "12px 12px 0 0" : "12px",
+            cursor: "pointer", fontFamily: "inherit",
+            transition: "border-color 0.15s, border-radius 0.12s",
+          }}
+          onMouseEnter={e => { if (!canvasToken) e.currentTarget.style.borderColor = "rgba(255,255,255,0.2)"; }}
+          onMouseLeave={e => { if (!canvasToken) e.currentTarget.style.borderColor = "rgba(255,255,255,0.09)"; }}
+        >
+          <span style={{ color: canvasToken ? "rgba(52,199,89,0.8)" : "var(--text-secondary)", fontSize: "13px" }}>
+            {canvasToken ? "Canvas connected ✓" : "Have Canvas? Connect here"}
+          </span>
+          <span style={{ color: "var(--text-dim)", fontSize: "10px", letterSpacing: "0.5px" }}>
+            {canvasExpanded ? "▲" : "▼"}
+          </span>
+        </button>
+
+        {canvasExpanded && (
+          <div style={{
+            border: `1px solid ${canvasToken ? "rgba(52,199,89,0.15)" : "rgba(255,255,255,0.09)"}`,
+            borderTop: "none",
+            borderRadius: "0 0 12px 12px",
+            overflow: "hidden",
+          }}>
+            {canvasToken ? (
+              <div style={{ padding: "16px 20px" }}>
+                <p style={{ color: "var(--text-dim)", fontSize: "12px", lineHeight: "1.65" }}>
+                  Connected and syncing automatically. Use ↻ Refresh in the header to pull the latest data.
+                </p>
+                {syncStatus === "cors-error" && (
+                  <p style={{ color: "rgba(255,100,90,0.85)", fontSize: "12px", lineHeight: "1.65", marginTop: "10px" }}>
+                    Canvas blocked the last request (CORS). Your cached data is shown above.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div style={{ padding: "4px 20px 20px" }}>
+                <ConnectCanvas onConnect={saveCanvasCredentials} />
+                <div style={{ marginTop: "12px", padding: "12px 14px", background: "rgba(255,204,0,0.05)", border: "1px solid rgba(255,204,0,0.12)", borderRadius: "10px" }}>
+                  <p style={{ color: "rgba(255,204,0,0.7)", fontSize: "12px", lineHeight: "1.65" }}>
+                    <strong>Note:</strong> Canvas may restrict direct browser requests (CORS). If sync fails, a proxy server is required.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {showUpload && (

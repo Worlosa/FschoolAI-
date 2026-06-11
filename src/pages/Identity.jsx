@@ -13,6 +13,9 @@ import { useApp }                   from "../context/AppContext";
 import GradeGraph, { COURSE_COLORS } from "../components/GradeGraph";
 import ShareCard                     from "../components/ShareCard";
 
+// Update this when the server invite URL changes — no redeploy needed if set via env.
+const DISCORD_INVITE_URL = "https://discord.gg/SpFXzPZxBX";
+
 const TOKEN_LABELS = {
   daily_login:          "Daily login",
   canvas_sync:          "Canvas synced",
@@ -116,19 +119,13 @@ export default function Identity() {
     { label: "Study Time",  value: studyTime },
   ];
 
-  // Course performance from Canvas data; fall back to placeholder if not connected
-  const coursePerf = courses.length > 0
-    ? courses.map(c => ({
-        name:    c.name,
-        code:    c.courseCode,
-        pct:     c.currentScore ?? c.finalScore ?? fallbackGrade(c.courseCode ?? c.name ?? ""),
-      }))
-    : [
-        { name: "Cognitive Psychology",    code: "PSYC 302", pct: 91 },
-        { name: "Strategic Management",    code: "BUS 410",  pct: 84 },
-        { name: "Algorithms & Complexity", code: "CS 355",   pct: 76 },
-        { name: "Differential Equations",  code: "MATH 241", pct: 68 },
-      ];
+  // Course performance from Canvas data only — hidden when Canvas isn't connected.
+  // pct is null when no grade exists for a real course; the bar shows "—" in that case.
+  const coursePerf = courses.map(c => ({
+    name: c.name,
+    code: c.courseCode,
+    pct:  c.currentScore ?? c.finalScore ?? null,
+  }));
 
   function handleSignOut() {
     localStorage.removeItem("fschool_logged_in");
@@ -216,33 +213,35 @@ export default function Identity() {
         />
       </div>
 
-      {/* Course performance bars */}
-      <p style={{ fontSize: "11px", color: "var(--text-dim)", letterSpacing: "2px", textTransform: "uppercase", marginBottom: "16px" }}>
-        Course Performance
-        {!canvasToken && courses.length === 0 && <span style={{ color: "rgba(255,255,255,0.18)", marginLeft: "8px", letterSpacing: "1px" }}>placeholder</span>}
-      </p>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginBottom: "8px" }}>
-        {coursePerf.map((c, i) => {
-          const color = COURSE_COLORS[i % COURSE_COLORS.length];
-          return (
-            <div key={c.code}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "7px" }}>
-                <div>
-                  <span style={{ color: "var(--text-primary)", fontSize: "14px", fontWeight: "500" }}>{c.name}</span>
-                  <span style={{ color: "var(--text-tertiary)", fontSize: "12px", marginLeft: "8px" }}>{c.code}</span>
+      {/* Course performance bars — only shown when Canvas is connected */}
+      {coursePerf.length > 0 && (
+        <>
+          <p style={{ fontSize: "11px", color: "var(--text-dim)", letterSpacing: "2px", textTransform: "uppercase", marginBottom: "16px" }}>
+            Course Performance
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginBottom: "8px" }}>
+            {coursePerf.map((c, i) => {
+              const color = COURSE_COLORS[i % COURSE_COLORS.length];
+              return (
+                <div key={c.code ?? c.name}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "7px" }}>
+                    <div>
+                      <span style={{ color: "var(--text-primary)", fontSize: "14px", fontWeight: "500" }}>{c.name}</span>
+                      <span style={{ color: "var(--text-tertiary)", fontSize: "12px", marginLeft: "8px" }}>{c.code}</span>
+                    </div>
+                    <span style={{ fontSize: "13px", fontWeight: "600", color, flexShrink: 0, marginLeft: "8px" }}>
+                      {c.pct != null ? `${Math.round(c.pct)}%` : "—"}
+                    </span>
+                  </div>
+                  <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "4px", height: "4px" }}>
+                    <div style={{ background: color, height: "100%", borderRadius: "4px", width: `${c.pct ?? 0}%`, transition: "width 0.5s var(--ease-apple)" }} />
+                  </div>
                 </div>
-                <span style={{ fontSize: "13px", fontWeight: "600", color, flexShrink: 0, marginLeft: "8px" }}>
-                  {c.pct != null ? `${Math.round(c.pct)}%` : "—"}
-                </span>
-              </div>
-              <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: "4px", height: "4px" }}>
-                <div style={{ background: color, height: "100%", borderRadius: "4px", width: `${c.pct ?? 0}%`, transition: "width 0.5s var(--ease-apple)" }} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       {/* Token wallet + activity */}
       {tokenSummary && (
@@ -339,6 +338,7 @@ export default function Identity() {
               background: "var(--color-surface)",
               border: "1px solid var(--color-border)",
               borderRadius: "var(--radius-card)",
+              marginBottom: "8px",
             }}>
               <img src="/discord-logo.svg" alt="Discord" style={{ width: "20px", height: "20px", opacity: 0.55, flexShrink: 0 }} />
               <span style={{ color: "var(--text-secondary)", fontSize: "13px" }}>Discord connected</span>
@@ -356,6 +356,7 @@ export default function Identity() {
                 textDecoration: "none",
                 cursor: userId ? "pointer" : "not-allowed",
                 transition: "border-color 0.15s",
+                marginBottom: "8px",
               }}
               onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(88,101,242,0.45)"}
               onMouseLeave={e => e.currentTarget.style.borderColor = "var(--color-border)"}
@@ -365,6 +366,27 @@ export default function Identity() {
               <span style={{ color: "var(--text-dim)", fontSize: "12px", marginLeft: "auto" }}>+5 tokens →</span>
             </a>
           )}
+          {/* Direct invite — always visible; works even when auto-join fails (max servers, etc.) */}
+          <a
+            href={DISCORD_INVITE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: "flex", alignItems: "center", gap: "12px",
+              padding: "12px 16px",
+              background: "transparent",
+              border: "1px solid rgba(88,101,242,0.18)",
+              borderRadius: "var(--radius-card)",
+              textDecoration: "none",
+              transition: "border-color 0.15s",
+            }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = "rgba(88,101,242,0.45)"}
+            onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(88,101,242,0.18)"}
+          >
+            <img src="/discord-logo.svg" alt="Discord" style={{ width: "18px", height: "18px", opacity: 0.6, flexShrink: 0 }} />
+            <span style={{ color: "rgba(166,176,255,0.75)", fontSize: "13px" }}>Join our Discord</span>
+            <span style={{ color: "rgba(88,101,242,0.5)", fontSize: "12px", marginLeft: "auto" }}>↗</span>
+          </a>
         </div>
       )}
 
