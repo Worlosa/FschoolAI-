@@ -321,12 +321,113 @@ async function ingestApiData(userId, data) {
     }
   }
 
+  // 6. Announcements → course_content (content_type = "announcement")
+  const announcements = data.announcements || [];
+  if (announcements.length) {
+    const annRows = [];
+    for (const a of announcements) {
+      if (!a.content) continue;
+      annRows.push({
+        university_id:    null,
+        course_id:        String(a.course_ref),
+        canvas_course_id: String(a.course_ref),
+        content_type:     "announcement",
+        content_hash:     String(a.id),
+        text:             a.content,
+        summary:          (a.title || "").slice(0, 500),
+        concepts:         null,
+        week_number:      null,
+        module_name:      a.author ? `From: ${a.author}` : null,
+        professor_name:   a.author || null,
+        source_url:       null,
+        first_seen_at:    a.posted_at || now,
+        last_seen_at:     now,
+        seen_by_count:    1,
+      });
+    }
+    if (annRows.length) await sbUpsert("course_content", annRows, "canvas_course_id,content_hash").catch(e => console.warn("[NeuroAgi] announcements write:", e.message));
+  }
+
+  // 7. Pages (lecture notes, readings, syllabus) → course_content
+  const pages = data.pages || [];
+  if (pages.length) {
+    const pageRows = [];
+    for (const p of pages) {
+      if (!p.content || p.content.length < 50) continue;
+      pageRows.push({
+        university_id:    null,
+        course_id:        String(p.course_ref),
+        canvas_course_id: String(p.course_ref),
+        content_type:     p.module_name === "Syllabus" ? "syllabus" : "lecture",
+        content_hash:     String(p.id),
+        text:             p.content,
+        summary:          (p.title || "").slice(0, 500),
+        concepts:         null,
+        week_number:      null,
+        module_name:      p.module_name || null,
+        professor_name:   null,
+        source_url:       null,
+        first_seen_at:    p.updated_at || now,
+        last_seen_at:     now,
+        seen_by_count:    1,
+      });
+    }
+    if (pageRows.length) await sbUpsert("course_content", pageRows, "canvas_course_id,content_hash").catch(e => console.warn("[NeuroAgi] pages write:", e.message));
+  }
+
+  // 8. Inbox messages → course_content (content_type = "inbox")
+  const inbox = data.inbox || [];
+  if (inbox.length) {
+    const inboxRows = [];
+    for (const m of inbox) {
+      if (!m.body || m.body.length < 10) continue;
+      inboxRows.push({
+        university_id:    null,
+        course_id:        m.course_ref ? String(m.course_ref) : "inbox",
+        canvas_course_id: m.course_ref ? String(m.course_ref) : "inbox",
+        content_type:     "inbox",
+        content_hash:     String(m.id),
+        text:             `Subject: ${m.subject}\nFrom: ${m.from}\n\n${m.body}`,
+        summary:          m.subject || "(no subject)",
+        concepts:         null,
+        week_number:      null,
+        module_name:      null,
+        professor_name:   m.from || null,
+        source_url:       null,
+        first_seen_at:    m.created_at || now,
+        last_seen_at:     now,
+        seen_by_count:    1,
+      });
+    }
+    if (inboxRows.length) await sbUpsert("course_content", inboxRows, "canvas_course_id,content_hash").catch(e => console.warn("[NeuroAgi] inbox write:", e.message));
+  }
+
+  // 9. Update professor field on courses if fetched
+  const coursesWithProf = courses.filter(c => c.professor);
+  if (coursesWithProf.length) {
+    for (const c of coursesWithProf) {
+      try {
+        await fetch(
+          `${SUPABASE_URL}/rest/v1/courses?user_id=eq.${userId}&canvas_course_id=eq.${String(c.id)}`,
+          {
+            method: "PATCH",
+            headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, "Content-Type": "application/json", ...SB_PROFILE },
+            body: JSON.stringify({ professor: c.professor, updated_at: now }),
+          }
+        );
+      } catch { /* skip */ }
+    }
+  }
+
   return {
-    courses:     courses.length,
-    assignments: assignments.length,
-    files:       files.length,
-    grades:      courses.filter(c => c.current_score != null).length
-                 + assignments.filter(a => a.score != null).length,
+    courses:       courses.length,
+    assignments:   assignments.length,
+    files:         files.length,
+    announcements: announcements.length,
+    pages:         pages.length,
+    inbox:         inbox.length,
+    grades:        courses.filter(c => c.current_score != null).length
+                   + assignments.filter(a => a.score != null).length,
   };
 }
 
