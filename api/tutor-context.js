@@ -62,7 +62,7 @@ export default async function handler(req, res) {
   let brainContext = null;
   const brainFetch = (brainUrl && brainKey && brainPersonId)
     ? fetch(
-        `${brainUrl}/rest/v1/brain.context_window?person_id=eq.${brainPersonId}&select=stress_level,momentum_state,active_deadline,recent_summary,what_to_focus_on,what_not_to_mention&limit=1`,
+        `${brainUrl}/rest/v1/context_window?person_id=eq.${brainPersonId}&select=stress_level,momentum_state,active_deadline,recent_summary,what_to_focus_on,what_not_to_mention&limit=1`,
         {
           headers: {
             "apikey":        brainKey,
