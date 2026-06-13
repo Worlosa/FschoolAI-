@@ -16,7 +16,7 @@
  *
  * Env vars required:
  *   BRAIN_SUPABASE_URL        — NeuroAGI Brain DB URL
- *   BRAIN_SUPABASE_ANON_KEY   — NeuroAGI Brain DB service-role key
+ *   BRAIN_SUPABASE_KEY        — NeuroAGI Brain DB service-role key
  *   SUPABASE_URL              — FschoolAI main DB URL (for discord_user_id lookup)
  *   SUPABASE_SERVICE_KEY      — FschoolAI main DB service-role key
  *   DISCORD_BOT_TOKEN         — Discord bot token (same bot used by discord.js)
@@ -27,7 +27,7 @@
  */
 
 const BRAIN_URL  = process.env.BRAIN_SUPABASE_URL;
-const BRAIN_KEY  = process.env.BRAIN_SUPABASE_ANON_KEY;
+const BRAIN_KEY  = process.env.BRAIN_SUPABASE_KEY;
 const FS_URL     = process.env.SUPABASE_URL;
 const FS_KEY     = process.env.SUPABASE_SERVICE_KEY;
 const BOT_TOKEN  = process.env.DISCORD_BOT_TOKEN;
