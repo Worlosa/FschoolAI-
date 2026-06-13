@@ -9,11 +9,24 @@
 import fs from 'fs';
 import path from 'path';
 
-const opsPath = path.join(process.cwd(), '.vercel/output/static/ops.html');
+// Find ops.html in the Vercel output directory
+// It could be in .vercel/output/static/ or public/ depending on the build stage
+const possiblePaths = [
+  path.join(process.cwd(), '.vercel/output/static/ops.html'),
+  path.join(process.cwd(), 'public/ops.html'),
+  path.join(process.cwd(), 'dist/ops.html')
+];
 
-// Check if ops.html exists (it should be in the static output after build)
-if (!fs.existsSync(opsPath)) {
-  console.log('⚠️  ops.html not found at', opsPath, '- skipping credential injection');
+let opsPath = null;
+for (const p of possiblePaths) {
+  if (fs.existsSync(p)) {
+    opsPath = p;
+    break;
+  }
+}
+
+if (!opsPath) {
+  console.log('⚠️  ops.html not found in any expected location - skipping credential injection');
   process.exit(0);
 }
 
