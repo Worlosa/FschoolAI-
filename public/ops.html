@@ -972,6 +972,21 @@ function App() {
   const [toastMsg, setToastMsg] = useState(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
+  // Try to fetch credentials from API on mount
+  useEffect(() => {
+    fetch('/api/ops-config')
+      .then(r => r.json())
+      .then(data => {
+        if (data.configured && data.config) {
+          setConfig(data.config);
+          saveConfig(data.config);
+        }
+      })
+      .catch(e => {
+        console.log('ops-config API not available, using localStorage');
+      });
+  }, []);
+
   const handleAuth = () => {
     sessionStorage.setItem("ops_authed", "1");
     setAuthed(true);
