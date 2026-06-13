@@ -187,6 +187,53 @@
     .stress-low { background: var(--green); }
     .stress-med { background: var(--amber); }
     .stress-high { background: var(--red); }
+
+    /* ── Mobile-first responsive layout ─────────────────────────────── */
+    /* Desktop: sidebar + main */
+    @media (min-width: 768px) {
+      .app { flex-direction: row; }
+      .sidebar { display: flex !important; width: 220px; min-width: 220px; }
+      .sidebar.collapsed { width: 52px; min-width: 52px; }
+      .sidebar.collapsed .sidebar-logo .sub,
+      .sidebar.collapsed .nav-item span:not(.icon),
+      .sidebar.collapsed .nav-label,
+      .sidebar.collapsed .sidebar-footer .env-badge { display: none; }
+      .sidebar.collapsed .nav-item { justify-content: center; padding: 10px; }
+      .sidebar.collapsed .sidebar-logo { padding: 16px 12px; text-align: center; }
+      .sidebar.collapsed .brand { font-size: 11px; }
+      .sidebar-toggle { display: flex; }
+      .bottom-nav { display: none !important; }
+      .main { padding-bottom: 0; }
+    }
+    /* Mobile: hide sidebar, show bottom nav */
+    @media (max-width: 767px) {
+      .app { flex-direction: column; }
+      .sidebar { display: none !important; }
+      .sidebar-toggle { display: none; }
+      .bottom-nav { display: flex !important; }
+      .main { padding-bottom: 64px; }
+      .stats-row { grid-template-columns: repeat(2, 1fr); padding: 12px 16px; gap: 8px; }
+      .section { padding: 14px 16px; }
+      .topbar { padding: 12px 16px; }
+      .agent-graph { padding: 14px 16px; }
+      .pipeline-node { min-width: 0; width: 100%; }
+      .pipeline-row { flex-direction: column; }
+      .pipeline-arrow { transform: rotate(90deg); padding: 4px 0; }
+      th, td { padding: 8px 10px; font-size: 11px; }
+      .gate-card { width: 90%; max-width: 360px; padding: 28px 24px; }
+      .toast { bottom: 80px; right: 16px; left: 16px; }
+    }
+
+    /* Sidebar toggle button */
+    .sidebar-toggle { align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; background: transparent; border: 1px solid var(--border); color: var(--muted); cursor: pointer; font-size: 14px; flex-shrink: 0; }
+    .sidebar-toggle:hover { background: var(--surface2); color: var(--text); }
+
+    /* Bottom navigation bar (mobile) */
+    .bottom-nav { display: none; position: fixed; bottom: 0; left: 0; right: 0; height: 60px; background: var(--surface); border-top: 1px solid var(--border); z-index: 100; align-items: stretch; }
+    .bottom-nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; cursor: pointer; color: var(--muted); font-size: 10px; font-weight: 500; padding: 6px 4px; border: none; background: transparent; }
+    .bottom-nav-item.active { color: var(--accent); }
+    .bottom-nav-item .bnav-icon { font-size: 18px; line-height: 1; }
+    .bottom-nav-item .bnav-label { font-size: 9px; letter-spacing: 0.3px; }
   </style>
 </head>
 <body>
@@ -902,6 +949,7 @@ function App() {
   const [tab, setTab] = useState("graph");
   const [config, setConfig] = useState(getConfig);
   const [toastMsg, setToastMsg] = useState(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const handleAuth = () => {
     sessionStorage.setItem("ops_authed", "1");
@@ -918,67 +966,83 @@ function App() {
 
   const navItems = [
     { id: "graph",    icon: "⬡", label: "Agent Graph" },
-    { id: "students", icon: "◉", label: "Student Monitor" },
-    { id: "log",      icon: "≡", label: "Intervention Log" },
-    { id: "config",   icon: "⚙", label: "Credentials" },
+    { id: "students", icon: "◉", label: "Students" },
+    { id: "log",      icon: "≡", label: "Log" },
+    { id: "config",   icon: "⚙", label: "Config" },
   ];
 
   return (
     <div className="app">
-      {/* Sidebar */}
-      <div className="sidebar">
-        <div className="sidebar-logo">
-          <div className="brand">NeuroAGI Ops</div>
-          <div className="sub">Internal monitoring panel</div>
+      {/* Sidebar (desktop only) */}
+      <div className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
+        <div className="sidebar-logo" style={{ display: "flex", alignItems: "center", justifyContent: sidebarCollapsed ? "center" : "space-between" }}>
+          {!sidebarCollapsed && (
+            <div>
+              <div className="brand">NeuroAGI Ops</div>
+              <div className="sub">Internal monitoring panel</div>
+            </div>
+          )}
+          <button className="sidebar-toggle" onClick={() => setSidebarCollapsed(c => !c)} title={sidebarCollapsed ? "Expand" : "Collapse"}>
+            {sidebarCollapsed ? "›" : "‹"}
+          </button>
         </div>
         <div className="sidebar-nav">
           <div className="nav-section">
-            <div className="nav-label">Monitoring</div>
+            {!sidebarCollapsed && <div className="nav-label">Monitoring</div>}
             {navItems.map(item => (
               <div
                 key={item.id}
                 className={`nav-item ${tab === item.id ? "active" : ""}`}
                 onClick={() => setTab(item.id)}
+                title={sidebarCollapsed ? item.label : ""}
               >
                 <span className="icon">{item.icon}</span>
-                {item.label}
+                {!sidebarCollapsed && item.label}
               </div>
             ))}
           </div>
-          <div className="nav-section">
-            <div className="nav-label">Quick Links</div>
-            {[
-              ["fschoolai.com", "https://fschoolai.com"],
-              ["Vercel Dashboard", "https://vercel.com/dashboard"],
-              ["Brain DB (Supabase)", "https://supabase.com/dashboard/project/qiolhlvqfzujnkwnymft"],
-              ["GitHub Repo", "https://github.com/vincentyang0702-pixel/FschoolAI-"],
-            ].map(([label, url]) => (
-              <a key={label} href={url} target="_blank" rel="noopener noreferrer"
-                className="nav-item" style={{ textDecoration: "none", fontSize: 12 }}>
-                <span className="icon">↗</span>{label}
-              </a>
-            ))}
-          </div>
+          {!sidebarCollapsed && (
+            <div className="nav-section">
+              <div className="nav-label">Quick Links</div>
+              {[
+                ["fschoolai.com", "https://fschoolai.com"],
+                ["Vercel Dashboard", "https://vercel.com/dashboard"],
+                ["Brain DB", "https://supabase.com/dashboard/project/qiolhlvqfzujnkwnymft"],
+                ["GitHub Repo", "https://github.com/vincentyang0702-pixel/FschoolAI-"],
+              ].map(([label, url]) => (
+                <a key={label} href={url} target="_blank" rel="noopener noreferrer"
+                  className="nav-item" style={{ textDecoration: "none", fontSize: 12 }}>
+                  <span className="icon">↗</span>{label}
+                </a>
+              ))}
+            </div>
+          )}
         </div>
         <div className="sidebar-footer">
-          <div className="env-badge">{hasCredentials ? "● DB connected" : "○ No credentials"}</div>
+          <div className="env-badge">{hasCredentials ? "● DB connected" : "○ No creds"}</div>
         </div>
       </div>
 
       {/* Main content */}
       <div className="main">
         <div className="topbar">
-          <div className="topbar-title">
+          <div className="topbar-title" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {navItems.find(n => n.id === tab)?.label}
           </div>
           <div className="topbar-actions">
             {!hasCredentials && (
-              <span style={{ fontSize: 11, color: "var(--amber)" }}>
-                ⚠ No DB credentials — add them in Credentials tab
+              <span style={{ fontSize: 11, color: "var(--amber)", display: "none" }} className="creds-warn">
+                ⚠ No credentials
               </span>
             )}
+            {!hasCredentials && (
+              <button className="btn btn-ghost btn-sm" style={{ color: "var(--amber)", borderColor: "rgba(245,158,11,0.4)" }}
+                onClick={() => setTab("config")}>
+                ⚠ Add Credentials
+              </button>
+            )}
             <button className="btn btn-ghost btn-sm" onClick={() => { sessionStorage.removeItem("ops_authed"); setAuthed(false); }}>
-              Lock
+              🔒 Lock
             </button>
           </div>
         </div>
@@ -988,6 +1052,27 @@ function App() {
         {tab === "log"      && <InterventionLog config={config} />}
         {tab === "config"   && <ConfigPanel config={config} onSave={setConfig} />}
       </div>
+
+      {/* Bottom nav (mobile only) */}
+      <nav className="bottom-nav">
+        {navItems.map(item => (
+          <button
+            key={item.id}
+            className={`bottom-nav-item ${tab === item.id ? "active" : ""}`}
+            onClick={() => setTab(item.id)}
+          >
+            <span className="bnav-icon">{item.icon}</span>
+            <span className="bnav-label">{item.label}</span>
+          </button>
+        ))}
+        <button
+          className="bottom-nav-item"
+          onClick={() => { sessionStorage.removeItem("ops_authed"); setAuthed(false); }}
+        >
+          <span className="bnav-icon">🔒</span>
+          <span className="bnav-label">Lock</span>
+        </button>
+      </nav>
 
       {toastMsg && (
         <Toast msg={toastMsg.msg} type={toastMsg.type} onClose={() => setToastMsg(null)} />
