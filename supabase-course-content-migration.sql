@@ -49,11 +49,10 @@ CREATE TABLE IF NOT EXISTS public.course_content (
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- ── RLS (disabled — matches every other app table) ────────────────────────────
-ALTER TABLE public.course_content ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "open_all" ON public.course_content;
-CREATE POLICY "open_all" ON public.course_content
-  FOR ALL USING (true) WITH CHECK (true);
+-- ── RLS: DISABLED ─────────────────────────────────────────────────────────────
+-- No per-user rows — this is a shared table. Anon key must write freely.
+-- DISABLE (not ENABLE + open policy) so there is no RLS overhead at all.
+ALTER TABLE public.course_content DISABLE ROW LEVEL SECURITY;
 
 -- ── Indexes ───────────────────────────────────────────────────────────────────
 -- Dedup lookup (hot path — every extension submission hits this)
