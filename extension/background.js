@@ -525,6 +525,14 @@ ${tables ? `Tables found:\n${tables}` : ""}`;
     const firstCourse = parsed.courses?.[0];
     const courseId    = firstCourse?.code || firstCourse?.name || 'unknown';
 
+    // H4 fix: extract numeric Canvas course ID from URL (e.g. /courses/423038/)
+    // This populates canvas_course_id so the library can join to the courses table
+    // by either key — prevents duplicate rows for the same course.
+    let canvasCourseId = null;
+    try {
+      const m = url.match(/\/courses\/(\d+)/);
+      if (m) canvasCourseId = m[1];
+    } catch { /* ignore */ }
     fetch('https://fschoolai.com/api/extension-content', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -532,6 +540,7 @@ ${tables ? `Tables found:\n${tables}` : ""}`;
         userId,
         universityId,
         courseId,
+        canvasCourseId,  // numeric LMS ID — populates canvas_course_id column (H4 fix)
         contentType,
         text:          text.slice(0, 50000), // hard cap per API contract
         sourceUrl:     url,
