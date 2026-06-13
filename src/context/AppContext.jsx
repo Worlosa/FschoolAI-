@@ -159,6 +159,27 @@ export function AppProvider({ children }) {
         setUserData(user);
         if (user.canvas_token)    setCanvasToken(user.canvas_token);
         if (user.canvas_base_url) setCanvasBaseUrl(user.canvas_base_url);
+
+        // ── Brain DB link (fire-and-forget) ─────────────────────────────────
+        // If this user has no brain_person_id yet, create their neuro.persons
+        // record in Brain DB and store the UUID back in users.brain_person_id.
+        // This is the spine that connects all brain signals to this student.
+        // Safe to call on every login — idempotent (checks before creating).
+        if (!user.brain_person_id) {
+          fetch('/api/brain-person-link', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ userId }),
+          })
+            .then(r => r.json())
+            .then(data => {
+              if (data?.ok && data?.brain_person_id) {
+                // Update local userData so tutor-context can use it immediately
+                setUserData(prev => prev ? { ...prev, brain_person_id: data.brain_person_id } : prev);
+              }
+            })
+            .catch(() => { /* non-fatal — brain link retried on next login */ });
+        }
       }
 
       const cached = await loadCanvasData(userId);

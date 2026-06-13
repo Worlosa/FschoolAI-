@@ -490,6 +490,56 @@ ${tables ? `Tables found:\n${tables}` : ""}`;
   const counts = await ingestStructured(userId, parsed);
   const stats  = await getCurrentStats(userId);
 
+  // ── Library ingestion (fire-and-forget) ──────────────────────────────────
+  // Send the raw page text to /api/extension-content so it can be stored
+  // in the shared course_content library. This is the data moat:
+  // content seen by one student benefits all students at that university.
+  // Only fires when there's meaningful text (>200 chars) and a course context.
+  if (text && text.length > 200 && parsed.pageType !== 'other') {
+    // Detect content type from page context
+    const lowerTitle = (title || '').toLowerCase();
+    const lowerUrl   = (url   || '').toLowerCase();
+    const contentType =
+      lowerTitle.includes('syllabus') || lowerUrl.includes('syllabus') ? 'syllabus' :
+      lowerTitle.includes('module')   || lowerUrl.includes('module')   ? 'module'   :
+      lowerTitle.includes('lecture')  || lowerUrl.includes('lecture')  ? 'lecture'  :
+      lowerTitle.includes('rubric')   || lowerUrl.includes('rubric')   ? 'rubric'   :
+      lowerTitle.includes('announce') || lowerUrl.includes('announce') ? 'announcement' :
+      'lecture'; // default
+
+    // Derive university from URL
+    let universityId = 'unknown';
+    try {
+      const host = new URL(url).hostname;
+      const UNI_MAP = {
+        'canvas.utoronto.ca': 'uoft', 'q.utoronto.ca': 'uoft',
+        'canvas.ubc.ca': 'ubc', 'canvas.mcmaster.ca': 'mcmaster',
+        'canvas.queensu.ca': 'queens', 'learn.uwaterloo.ca': 'uwaterloo',
+        'owl.uwo.ca': 'uwo', 'mycourses.mcgill.ca': 'mcgill',
+        'canvas.mit.edu': 'mit', 'canvas.stanford.edu': 'stanford',
+      };
+      universityId = UNI_MAP[host] ?? host.replace(/^www\./, '').split('.').slice(-2, -1)[0] ?? 'unknown';
+    } catch { /* keep unknown */ }
+
+    // Use first course found as courseId
+    const firstCourse = parsed.courses?.[0];
+    const courseId    = firstCourse?.code || firstCourse?.name || 'unknown';
+
+    fetch('https://fschool-ai.vercel.app/api/extension-content', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId,
+        universityId,
+        courseId,
+        contentType,
+        text:          text.slice(0, 50000), // hard cap per API contract
+        sourceUrl:     url,
+        professorName: firstCourse?.instructor ?? null,
+      }),
+    }).catch(() => {}); // fire and forget — never blocks the main extract flow
+  }
+
   const parts = [];
   if (counts.courses)     parts.push(`${counts.courses} courses`);
   if (counts.assignments) parts.push(`${counts.assignments} assignments`);
