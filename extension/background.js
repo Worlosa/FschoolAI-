@@ -397,6 +397,7 @@ async function ingestApiData(userId, data) {
         first_seen_at:    m.created_at || now,
         last_seen_at:     now,
         seen_by_count:    1,
+        is_private:       true,  // inbox messages are always private — never shared across students
       });
     }
     if (inboxRows.length) await sbUpsert("course_content", inboxRows, "canvas_course_id,content_hash").catch(e => console.warn("[NeuroAgi] inbox write:", e.message));
