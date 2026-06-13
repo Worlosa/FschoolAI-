@@ -3,6 +3,7 @@
 // FIRES:  before Claude responds, when the query seems to need live DB data
 //         that isn't already in the system prompt
 // READS:  Supabase — assignments, courses, flashcards — filtered to what's relevant
+//         NeuroAGI Brain DB — brain.context_window (pre-cached student state)
 // WRITES: nothing — read-only
 // RETURNS: a context string injected into the Claude call as an extra system section
 //
@@ -12,12 +13,19 @@
 //   "What flashcards do I have for Media Studies?" "Which assignments am I missing?"
 //   This endpoint detects those queries and fetches the exact data needed.
 //
+// BRAIN CONTEXT (NeuroAGI Brain DB):
+//   brain.context_window is pre-cached by brain_scheduler (runs in background).
+//   It contains: stress_level, momentum_state, active_deadline, recent_summary,
+//   what_to_focus_on, what_not_to_mention — all pre-computed, 0ms read latency.
+//   This is fetched in PARALLEL with FschoolAI DB queries (Promise.all).
+//   Brain DB has ~600ms latency — pre-caching eliminates this from the hot path.
+//
 // QUERY CLASSIFICATION (done by Claude Haiku — fast, cheap):
 //   assignment_detail  → fetch specific assignment(s) matching query
 //   course_grades      → fetch all courses with scores
 //   missing_late       → fetch missing/late assignments
 //   flashcard_detail   → fetch flashcards for a specific course
-//   none               → no DB fetch needed
+//   none               → no DB fetch needed (but brain context still returned if available)
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -25,12 +33,15 @@ export default async function handler(req, res) {
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   const supabaseUrl  = process.env.SUPABASE_URL;
   const supabaseKey  = process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY;
+  // Brain DB env vars (NeuroAGI) — optional, gracefully skipped if not configured
+  const brainUrl = process.env.BRAIN_SUPABASE_URL;
+  const brainKey = process.env.BRAIN_SUPABASE_KEY;
 
   if (!anthropicKey || !supabaseUrl || !supabaseKey) {
     return res.status(200).json({ context: null, reason: "missing env" });
   }
 
-  const { userId, userMessage } = req.body ?? {};
+  const { userId, userMessage, brainPersonId } = req.body ?? {};
   if (!userId || !userMessage) return res.status(200).json({ context: null });
 
   const sbHeaders = {
@@ -38,6 +49,22 @@ export default async function handler(req, res) {
     "Authorization": `Bearer ${supabaseKey}`,
     "Content-Type":  "application/json",
   };
+
+  // ── 0. Fetch brain.context_window in parallel with classification ──────────
+  // Pre-cached by brain_scheduler — no 600ms Brain DB penalty on hot path
+  let brainContext = null;
+  const brainFetch = (brainUrl && brainKey && brainPersonId)
+    ? fetch(
+        `${brainUrl}/rest/v1/brain.context_window?person_id=eq.${brainPersonId}&select=stress_level,momentum_state,active_deadline,recent_summary,what_to_focus_on,what_not_to_mention&limit=1`,
+        {
+          headers: {
+            "apikey":        brainKey,
+            "Authorization": `Bearer ${brainKey}`,
+            "Content-Type":  "application/json",
+          },
+        }
+      ).then(r => r.ok ? r.json() : null).catch(() => null)
+    : Promise.resolve(null);
 
   // ── 1. Classify the query ──────────────────────────────────────────────────
   let queryType = "none";
@@ -82,7 +109,26 @@ Examples:
     }
   } catch { /* fall through to none */ }
 
-  if (queryType === "none") return res.status(200).json({ context: null });
+  // Await brain context (was fetched in parallel with classification)
+  const brainRows = await brainFetch;
+  const brainWindow = brainRows?.[0] ?? null;
+  if (brainWindow) {
+    const parts = [];
+    if (brainWindow.stress_level != null)  parts.push(`stress level: ${(brainWindow.stress_level * 10).toFixed(0)}/10`);
+    if (brainWindow.momentum_state)        parts.push(`momentum: ${brainWindow.momentum_state}`);
+    if (brainWindow.active_deadline)       parts.push(`active deadline: ${brainWindow.active_deadline}`);
+    if (brainWindow.recent_summary)        parts.push(`\nRecent student context: ${brainWindow.recent_summary}`);
+    if (brainWindow.what_to_focus_on)      parts.push(`\nFocus on: ${brainWindow.what_to_focus_on}`);
+    if (brainWindow.what_not_to_mention)   parts.push(`\nAvoid mentioning: ${brainWindow.what_not_to_mention}`);
+    if (parts.length) {
+      brainContext = `STUDENT BRAIN STATE (NeuroAGI):\n${parts.join(" | ")}`;
+    }
+  }
+
+  if (queryType === "none") {
+    // Even if no DB query needed, return brain context if available
+    return res.status(200).json({ context: brainContext });
+  }
 
   // ── 2. Fetch relevant data ─────────────────────────────────────────────────
   let context = null;
@@ -169,6 +215,13 @@ Examples:
     }
   } catch (err) {
     console.error("[tutor-context] fetch error:", err.message);
+  }
+
+  // Merge brain context with DB context
+  if (brainContext && context) {
+    context = `${brainContext}\n\n${context}`;
+  } else if (brainContext) {
+    context = brainContext;
   }
 
   return res.status(200).json({ context });

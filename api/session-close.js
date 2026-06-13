@@ -1,10 +1,12 @@
-// api/session-close.js — Session close queue: living mind rewrite
+// api/session-close.js — Session close queue: living mind rewrite + brain signal write
 //
 // ARCHITECTURE CONTRACT (from Reggie):
 //   FIRES:  when NeuralRing chat closes (non-blocking, fire-and-forget)
 //   READS:  chat_logs (current session transcript) + tutor_impressions (last 10)
 //           + tutor_mind (existing living mind doc for this user)
 //   WRITES: tutor_mind table (one row per user, upserted — full rewrite each session)
+//           brain.signals (NeuroAGI Brain DB — session_end signal, fire-and-forget)
+//           brain.context_window (NeuroAGI Brain DB — updated with latest mind summary)
 //   NEVER:  block the UI — caller fires and forgets
 //   NEVER:  modify users/courses/assignments tables
 //
@@ -33,6 +35,9 @@ export default async function handler(req, res) {
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   const supabaseUrl  = process.env.SUPABASE_URL;
   const supabaseKey  = process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY;
+  // Brain DB env vars (NeuroAGI) — optional, gracefully skipped if not configured
+  const brainUrl = process.env.BRAIN_SUPABASE_URL;
+  const brainKey = process.env.BRAIN_SUPABASE_KEY;
 
   // Fail silently — never surface errors to UI
   if (!anthropicKey || !supabaseUrl || !supabaseKey) {
@@ -67,7 +72,20 @@ export default async function handler(req, res) {
       }
     } catch { /* non-fatal — build from scratch */ }
 
-    // ── 2. Fetch last 10 impressions ────────────────────────────────────────
+    // ── 2. Fetch user profile (for brain signal) ──────────────────────────────
+    let userProfile = null;
+    try {
+      const userRes = await fetch(
+        `${supabaseUrl}/rest/v1/users?id=eq.${userId}&select=id,name,brain_person_id,gpa,streak,school&limit=1`,
+        { headers: sbHeaders }
+      );
+      if (userRes.ok) {
+        const userData = await userRes.json();
+        userProfile = userData?.[0] ?? null;
+      }
+    } catch { /* non-fatal */ }
+
+    // ── 3. Fetch last 10 impressions ────────────────────────────────────────
     let impressions = [];
     try {
       const impRes = await fetch(
@@ -77,7 +95,7 @@ export default async function handler(req, res) {
       if (impRes.ok) impressions = await impRes.json();
     } catch { /* non-fatal */ }
 
-    // ── 3. Build the rewrite prompt ─────────────────────────────────────────
+    // ── 4. Build the rewrite prompt ─────────────────────────────────────────
     const sessionTranscript = msgs
       .slice(-20) // cap at 20 messages to stay within token budget
       .map(m => `${m.role === "user" ? "STUDENT" : "TUTOR"}: ${m.content.slice(0, 300)}`)
@@ -127,7 +145,7 @@ RULES:
 - No filler, no hedging — if you know it, say it directly
 - Return ONLY the document, no preamble, no markdown headers with ##`;
 
-    // ── 4. Call Claude Haiku ────────────────────────────────────────────────
+    // ── 5. Call Claude Haiku ────────────────────────────────────────────────
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
       method:  "POST",
       headers: {
@@ -148,7 +166,7 @@ RULES:
     const mindDoc    = claudeData.content?.[0]?.text?.trim();
     if (!mindDoc) return res.status(200).json({ ok: false, reason: "empty mind doc" });
 
-    // ── 5. Upsert to tutor_mind (one row per user) ──────────────────────────
+    // ── 6. Upsert to tutor_mind (one row per user) ──────────────────────────
     // Uses ON CONFLICT DO UPDATE via Prefer: resolution=merge-duplicates
     const upsertRes = await fetch(`${supabaseUrl}/rest/v1/tutor_mind`, {
       method:  "POST",
@@ -164,6 +182,55 @@ RULES:
       const errText = await upsertRes.text().catch(() => "");
       console.error("[session-close] upsert failed:", errText);
       return res.status(200).json({ ok: false, reason: "upsert failed" });
+    }
+
+    // ── 7. Write signal to NeuroAGI Brain DB (fire-and-forget) ─────────────
+    // Only fires if brain env vars are set AND user has a brain_person_id
+    if (brainUrl && brainKey && userProfile?.brain_person_id) {
+      const brainHeaders = {
+        "apikey":        brainKey,
+        "Authorization": `Bearer ${brainKey}`,
+        "Content-Type":  "application/json",
+        "Prefer":        "return=minimal",
+      };
+
+      // Write session_end signal to brain.signals
+      const brainSignal = {
+        person_id:   userProfile.brain_person_id,
+        signal_type: "academic",
+        source:      "fschoolai",
+        payload: {
+          event:               "session_end",
+          session_messages:    msgs.length,
+          duration_mins:       Math.round(msgs.length * 1.5),
+          living_mind_updated: true,
+          user_gpa:            userProfile.gpa,
+          user_streak:         userProfile.streak,
+          school:              userProfile.school,
+        },
+        intensity:   Math.min(1.0, msgs.length / 20),
+        confidence:  0.8,
+        created_at:  new Date().toISOString(),
+      };
+
+      fetch(`${brainUrl}/rest/v1/brain.signals`, {
+        method: "POST", headers: brainHeaders, body: JSON.stringify(brainSignal),
+      }).catch(err => console.error("[session-close] brain signal write failed:", err.message));
+
+      // Update brain.context_window with latest mind summary
+      const contextUpdate = {
+        person_id:      userProfile.brain_person_id,
+        written_at:     new Date().toISOString(),
+        expires_at:     new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
+        recent_summary: mindDoc.slice(0, 300).replace(/\n/g, " ").trim(),
+        momentum_state: "neutral",
+        stress_level:   0.5,
+      };
+      fetch(`${brainUrl}/rest/v1/brain.context_window`, {
+        method: "POST",
+        headers: { ...brainHeaders, "Prefer": "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify(contextUpdate),
+      }).catch(err => console.error("[session-close] context_window update failed:", err.message));
     }
 
     return res.status(200).json({ ok: true });

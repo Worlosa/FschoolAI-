@@ -1850,6 +1850,37 @@ export default function NeuralRing() {
     setInput("");
     setLoading(true);
     logChat(userId, "user", userMsg.content, null);
+
+    // ── Brain behavioral signal (fire-and-forget) ─────────────────────────────
+    // Every student message is a data point for the brain.
+    // The brain_scheduler reads these signals to update context_window.
+    if (userData?.brain_person_id) {
+      const msgLen   = userMsg.content.length;
+      const hour     = new Date().getHours();
+      const timeSlot = hour < 6 ? 'late_night' : hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : hour < 22 ? 'evening' : 'late_night';
+      // Lightweight stress/confusion detection from word patterns
+      const stressWords    = /\b(stress|anxious|panic|overwhelm|behind|fail|lost|confus|stuck|help|urgent|due|tomorrow|tonight)\b/i;
+      const confidenceWords = /\b(understand|got it|makes sense|clear|easy|done|finish|ready)\b/i;
+      const emotionalTone  = stressWords.test(userMsg.content) ? 'stressed' : confidenceWords.test(userMsg.content) ? 'confident' : 'neutral';
+      fetch('/api/brain-signal', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          brainPersonId: userData.brain_person_id,
+          signalType:    'behavioral',
+          source:        'fschoolai_chat',
+          payload: {
+            message_length:  msgLen,
+            time_of_day:     timeSlot,
+            hour_of_day:     hour,
+            emotional_tone:  emotionalTone,
+            message_count:   messages.length + 1,
+            has_canvas_data: courses.length > 0,
+          },
+        }),
+      }).catch(() => {}); // fire and forget — never blocks the tutor
+    }
+
     // ── DIAGNOSTIC LOGS — remove after confirming voice gates ───────────────
     console.log("[vdiag] sendMessage | voiceModeRef.current:", voiceModeRef.current, "| muted:", muted, "| text:", text.slice(0, 40));
 
@@ -1902,7 +1933,11 @@ export default function NeuralRing() {
       const contextFetch = fetch("/api/tutor-context", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, userMessage: userMsg.content }),
+        body: JSON.stringify({
+          userId,
+          userMessage:   userMsg.content,
+          brainPersonId: userData?.brain_person_id ?? null, // enriches tutor with brain context
+        }),
       })
         .then(r => r.ok ? r.json() : null)
         .then(d => { dynamicContext = d?.context ?? null; })

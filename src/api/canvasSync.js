@@ -403,6 +403,14 @@ export async function syncCanvasData(userId, canvasToken, canvasBaseUrl) {
   // Award canvas_sync token (non-blocking, server deduplicates daily)
   awardTokens("canvas_sync").catch(() => {});
 
+  // ── 8. Sync to NeuroAGI Brain DB (fire-and-forget) ────────────────────────
+  // Writes course + assignment summaries to fschool.* tables in Brain DB.
+  // Only fires if BRAIN_SUPABASE_URL and BRAIN_SUPABASE_KEY env vars are set.
+  // Requires user to have a brain_person_id (set by brain-person-link.js on signup).
+  syncToBrainDB(userId, courses, allAssignments, courseIdMap, now).catch(
+    err => console.error('[canvasSync] brain sync failed:', err.message)
+  );
+
   return {
     courses,
     assignments:      allAssignments,
@@ -518,4 +526,83 @@ export async function loadCanvasData(userId) {
     flashcardMap,
     syncedAt:         null,
   };
+}
+
+// ── Brain DB Sync Helper ──────────────────────────────────────────────────────
+// Writes course and assignment data to fschool.* tables in NeuroAGI Brain DB.
+// Called fire-and-forget after each Canvas sync — never blocks the main sync.
+//
+// Brain DB schema (fschool schema):
+//   fschool.courses:     person_id, canvas_course_id, name, course_code, current_score, final_score, synced_at
+//   fschool.assignments: person_id, canvas_assignment_id, course_id, title, due_at, score, points_possible, missing, late, synced_at
+
+async function syncToBrainDB(userId, courses, assignments, courseIdMap, now) {
+  const brainUrl = import.meta.env?.VITE_BRAIN_SUPABASE_URL;
+  const brainKey = import.meta.env?.VITE_BRAIN_SUPABASE_KEY;
+
+  // Gracefully skip if Brain DB not configured
+  if (!brainUrl || !brainKey) return;
+
+  // Fetch user's brain_person_id from FschoolAI DB
+  const { data: userData } = await supabase
+    .from('users')
+    .select('brain_person_id')
+    .eq('id', userId)
+    .maybeSingle();
+
+  const brainPersonId = userData?.brain_person_id;
+  if (!brainPersonId) return; // User not yet linked to Brain DB
+
+  const brainHeaders = {
+    'apikey':        brainKey,
+    'Authorization': `Bearer ${brainKey}`,
+    'Content-Type':  'application/json',
+    'Prefer':        'resolution=merge-duplicates,return=minimal',
+  };
+
+  // Upsert courses to fschool.courses
+  if (courses.length) {
+    const courseRows = courses.map(c => ({
+      person_id:        brainPersonId,
+      canvas_course_id: String(c.id),
+      name:             c.name,
+      course_code:      c.courseCode ?? null,
+      current_score:    c.currentScore ?? null,
+      final_score:      c.finalScore ?? null,
+      synced_at:        now,
+    }));
+
+    await fetch(`${brainUrl}/rest/v1/fschool.courses`, {
+      method:  'POST',
+      headers: brainHeaders,
+      body:    JSON.stringify(courseRows),
+    }).catch(err => console.error('[syncToBrainDB] courses write failed:', err.message));
+  }
+
+  // Upsert assignments to fschool.assignments (cap at 100 most recent)
+  const recentAssignments = assignments
+    .filter(a => a.dueAt)
+    .sort((a, b) => new Date(b.dueAt) - new Date(a.dueAt))
+    .slice(0, 100);
+
+  if (recentAssignments.length) {
+    const assignRows = recentAssignments.map(a => ({
+      person_id:            brainPersonId,
+      canvas_assignment_id: String(a.id),
+      canvas_course_id:     String(a.courseId),
+      title:                a.name,
+      due_at:               a.dueAt ?? null,
+      score:                a.submission?.score ?? null,
+      points_possible:      a.pointsPossible ?? null,
+      missing:              a.submission?.missing ?? false,
+      late:                 a.submission?.late ?? false,
+      synced_at:            now,
+    }));
+
+    await fetch(`${brainUrl}/rest/v1/fschool.assignments`, {
+      method:  'POST',
+      headers: brainHeaders,
+      body:    JSON.stringify(assignRows),
+    }).catch(err => console.error('[syncToBrainDB] assignments write failed:', err.message));
+  }
 }

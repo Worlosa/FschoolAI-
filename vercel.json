@@ -1,5 +1,6 @@
 {
   "crons": [
-    { "path": "/api/assignment-reminder", "schedule": "0 8 * * *" }
+    { "path": "/api/assignment-reminder", "schedule": "0 8 * * *" },
+    { "path": "/api/brain-scheduler",     "schedule": "0 * * * *" }
   ]
 }
