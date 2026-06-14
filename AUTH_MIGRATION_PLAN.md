@@ -1,6 +1,16 @@
 # Auth Migration Plan — hand-rolled login → Supabase Auth
 
-**Goal:** Replace the custom SHA-256-against-`neuroagi.users` login with Supabase Auth
+> **⚠️ CORRECTION (2026-06-14): target is the `public` schema, not `neuroagi`.**
+> The live app at **fschoolai.com** is built from **`vincent/frontend/dev`** and uses
+> **`public.users`** + client-side SHA-256. An earlier draft of this plan (and the
+> `neuroagi.users.auth_id` column run on 2026-06-12) targeted the wrong tree — harmless
+> but inert. The design below is unchanged; mentally substitute **`public`** for every
+> `neuroagi` reference, and note the **file-by-file diffs must be re-authored against
+> `vincent/frontend/dev`'s files** (App.jsx login is ~L230-236, plus an existing SHA-256
+> password-reset flow at ~L140-142 that also needs migrating). Deploy lands on
+> `vincent/frontend/dev` (Vincent's prod). See [[deployment-topology]].
+
+**Goal:** Replace the custom SHA-256-against-`public.users` login with Supabase Auth
 (GoTrue), which owns the `auth` schema and does proper bcrypt salting + sessions + JWTs.
 
 **Key correction to the framing:** This is *not* an `ALTER TABLE … SET SCHEMA`. The

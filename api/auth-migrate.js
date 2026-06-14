@@ -15,10 +15,12 @@ import { createClient } from "@supabase/supabase-js";
 import { createHash, randomUUID } from "node:crypto";
 
 // service_role key → bypasses RLS and unlocks auth.admin.*
+// Targets the `public` schema — where the live fschoolai.com app's users table lives
+// (vincent/frontend/dev: src/api/supabase.js uses { db: { schema: 'public' } }).
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY,
-  { db: { schema: "neuroagi" }, auth: { autoRefreshToken: false, persistSession: false } }
+  { db: { schema: "public" }, auth: { autoRefreshToken: false, persistSession: false } }
 );
 
 // Matches the client's Web-Crypto SHA-256 (hex of UTF-8 bytes) used by the legacy
