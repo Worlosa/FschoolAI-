@@ -1,104 +1,42 @@
 // FschoolAI Founding Card — Apple iPhone 17 Pro + Cluely aesthetic
-// Pure black, full-bleed sections, cinematic scroll, live engraving, Founder Delivery $3k tier
-import { useState, useEffect, useRef, useCallback } from "react";
+// Pure black, full-bleed, cinematic scroll, live engraving, Founder Delivery $3k tier
+import { useState, useEffect, useRef } from "react";
 
-/* ─── Assets ─────────────────────────────────────────────────────────────── */
-const HERO_IMG   = "/card-group.jpg";
+const HERO_IMG     = "/card-group.jpg";
 const TITANIUM_IMG = "/card-titanium.jpg";
+const STAGE_IMG    = "/card-stage.jpg";
 
-/* ─── Colorway data ──────────────────────────────────────────────────────── */
 const COLORWAYS = [
-  { id: "white",  name: "Base White",   hex: "#F5F5F0", border: "#D8D8D3", accent: "#1a1a1a", tagline: "Clean. Timeless. Iconic.",      img: "/card-white.jpg" },
-  { id: "purple", name: "Royal Purple", hex: "#C8B4F0", border: "#9B7FD4", accent: "#6B3FA0", tagline: "Bold. Regal. Unforgettable.",   img: "/card-purple.jpg" },
-  { id: "pink",   name: "Royal Pink",   hex: "#F0B8CC", border: "#E07898", accent: "#C04870", tagline: "Vivid. Confident. Distinct.",  img: "/card-pink.jpg" },
-  { id: "blue",   name: "Royal Blue",   hex: "#B4D0F0", border: "#78A8E0", accent: "#2860B0", tagline: "Sharp. Focused. Brilliant.",   img: "/card-blue.jpg" },
-  { id: "green",  name: "Royal Green",  hex: "#D8ECA0", border: "#A8C870", accent: "#5A8020", tagline: "Fresh. Grounded. Alive.",       img: "/card-green.jpg" },
+  { id: "white",  name: "Base White",   hex: "#F5F5F0", border: "#D8D8D3", accent: "#1a1a1a", tagline: "Clean. Timeless. Iconic.",     img: "/card-white.jpg" },
+  { id: "purple", name: "Royal Purple", hex: "#C8B4F0", border: "#9B7FD4", accent: "#6B3FA0", tagline: "Bold. Regal. Unforgettable.",  img: "/card-purple.jpg" },
+  { id: "pink",   name: "Royal Pink",   hex: "#F0B8CC", border: "#E07898", accent: "#C04870", tagline: "Vivid. Confident. Distinct.", img: "/card-pink.jpg" },
+  { id: "blue",   name: "Royal Blue",   hex: "#B4D0F0", border: "#78A8E0", accent: "#2860B0", tagline: "Sharp. Focused. Brilliant.",  img: "/card-blue.jpg" },
+  { id: "green",  name: "Royal Green",  hex: "#D8ECA0", border: "#A8C870", accent: "#5A8020", tagline: "Fresh. Grounded. Alive.",      img: "/card-green.jpg" },
 ];
 
-/* ─── Cinematic feature sections ─────────────────────────────────────────── */
 const FEATURES = [
-  {
-    eyebrow: "AI Tutor",
-    headline: "Your tutor.\nAlways on.",
-    body: "Founding Card unlocks priority access to your personal FschoolAI AI tutor — 24/7, for every subject, forever. Answers grounded in your actual lecture notes, not just the internet.",
-    bg: "#000",
-    accent: "#f5f5f7",
-    visual: "tutor",
-  },
-  {
-    eyebrow: "In-Class Recording",
-    headline: "Never miss\nwhat's said.",
-    body: "FschoolAI captures and transcribes your lectures in real time. Searchable, always there, in your own notes. Every word your professor says — yours forever.",
-    bg: "#0a0a0a",
-    accent: "#f5f5f7",
-    visual: "recording",
-  },
-  {
-    eyebrow: "Canvas Sync",
-    headline: "Every course.\nEvery deadline.",
-    body: "Connect your Canvas account and FschoolAI pulls every course, assignment, and deadline automatically. Your card is linked to your verified academic identity.",
-    bg: "#000",
-    accent: "#f5f5f7",
-    visual: "canvas",
-  },
-  {
-    eyebrow: "NFC Identity",
-    headline: "Tap to connect.\nInstantly.",
-    body: "One tap shares your full profile, Brain Card, and links with anyone. No app needed. Your entire academic identity — in a single touch.",
-    bg: "#0a0a0a",
-    accent: "#f5f5f7",
-    visual: "nfc",
-  },
-  {
-    eyebrow: "Leaderboard",
-    headline: "Your rank.\nYour legacy.",
-    body: "Founding members get a permanent verified badge on the FschoolAI global leaderboard. Filter by country, city, or university. Your number is your identity.",
-    bg: "#000",
-    accent: "#f5f5f7",
-    visual: "leaderboard",
-  },
-  {
-    eyebrow: "FST Token Wallet",
-    headline: "Earn as\nyou learn.",
-    body: "Every study session, every milestone — rewarded in FST tokens. Your card is your wallet. Hold, spend, and trade within the FschoolAI ecosystem.",
-    bg: "#0a0a0a",
-    accent: "#f5f5f7",
-    visual: "wallet",
-  },
-  {
-    eyebrow: "Founding Edition",
-    headline: "You're #0001\nof 500.",
-    body: "Your founding number is laser-engraved on your card. Only 500 exist. Ever. This is not a limited run — it is the only run.",
-    bg: "#000",
-    accent: "#f5f5f7",
-    visual: "founding",
-  },
-  {
-    eyebrow: "Lifetime Pro",
-    headline: "Lifetime Pro.\nForever.",
-    body: "Every FschoolAI Pro feature. Every future update. No subscription. No renewal. No expiry. You're in — forever.",
-    bg: "#0a0a0a",
-    accent: "#f5f5f7",
-    visual: "pro",
-  },
+  { eyebrow: "AI Tutor", headline: "Your tutor.\nAlways on.", body: "Priority access to your personal FschoolAI AI tutor — 24/7, for every subject, forever. Answers grounded in your actual lecture notes, not just the internet.", bg: "#000", visual: "tutor" },
+  { eyebrow: "In-Class Recording", headline: "Never miss\nwhat's said.", body: "FschoolAI captures and transcribes your lectures in real time. Searchable, always there, in your own notes. Every word your professor says — yours forever.", bg: "#0a0a0a", visual: "recording" },
+  { eyebrow: "Canvas Sync", headline: "Every course.\nEvery deadline.", body: "Connect your Canvas account and FschoolAI pulls every course, assignment, and deadline automatically. Your card is linked to your verified academic identity.", bg: "#000", visual: "canvas" },
+  { eyebrow: "NFC Identity", headline: "Tap to connect.\nInstantly.", body: "One tap shares your full profile, Brain Card, and links with anyone. No app needed. Your entire academic identity — in a single touch.", bg: "#0a0a0a", visual: "nfc" },
+  { eyebrow: "Leaderboard", headline: "Your rank.\nYour legacy.", body: "Founding members get a permanent verified badge on the FschoolAI global leaderboard. Your founding number is your identity — forever.", bg: "#000", visual: "leaderboard" },
+  { eyebrow: "FST Token Wallet", headline: "Earn as\nyou learn.", body: "Every study session, every milestone — rewarded in FST tokens. Your card is your wallet. Hold, spend, and trade within the FschoolAI ecosystem.", bg: "#0a0a0a", visual: "wallet" },
+  { eyebrow: "Lifetime Pro", headline: "Lifetime Pro.\nForever.", body: "Every FschoolAI Pro feature. Every future update. No subscription. No renewal. No expiry. You're in — forever.", bg: "#000", visual: "pro" },
 ];
 
-/* ─── Spec list ──────────────────────────────────────────────────────────── */
 const SPECS = [
-  { icon: "🧠", label: "NeuroAGI Brain ID",         desc: "Your unique neural identity across the entire NeuroAGI ecosystem" },
-  { icon: "🤖", label: "AI Tutor — Priority Access", desc: "24/7 personal AI tutor grounded in your actual lecture notes" },
-  { icon: "🎙️", label: "In-Class Recording",         desc: "Real-time transcription, searchable, always in your notes" },
-  { icon: "📚", label: "Canvas Sync",                desc: "Every course, assignment, and deadline — automatically synced" },
-  { icon: "📡", label: "NFC Tap",                    desc: "One tap shares your full profile and Brain Card instantly" },
-  { icon: "🔗", label: "LinkMe Profile",             desc: "Your full academic and social identity — one link, one tap" },
-  { icon: "🏅", label: "Founding Member #0001–#0500",desc: "Permanently engraved founding number — only 500 exist, ever" },
-  { icon: "💎", label: "FST Token Wallet",           desc: "Built-in FschoolAI token wallet — earn, hold, and spend FST" },
-  { icon: "🏆", label: "Leaderboard Badge",          desc: "Verified rank badge on the FschoolAI global leaderboard" },
-  { icon: "🤝", label: "Partner Rewards",            desc: "Exclusive discounts and perks from FschoolAI partner network" },
-  { icon: "♾️", label: "Lifetime FschoolAI Pro",     desc: "Every Pro feature, every future update — forever, no subscription" },
+  { icon: "🧠", label: "NeuroAGI Brain ID",          desc: "Your unique neural identity across the entire NeuroAGI ecosystem" },
+  { icon: "🤖", label: "AI Tutor — Priority Access",  desc: "24/7 personal AI tutor grounded in your actual lecture notes" },
+  { icon: "🎙️", label: "In-Class Recording",          desc: "Real-time transcription, searchable, always in your notes" },
+  { icon: "📚", label: "Canvas Sync",                 desc: "Every course, assignment, and deadline — automatically synced" },
+  { icon: "📡", label: "NFC Tap",                     desc: "One tap shares your full profile and Brain Card instantly" },
+  { icon: "🏅", label: "Founding Member #0001–#0500", desc: "Permanently engraved founding number — only 500 exist, ever" },
+  { icon: "💎", label: "FST Token Wallet",            desc: "Built-in FschoolAI token wallet — earn, hold, and spend FST" },
+  { icon: "🏆", label: "Leaderboard Badge",           desc: "Verified rank badge on the FschoolAI global leaderboard" },
+  { icon: "♾️", label: "Lifetime FschoolAI Pro",      desc: "Every Pro feature, every future update — forever, no subscription" },
 ];
 
-/* ─── Countdown hook ─────────────────────────────────────────────────────── */
+/* ─── Hooks ──────────────────────────────────────────────────────────────── */
 function useCountdown(targetDate) {
   const [t, setT] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
   useEffect(() => {
@@ -112,8 +50,7 @@ function useCountdown(targetDate) {
   return t;
 }
 
-/* ─── Scroll-reveal hook ─────────────────────────────────────────────────── */
-function useReveal(threshold = 0.15) {
+function useReveal(threshold = 0.12) {
   const ref = useRef(null);
   const [visible, setVisible] = useState(false);
   useEffect(() => {
@@ -124,370 +61,339 @@ function useReveal(threshold = 0.15) {
   return [ref, visible];
 }
 
-/* ─── Card visual component ──────────────────────────────────────────────── */
-function CardVisual({ colorway, engraving, isFounder, size = 220 }) {
-  const h = Math.round(size * 1.58);
-  if (isFounder) {
-    return (
-      <div style={{ width: size, height: h, borderRadius: size * 0.09, overflow: "hidden", boxShadow: `0 ${size*0.18}px ${size*0.36}px rgba(0,0,0,0.8), 0 0 ${size*0.18}px rgba(180,180,180,0.08)`, position: "relative", flexShrink: 0 }}>
-        <img src={TITANIUM_IMG} alt="Titanium Black Founding Card" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-        {engraving && (
-          <div style={{ position: "absolute", bottom: "14%", left: 0, right: 0, textAlign: "center", fontSize: size * 0.055, color: "rgba(200,200,200,0.7)", fontFamily: "'SF Pro Display', -apple-system, sans-serif", letterSpacing: "0.04em", fontWeight: 400 }}>
-            {engraving}
-          </div>
-        )}
-      </div>
-    );
-  }
-  const c = colorway;
-  return (
-    <div style={{
-      width: size, height: h, borderRadius: size * 0.09,
-      overflow: "hidden", flexShrink: 0, position: "relative",
-      boxShadow: `0 ${size*0.18}px ${size*0.36}px rgba(0,0,0,0.8), 0 0 ${size*0.18}px ${c.hex}30`,
-      transition: "box-shadow 0.5s ease",
-    }}>
-      <img
-        src={c.img}
-        alt={c.name}
-        style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top", display: "block", transition: "opacity 0.4s ease" }}
-      />
-      {engraving && (
-        <div style={{
-          position: "absolute", bottom: "18%", left: 0, right: 0, textAlign: "center",
-          fontSize: size * 0.055, color: c.id === "white" ? "rgba(30,30,30,0.7)" : `${c.accent}cc`,
-          fontFamily: "'SF Pro Display', -apple-system, sans-serif",
-          letterSpacing: "0.04em", fontWeight: 400,
-        }}>
-          {engraving}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ─── Feature visual mocks ───────────────────────────────────────────────── */
+/* ─── Feature Visuals ────────────────────────────────────────────────────── */
 function FeatureVisual({ type }) {
-  const s = { borderRadius: 16, overflow: "hidden", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", padding: "20px", maxWidth: 320, width: "100%" };
-  const label = { fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.35)", marginBottom: 8 };
+  const s = { borderRadius: 16, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", padding: "20px", maxWidth: 320, width: "100%" };
+  const lbl = { fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.35)", marginBottom: 12 };
   const row = { display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid rgba(255,255,255,0.05)" };
 
   if (type === "tutor") return (
     <div style={s}>
-      <div style={{ ...label }}>AI Tutor · BIOL 201</div>
-      <div style={{ fontSize: 14, color: "rgba(255,255,255,0.5)", marginBottom: 12 }}>Explain homeostasis</div>
-      <div style={{ background: "rgba(255,255,255,0.06)", borderRadius: 10, padding: "12px 14px", fontSize: 13, color: "#f5f5f7", lineHeight: 1.6 }}>
-        Homeostasis is the body's mechanism for maintaining stable internal conditions. Your professor covered this in <span style={{ color: "#a78bfa" }}>Lecture 4</span> — the feedback loop example with temperature regulation.
-      </div>
-      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", marginTop: 8 }}>From your Lecture 4 notes · Priority Access</div>
+      <div style={lbl}>AI Tutor · BIOL 201</div>
+      {[{ role: "user", msg: "What's homeostasis?" }, { role: "ai", msg: "Based on your Lecture 4 notes, homeostasis is the body's mechanism for maintaining stable internal conditions — your professor used temperature regulation as the key example." }].map((m, i) => (
+        <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start", marginBottom: 10 }}>
+          <div style={{ maxWidth: "82%", background: m.role === "user" ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.05)", borderRadius: 12, padding: "8px 12px", fontSize: 12, color: m.role === "user" ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.55)", lineHeight: 1.55 }}>{m.msg}</div>
+        </div>
+      ))}
     </div>
   );
-
   if (type === "recording") return (
     <div style={s}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
         <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#ff3b30", boxShadow: "0 0 8px #ff3b30" }} />
         <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", letterSpacing: "0.05em" }}>REC 00:04 · COMP 101</span>
       </div>
-      <div style={{ ...label }}>Live Transcript</div>
-      {["…cognitive load theory suggests working memory has limited capacity…", "…four components: phonological loop, visuospatial sketchpad…", "…central executive coordinates the subsystems…"].map((t, i) => (
-        <div key={i} style={{ fontSize: 13, color: i === 0 ? "#f5f5f7" : `rgba(245,245,247,${0.5 - i*0.15})`, padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.04)", lineHeight: 1.5 }}>{t}</div>
+      <div style={lbl}>Live Transcript</div>
+      {["…cognitive load theory suggests working memory has limited capacity…", "…four components: phonological loop, visuospatial sketchpad…"].map((t, i) => (
+        <div key={i} style={{ fontSize: 13, color: i === 0 ? "#f5f5f7" : "rgba(245,245,247,0.4)", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.04)", lineHeight: 1.5 }}>{t}</div>
       ))}
     </div>
   );
-
   if (type === "canvas") return (
     <div style={s}>
-      <div style={{ ...label }}>Canvas · 3 Courses</div>
-      {[
-        { course: "COMP 101", item: "Problem Set 4", due: "Tomorrow", color: "#ff3b30" },
-        { course: "BIOL 201", item: "Lab Report", due: "May 28", color: "#ff9500" },
-        { course: "MATH 150", item: "Midterm Review", due: "Jun 2", color: "#30d158" },
-      ].map((a, i) => (
+      <div style={lbl}>Canvas · 3 Courses</div>
+      {[{ course: "COMP 101", item: "Problem Set 4", due: "Tomorrow", color: "#ff3b30" }, { course: "BIOL 201", item: "Lab Report", due: "May 28", color: "#ff9500" }, { course: "MATH 150", item: "Midterm Review", due: "Jun 2", color: "#30d158" }].map((a, i) => (
         <div key={i} style={{ ...row }}>
           <div style={{ width: 6, height: 6, borderRadius: "50%", background: a.color, flexShrink: 0 }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, color: "#f5f5f7", fontWeight: 500 }}>{a.item}</div>
-            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>{a.course}</div>
-          </div>
+          <div style={{ flex: 1 }}><div style={{ fontSize: 13, color: "#f5f5f7", fontWeight: 500 }}>{a.item}</div><div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>{a.course}</div></div>
           <div style={{ fontSize: 12, color: a.color }}>{a.due}</div>
         </div>
       ))}
     </div>
   );
-
   if (type === "nfc") return (
     <div style={{ ...s, textAlign: "center", padding: "32px 20px" }}>
       <div style={{ fontSize: 48, marginBottom: 12 }}>📲</div>
       <div style={{ fontSize: 15, fontWeight: 600, color: "#f5f5f7", marginBottom: 6 }}>Tap to share</div>
       <div style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", lineHeight: 1.6 }}>Brain Card · LinkMe Profile · NeuroAGI ID</div>
-      <div style={{ marginTop: 16, display: "flex", justifyContent: "center", gap: 8 }}>
-        {["Brain Card", "Links", "ID"].map(t => (
-          <span key={t} style={{ fontSize: 11, background: "rgba(255,255,255,0.08)", borderRadius: 20, padding: "4px 10px", color: "rgba(255,255,255,0.5)" }}>{t}</span>
-        ))}
-      </div>
     </div>
   );
-
   if (type === "leaderboard") return (
     <div style={s}>
-      <div style={{ ...label }}>Global Leaderboard</div>
-      {[
-        { rank: 1, name: "You", score: "847h", badge: "🏅", founding: "#0042" },
-        { rank: 2, name: "Pratik S.", score: "812h", badge: "", founding: "#0089" },
-        { rank: 3, name: "Shreya M.", score: "798h", badge: "", founding: "#0156" },
-      ].map((u) => (
+      <div style={lbl}>Global Leaderboard</div>
+      {[{ rank: 1, name: "You", score: "847h", founding: "#0042" }, { rank: 2, name: "Pratik S.", score: "812h", founding: "#0089" }, { rank: 3, name: "Shreya M.", score: "798h", founding: "#0156" }].map((u) => (
         <div key={u.rank} style={{ ...row, borderBottom: u.rank < 3 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
-          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.3)", width: 18, textAlign: "center" }}>#{u.rank}</div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, color: u.rank === 1 ? "#f5f5f7" : "rgba(255,255,255,0.6)", fontWeight: u.rank === 1 ? 600 : 400 }}>{u.name} {u.badge}</div>
-            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.25)" }}>Founding {u.founding}</div>
-          </div>
+          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.3)", width: 18 }}>#{u.rank}</div>
+          <div style={{ flex: 1 }}><div style={{ fontSize: 13, color: u.rank === 1 ? "#f5f5f7" : "rgba(255,255,255,0.6)", fontWeight: u.rank === 1 ? 600 : 400 }}>{u.name}</div><div style={{ fontSize: 11, color: "rgba(255,255,255,0.25)" }}>Founding {u.founding}</div></div>
           <div style={{ fontSize: 13, color: u.rank === 1 ? "#a78bfa" : "rgba(255,255,255,0.35)" }}>{u.score}</div>
         </div>
       ))}
     </div>
   );
-
   if (type === "wallet") return (
     <div style={s}>
-      <div style={{ ...label }}>FST Wallet</div>
+      <div style={lbl}>FST Wallet</div>
       <div style={{ fontSize: 32, fontWeight: 700, color: "#f5f5f7", letterSpacing: "-1px", marginBottom: 4 }}>1,247 <span style={{ fontSize: 16, color: "rgba(255,255,255,0.4)", fontWeight: 400 }}>FST</span></div>
       <div style={{ fontSize: 12, color: "rgba(255,255,255,0.3)", marginBottom: 16 }}>+84 FST this week</div>
-      {[
-        { label: "Study session · 2h", amount: "+12 FST", color: "#30d158" },
-        { label: "Assignment completed", amount: "+25 FST", color: "#30d158" },
-        { label: "Streak bonus · 7 days", amount: "+50 FST", color: "#30d158" },
-      ].map((tx, i) => (
+      {[{ label: "Study session · 2h", amount: "+12 FST" }, { label: "Assignment completed", amount: "+25 FST" }, { label: "Streak bonus · 7 days", amount: "+50 FST" }].map((tx, i) => (
         <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.04)", fontSize: 13 }}>
-          <span style={{ color: "rgba(255,255,255,0.5)" }}>{tx.label}</span>
-          <span style={{ color: tx.color, fontWeight: 600 }}>{tx.amount}</span>
+          <span style={{ color: "rgba(255,255,255,0.5)" }}>{tx.label}</span><span style={{ color: "#30d158", fontWeight: 600 }}>{tx.amount}</span>
         </div>
       ))}
     </div>
   );
-
-  if (type === "founding") return (
-    <div style={{ ...s, textAlign: "center", padding: "32px 20px" }}>
-      <div style={{ fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: 8 }}>Founding Member</div>
-      <div style={{ fontSize: 64, fontWeight: 800, letterSpacing: "-3px", color: "#f5f5f7", lineHeight: 1 }}>#0042</div>
-      <div style={{ fontSize: 13, color: "rgba(255,255,255,0.35)", marginTop: 12, lineHeight: 1.6 }}>Laser-engraved.<br />Permanent. Yours.</div>
-    </div>
-  );
-
   if (type === "pro") return (
     <div style={s}>
-      <div style={{ ...label }}>FschoolAI Pro · Lifetime</div>
+      <div style={lbl}>FschoolAI Pro · Lifetime</div>
       {["AI Tutor — Priority", "In-class Recording", "Smart Study Planner", "Study Rooms", "Leaderboard Badge", "FST Token Wallet"].map((f, i) => (
         <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.04)", fontSize: 13, color: "rgba(255,255,255,0.7)" }}>
-          <span style={{ color: "#30d158", fontSize: 14 }}>✓</span> {f}
+          <span style={{ color: "#30d158" }}>✓</span> {f}
         </div>
       ))}
       <div style={{ marginTop: 12, fontSize: 12, color: "rgba(255,255,255,0.25)" }}>No subscription. No renewal. Forever.</div>
     </div>
   );
-
   return null;
 }
 
-/* ─── Main component ─────────────────────────────────────────────────────── */
+/* ─── Main ───────────────────────────────────────────────────────────────── */
 export default function Card() {
-  const [selected, setSelected]       = useState(0);
-  const [engraving, setEngraving]     = useState("");
-  const [founderDelivery, setFounder] = useState(false);
-  const [formData, setFormData]       = useState({ name: "", university: "", email: "" });
-  const [submitted, setSubmitted]     = useState(false);
-  const [submitting, setSubmitting]   = useState(false);
-  const [headerScrolled, setHeader]   = useState(false);
-  const heroRef = useRef(null);
+  const [selected, setSelected]   = useState(0);
+  const [engraving, setEngraving] = useState("");
+  const [isFounder, setFounder]   = useState(false);
+  const [scrolled, setScrolled]   = useState(false);
+  const [formData, setFormData]   = useState({ name: "", university: "", email: "" });
+  const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSub]      = useState(false);
   const countdown = useCountdown("2026-06-30T23:59:59");
 
   useEffect(() => {
-    function onScroll() {
-      const hero = heroRef.current;
-      setHeader(window.scrollY > (hero ? hero.offsetHeight * 0.5 : 300));
-    }
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    const fn = () => setScrolled(window.scrollY > 50);
+    window.addEventListener("scroll", fn, { passive: true });
+    return () => window.removeEventListener("scroll", fn);
   }, []);
 
   async function handleSubmit(e) {
     e.preventDefault();
     if (!formData.name || !formData.email) return;
-    setSubmitting(true);
+    setSub(true);
     await new Promise(r => setTimeout(r, 1400));
-    setSubmitted(true); setSubmitting(false);
+    setSubmitted(true); setSub(false);
   }
 
-  const colorway = COLORWAYS[selected];
-  const isFounder = founderDelivery;
+  const cw = COLORWAYS[selected];
+  const inp = { width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)", borderRadius: "12px", padding: "14px 16px", color: "#f5f5f7", fontSize: "15px", outline: "none", fontFamily: "inherit", transition: "border-color 0.15s" };
 
   return (
     <div style={{ background: "#000", minHeight: "100dvh", fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif", color: "#f5f5f7", overflowX: "hidden" }}>
 
-      {/* ── Sticky Header ── */}
+      {/* ── HEADER — Apple product nav, taller, frosted glass on scroll ── */}
       <header style={{
         position: "fixed", top: 0, left: 0, right: 0, zIndex: 200,
-        background: headerScrolled ? "rgba(0,0,0,0.88)" : "rgba(0,0,0,0.3)",
-        backdropFilter: "blur(20px) saturate(180%)",
-        WebkitBackdropFilter: "blur(20px) saturate(180%)",
-        borderBottom: headerScrolled ? "1px solid rgba(255,255,255,0.07)" : "none",
-        transition: "background 0.4s ease, border-color 0.4s ease",
-        padding: "0 24px", height: "52px",
+        height: "52px",
+        background: scrolled ? "rgba(0,0,0,0.88)" : "transparent",
+        backdropFilter: scrolled ? "blur(24px) saturate(180%)" : "none",
+        WebkitBackdropFilter: scrolled ? "blur(24px) saturate(180%)" : "none",
+        borderBottom: scrolled ? "1px solid rgba(255,255,255,0.07)" : "none",
+        transition: "background 0.35s, border-color 0.35s",
         display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "0 20px",
       }}>
-        <a href="/" style={{ color: "rgba(255,255,255,0.8)", fontSize: "13px", textDecoration: "none", letterSpacing: "-0.2px", display: "flex", alignItems: "center", gap: "5px" }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+        <a href="/" style={{ color: "rgba(255,255,255,0.7)", fontSize: "13px", textDecoration: "none", display: "flex", alignItems: "center", gap: "3px", minWidth: 90 }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M15 18l-6-6 6-6"/></svg>
           FschoolAI
         </a>
-        <span style={{ fontSize: "13px", fontWeight: "600", color: "rgba(255,255,255,0.9)", letterSpacing: "-0.3px" }}>Founding Card</span>
-        <a href="#apply" style={{ fontSize: "12px", fontWeight: "600", color: "#000", background: "#f5f5f7", borderRadius: "20px", padding: "6px 14px", textDecoration: "none", letterSpacing: "-0.2px" }}>
-          Apply
-        </a>
+        <span style={{ fontSize: "14px", fontWeight: "600", letterSpacing: "-0.3px", color: scrolled ? "rgba(255,255,255,0.88)" : "transparent", transition: "color 0.35s", position: "absolute", left: "50%", transform: "translateX(-50%)", whiteSpace: "nowrap" }}>
+          Founding Card
+        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: "18px", minWidth: 90, justifyContent: "flex-end" }}>
+          <a href="#features" style={{ fontSize: "13px", color: "rgba(255,255,255,0.55)", textDecoration: "none" }}>Explore</a>
+          <a href="#apply" style={{ fontSize: "13px", fontWeight: "600", color: "#000", background: "#f5f5f7", borderRadius: "980px", padding: "6px 16px", textDecoration: "none" }}>Apply</a>
+        </div>
       </header>
 
-      {/* ── Hero ── */}
-      <section ref={heroRef} style={{ position: "relative", height: "100dvh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", overflow: "hidden" }}>
-        <img src={HERO_IMG} alt="FschoolAI Founding Card" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 40%" }} />
-        <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, transparent 30%, transparent 45%, rgba(0,0,0,0.65) 75%, rgba(0,0,0,0.97) 100%)" }} />
-        <div style={{ position: "relative", zIndex: 2, textAlign: "center", padding: "0 24px 64px", width: "100%", maxWidth: "500px" }}>
-          <p style={{ fontSize: "12px", fontWeight: "600", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,0.5)", marginBottom: "10px" }}>
-            Founding Edition · Only 500
-          </p>
-          <h1 style={{ fontSize: "clamp(38px, 9vw, 60px)", fontWeight: "700", letterSpacing: "-1.8px", lineHeight: 1.04, color: "#f5f5f7", marginBottom: "10px" }}>
-            FschoolAI<br />Founding Card
-          </h1>
-          <p style={{ fontSize: "16px", color: "rgba(255,255,255,0.55)", marginBottom: "30px", letterSpacing: "-0.3px" }}>
-            Free for founding members. Ships Q4 2026.
-          </p>
-          <a href="#apply" style={{ display: "inline-block", background: "#f5f5f7", color: "#000", fontSize: "15px", fontWeight: "650", letterSpacing: "-0.3px", padding: "14px 38px", borderRadius: "980px", textDecoration: "none" }}>
-            Apply for your card
-          </a>
+      {/* ── HERO ── */}
+      <section style={{ position: "relative", height: "100dvh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", overflow: "hidden" }}>
+        <img src={HERO_IMG} alt="FschoolAI Founding Card" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "center 45%" }} />
+        <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(0,0,0,0.1) 0%, transparent 30%, transparent 45%, rgba(0,0,0,0.65) 72%, rgba(0,0,0,0.98) 100%)" }} />
+        <div style={{ position: "relative", zIndex: 2, textAlign: "center", padding: "0 24px 72px", maxWidth: 520 }}>
+          <p style={{ fontSize: "12px", fontWeight: "600", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.42)", marginBottom: "12px" }}>Founding Edition · Only 500</p>
+          <h1 style={{ fontSize: "clamp(40px, 10vw, 64px)", fontWeight: "700", letterSpacing: "-2px", lineHeight: 1.02, marginBottom: "12px" }}>FschoolAI<br />Founding Card</h1>
+          <p style={{ fontSize: "17px", color: "rgba(255,255,255,0.48)", marginBottom: "32px", letterSpacing: "-0.3px" }}>Free for founding members. Ships Q4 2026.</p>
+          <a href="#colorway" style={{ display: "inline-block", background: "#f5f5f7", color: "#000", fontSize: "16px", fontWeight: "650", letterSpacing: "-0.3px", padding: "15px 42px", borderRadius: "980px", textDecoration: "none" }}>Apply for your card</a>
         </div>
-        <div className="bounce-arrow" style={{ position: "absolute", bottom: "22px", left: "50%", transform: "translateX(-50%)", opacity: 0.35, zIndex: 2 }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5" strokeLinecap="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+        <div style={{ position: "absolute", bottom: "24px", left: "50%", transform: "translateX(-50%)", opacity: 0.28, zIndex: 2, animation: "bounceY 2s ease-in-out infinite" }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5" strokeLinecap="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
         </div>
       </section>
 
-            {/* ── Colorway Picker ── (right after hero, Apple style) */}
-      <section data-colorway-section style={{ padding: "80px 24px 72px", maxWidth: "700px", margin: "0 auto", textAlign: "center" }}>
-        <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.35)", marginBottom: "12px" }}>Colorway</p>
-        <h2 style={{ fontSize: "clamp(26px, 5vw, 34px)", fontWeight: "700", letterSpacing: "-0.8px", marginBottom: "4px" }}>{isFounder ? "Titanium Black" : colorway.name}</h2>
-        <p style={{ fontSize: "14px", color: "rgba(255,255,255,0.4)", marginBottom: "36px", letterSpacing: "-0.2px" }}>
-          {isFounder ? "Exclusive to Founder Delivery. Not available separately." : colorway.tagline}
+      {/* ── COLORWAY PICKER — Apple iPhone style, selected card lights up, others black out ── */}
+      <section id="colorway" data-colorway-section style={{ padding: "72px 24px 0", textAlign: "center" }}>
+        <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.32)", marginBottom: "10px" }}>Colorway</p>
+        <h2 style={{ fontSize: "clamp(28px, 6vw, 38px)", fontWeight: "700", letterSpacing: "-1px", marginBottom: "4px" }}>
+          {isFounder ? "Titanium Black" : cw.name}
+        </h2>
+        <p style={{ fontSize: "15px", color: "rgba(255,255,255,0.36)", marginBottom: "32px", letterSpacing: "-0.2px" }}>
+          {isFounder ? "Exclusive to Founder Delivery. Not available separately." : cw.tagline}
         </p>
-        {/* Group photo with color glow — Apple style */}
-        <div style={{ position: "relative", width: "100%", maxWidth: 480, margin: "0 auto 40px", borderRadius: 20, overflow: "hidden" }}>
-          <img src={isFounder ? TITANIUM_IMG : HERO_IMG} alt="FschoolAI Cards" style={{ width: "100%", display: "block", borderRadius: 20 }} />
-          {/* Color glow overlay for selected colorway */}
-          {!isFounder && (
-            <div style={{
-              position: "absolute", inset: 0, borderRadius: 20,
-              background: `radial-gradient(ellipse at center bottom, ${colorway.hex}30 0%, transparent 70%)`,
-              pointerEvents: "none", transition: "background 0.5s ease",
-            }} />
-          )}
-        </div>
-        <div style={{ display: "flex", justifyContent: "center", gap: "12px", marginBottom: "0", flexWrap: "wrap" }}>
+
+        {/* Swatches */}
+        <div style={{ display: "flex", justifyContent: "center", gap: "14px", marginBottom: "44px" }}>
           {COLORWAYS.map((c, i) => (
             <button key={c.id} onClick={() => { setSelected(i); setFounder(false); }} title={c.name} style={{
-              width: "32px", height: "32px", borderRadius: "50%", background: c.hex,
-              border: (!isFounder && selected === i) ? `2px solid ${c.hex}` : "2px solid transparent",
-              outline: (!isFounder && selected === i) ? "2px solid rgba(255,255,255,0.5)" : "2px solid transparent",
-              outlineOffset: "2px", cursor: "pointer",
-              transform: (!isFounder && selected === i) ? "scale(1.15)" : "scale(1)",
-              boxShadow: (!isFounder && selected === i) ? `0 0 12px ${c.hex}60` : "none",
-              transition: "all 0.15s",
+              width: "28px", height: "28px", borderRadius: "50%", background: c.hex,
+              border: "none", padding: 0, cursor: "pointer",
+              outline: (!isFounder && selected === i) ? "2px solid rgba(255,255,255,0.55)" : "2px solid transparent",
+              outlineOffset: "3px",
+              transform: (!isFounder && selected === i) ? "scale(1.18)" : "scale(1)",
+              boxShadow: (!isFounder && selected === i) ? `0 0 16px ${c.hex}80` : "none",
+              transition: "all 0.2s ease",
             }} />
           ))}
-          {/* Titanium Black swatch — only shown when Founder Delivery selected */}
-          {isFounder && (
-            <button title="Titanium Black — Founder Delivery" style={{
-              width: "32px", height: "32px", borderRadius: "50%",
-              background: "linear-gradient(135deg, #2a2a2a, #1a1a1a)",
-              border: "2px solid #555", outline: "2px solid rgba(255,255,255,0.5)", outlineOffset: "2px",
-              cursor: "default", transform: "scale(1.15)",
-              boxShadow: "0 0 12px rgba(150,150,150,0.3)",
-            }} />
+        </div>
+
+        {/* Card group photo — dark overlay on all, selected colorway glows through */}
+        <div style={{ position: "relative", width: "100%", maxWidth: 520, margin: "0 auto" }}>
+          <img src={isFounder ? TITANIUM_IMG : HERO_IMG} alt="FschoolAI Cards" style={{ width: "100%", display: "block" }} />
+          {!isFounder && (
+            <>
+              <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.58)", pointerEvents: "none", transition: "opacity 0.4s" }} />
+              <div style={{ position: "absolute", inset: 0, background: `radial-gradient(ellipse 38% 72% at ${18 + selected * 16}% 62%, ${cw.hex}95 0%, transparent 60%)`, mixBlendMode: "screen", pointerEvents: "none", transition: "background 0.5s ease" }} />
+            </>
           )}
         </div>
       </section>
 
-            {/* ── Engraving ── */}
-      <EngravingSection engraving={engraving} setEngraving={setEngraving} colorway={colorway} isFounder={isFounder} />
-      {/* ── Countdown ── */}
-      <section style={{ background: "#111", borderTop: "1px solid rgba(255,255,255,0.06)", borderBottom: "1px solid rgba(255,255,255,0.06)", padding: "32px 24px", textAlign: "center" }}>
-        <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.35)", marginBottom: "18px" }}>Applications close</p>
-        <div style={{ display: "flex", justifyContent: "center", gap: "clamp(20px, 5vw, 48px)", flexWrap: "wrap" }}>
-          {[{ v: countdown.days, l: "Days" }, { v: countdown.hours, l: "Hours" }, { v: countdown.minutes, l: "Min" }, { v: countdown.seconds, l: "Sec" }].map(({ v, l }) => (
-            <div key={l} style={{ textAlign: "center", minWidth: "52px" }}>
-              <div style={{ fontSize: "clamp(34px, 8vw, 52px)", fontWeight: "700", letterSpacing: "-2px", color: "#f5f5f7", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{String(v).padStart(2, "0")}</div>
-              <div style={{ fontSize: "10px", color: "rgba(255,255,255,0.3)", marginTop: "6px", letterSpacing: "0.06em", textTransform: "uppercase" }}>{l}</div>
-            </div>
-          ))}
-        </div>
-        <p style={{ fontSize: "12px", color: "rgba(255,255,255,0.3)", marginTop: "16px" }}>June 30, 2026 · Midnight</p>
-      </section>
-      {/* ── Manifesto ── */}
+      {/* ── ENGRAVING — Apple side-by-side layout ── */}
+      <EngravingSection engraving={engraving} setEngraving={setEngraving} cw={cw} isFounder={isFounder} />
+
+      {/* ── COUNTDOWN ── */}
+      <CountdownSection countdown={countdown} />
+
+      {/* ── MANIFESTO ── */}
       <ManifestoSection />
-      {/* ── Cinematic Feature Sections ── */}
-      {FEATURES.map((f, i) => <FeatureSection key={i} feature={f} index={i} />)}
-      {/* ── Spec List ── */}
+
+      {/* ── FEATURES ── */}
+      <div id="features">
+        {FEATURES.map((f, i) => <FeatureSection key={i} feature={f} />)}
+      </div>
+
+      {/* ── SPECS ── */}
       <SpecSection />
 
-      {/* ── Founding Counter ── */}
+      {/* ── COUNTER ── */}
       <CounterSection />
 
-      {/* ── Founder Delivery ── */}
-      <FounderDeliverySection founderDelivery={founderDelivery} setFounder={setFounder} />
+      {/* ── STEVE JOBS "ONE MORE THING" ── */}
+      <OneMoreThingSection isFounder={isFounder} setFounder={setFounder} />
 
-      {/* ── Specialist Setup ── */}
+      {/* ── SPECIALIST ── */}
       <SpecialistSection />
 
-      {/* ── Application Form ── */}
-      <ApplicationSection
-        formData={formData} setFormData={setFormData}
-        submitted={submitted} submitting={submitting}
-        handleSubmit={handleSubmit}
-        colorway={colorway} isFounder={isFounder} engraving={engraving}
-        founderDelivery={founderDelivery}
+      {/* ── APPLY — Apple checkout flow ── */}
+      <ApplySection
+        cw={cw} isFounder={isFounder} engraving={engraving}
+        setFounder={setFounder} formData={formData} setFormData={setFormData}
+        submitted={submitted} submitting={submitting} handleSubmit={handleSubmit}
+        selected={selected} setSelected={setSelected} inp={inp}
       />
 
-      {/* ── Footer ── */}
+      {/* ── FOOTER ── */}
       <footer style={{ borderTop: "1px solid rgba(255,255,255,0.06)", padding: "40px 24px", textAlign: "center" }}>
-        <p style={{ fontSize: "12px", color: "rgba(255,255,255,0.2)", lineHeight: 1.9 }}>
+        <p style={{ fontSize: "12px", color: "rgba(255,255,255,0.18)", lineHeight: 2 }}>
           © 2026 FschoolAI. All rights reserved.<br />
           The FschoolAI Founding Card is a physical NFC card. Not a financial product.
         </p>
       </footer>
 
       <style>{`
-        @keyframes bounceY { 0%,100%{transform:translateX(-50%) translateY(0)} 50%{transform:translateX(-50%) translateY(7px)} }
-        .bounce-arrow { animation: bounceY 2s ease-in-out infinite; }
-        @keyframes fadeUp { from{opacity:0;transform:translateY(32px)} to{opacity:1;transform:translateY(0)} }
-        .reveal { animation: fadeUp 0.7s cubic-bezier(0.22,1,0.36,1) forwards; }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        html { scroll-behavior: smooth; }
-        input::placeholder { color: rgba(255,255,255,0.22); }
-        input:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px rgba(255,255,255,0.05) inset !important; -webkit-text-fill-color: #f5f5f7 !important; }
-        ::-webkit-scrollbar { width: 0; }
+        @keyframes bounceY { 0%,100%{transform:translateX(-50%) translateY(0)} 50%{transform:translateX(-50%) translateY(8px)} }
+        @keyframes slowZoom { from{transform:scale(1)} to{transform:scale(1.05)} }
+        * { box-sizing:border-box; margin:0; padding:0; }
+        html { scroll-behavior:smooth; }
+        input::placeholder { color:rgba(255,255,255,0.22); }
+        input:-webkit-autofill { -webkit-box-shadow:0 0 0 1000px rgba(255,255,255,0.05) inset !important; -webkit-text-fill-color:#f5f5f7 !important; }
+        ::-webkit-scrollbar { width:0; }
       `}</style>
     </div>
   );
 }
 
-/* ─── Sub-sections ───────────────────────────────────────────────────────── */
+/* ─── Engraving — Apple side-by-side ────────────────────────────────────── */
+function EngravingSection({ engraving, setEngraving, cw, isFounder }) {
+  const [ref, visible] = useReveal(0.1);
+  return (
+    <section ref={ref} style={{ padding: "80px 24px", borderTop: "1px solid rgba(255,255,255,0.06)", opacity: visible ? 1 : 0, transform: visible ? "none" : "translateY(24px)", transition: "opacity 0.8s, transform 0.8s" }}>
+      <div style={{ maxWidth: 860, margin: "0 auto" }}>
+        <div style={{ textAlign: "center", marginBottom: "52px" }}>
+          <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.32)", marginBottom: "10px" }}>Engraving</p>
+          <h2 style={{ fontSize: "clamp(28px, 6vw, 42px)", fontWeight: "700", letterSpacing: "-1px", marginBottom: "8px" }}>Make it yours.</h2>
+          <p style={{ fontSize: "15px", color: "rgba(255,255,255,0.36)", letterSpacing: "-0.2px" }}>Laser-engraved on the back. Up to 30 characters.</p>
+        </div>
 
+        {/* Side-by-side: card LEFT, input RIGHT */}
+        <div style={{ display: "flex", gap: "clamp(32px, 6vw, 72px)", alignItems: "center", flexWrap: "wrap", justifyContent: "center" }}>
+          {/* Card preview */}
+          <div style={{ position: "relative", width: "clamp(180px, 38vw, 260px)", flexShrink: 0 }}>
+            <img
+              src={isFounder ? "/card-titanium.jpg" : cw.img}
+              alt={isFounder ? "Titanium Black" : cw.name}
+              style={{ width: "100%", display: "block", borderRadius: "16px", boxShadow: "0 28px 56px rgba(0,0,0,0.75), 0 0 0 1px rgba(255,255,255,0.06)" }}
+            />
+            {/* Engraving overlay */}
+            <div style={{
+              position: "absolute", bottom: "15%", left: 0, right: 0, textAlign: "center",
+              fontSize: "clamp(9px, 2.2vw, 12px)",
+              color: isFounder ? "rgba(210,210,210,0.65)" : (cw.id === "white" ? "rgba(30,30,30,0.55)" : `${cw.accent}bb`),
+              letterSpacing: "0.06em", fontWeight: 300, padding: "0 14px", transition: "color 0.3s",
+            }}>
+              {engraving || <span style={{ opacity: 0.25, fontStyle: "italic" }}>Your engraving</span>}
+            </div>
+          </div>
+
+          {/* Input */}
+          <div style={{ flex: 1, minWidth: 240, maxWidth: 360 }}>
+            <div style={{ position: "relative", marginBottom: "14px" }}>
+              <input
+                id="engraving-input"
+                type="text" maxLength={30} value={engraving}
+                onChange={e => setEngraving(e.target.value)}
+                placeholder="Your name, quote, or student ID"
+                style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "14px", padding: "16px 52px 16px 18px", color: "#f5f5f7", fontSize: "16px", outline: "none", fontFamily: "inherit", transition: "border-color 0.15s" }}
+                onFocus={e => e.target.style.borderColor = "rgba(255,255,255,0.3)"}
+                onBlur={e => e.target.style.borderColor = "rgba(255,255,255,0.12)"}
+              />
+              <span style={{ position: "absolute", right: "16px", top: "50%", transform: "translateY(-50%)", fontSize: "12px", color: "rgba(255,255,255,0.22)", fontVariantNumeric: "tabular-nums" }}>{engraving.length}/30</span>
+            </div>
+            <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.26)", lineHeight: 1.6 }}>
+              Your text will be laser-engraved on the back of your card. Preview updates as you type.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── Countdown ──────────────────────────────────────────────────────────── */
+function CountdownSection({ countdown }) {
+  return (
+    <section style={{ background: "#111", borderTop: "1px solid rgba(255,255,255,0.06)", borderBottom: "1px solid rgba(255,255,255,0.06)", padding: "36px 24px", textAlign: "center" }}>
+      <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)", marginBottom: "20px" }}>Applications close</p>
+      <div style={{ display: "flex", justifyContent: "center", gap: "clamp(20px, 5vw, 48px)" }}>
+        {[["DAYS", countdown.days], ["HOURS", countdown.hours], ["MIN", countdown.minutes], ["SEC", countdown.seconds]].map(([unit, val]) => (
+          <div key={unit} style={{ textAlign: "center" }}>
+            <div style={{ fontSize: "clamp(40px, 10vw, 64px)", fontWeight: "700", letterSpacing: "-3px", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{String(val).padStart(2, "0")}</div>
+            <div style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)", marginTop: "6px" }}>{unit}</div>
+          </div>
+        ))}
+      </div>
+      <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.2)", marginTop: "20px" }}>June 30, 2026 · Midnight</p>
+    </section>
+  );
+}
+
+/* ─── Manifesto ──────────────────────────────────────────────────────────── */
 function ManifestoSection() {
   const [ref, visible] = useReveal(0.2);
   return (
-    <section ref={ref} style={{ padding: "96px 24px", background: "#000", textAlign: "center", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-      <div style={{ maxWidth: 680, margin: "0 auto", opacity: 1, transform: "translateY(0)", transition: "opacity 0.8s ease, transform 0.8s ease" }}>
-        <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "20px" }}>What is FschoolAI</p>
-        <h2 style={{ fontSize: "clamp(30px, 7vw, 52px)", fontWeight: "700", letterSpacing: "-1.5px", lineHeight: 1.1, color: "#f5f5f7", marginBottom: "24px" }}>
+    <section ref={ref} style={{ padding: "104px 24px", textAlign: "center", borderTop: "1px solid rgba(255,255,255,0.06)", opacity: visible ? 1 : 0, transform: visible ? "none" : "translateY(28px)", transition: "opacity 0.9s, transform 0.9s" }}>
+      <div style={{ maxWidth: 680, margin: "0 auto" }}>
+        <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.26)", marginBottom: "22px" }}>What is FschoolAI</p>
+        <h2 style={{ fontSize: "clamp(32px, 8vw, 56px)", fontWeight: "700", letterSpacing: "-2px", lineHeight: 1.08, marginBottom: "28px" }}>
           The AI that actually<br />knows your courses.
         </h2>
-        <p style={{ fontSize: "clamp(15px, 2.5vw, 18px)", color: "rgba(255,255,255,0.5)", lineHeight: 1.7, letterSpacing: "-0.2px" }}>
+        <p style={{ fontSize: "clamp(15px, 2.5vw, 18px)", color: "rgba(255,255,255,0.42)", lineHeight: 1.75, letterSpacing: "-0.2px" }}>
           Canvas sync. In-class recording. AI tutor grounded in your actual lecture notes — not just the internet. FschoolAI is the academic intelligence layer every student needs. The Founding Card is your key to all of it — forever.
         </p>
       </div>
@@ -495,272 +401,207 @@ function ManifestoSection() {
   );
 }
 
-function FeatureSection({ feature: f, index }) {
-  const [ref, visible] = useReveal(0.15);
-  const isEven = index % 2 === 0;
+/* ─── Feature Section ────────────────────────────────────────────────────── */
+function FeatureSection({ feature: f }) {
+  const [ref, visible] = useReveal(0.1);
   return (
-    <section ref={ref} style={{ background: f.bg, borderTop: "1px solid rgba(255,255,255,0.05)", padding: "clamp(72px, 12vw, 120px) 24px", minHeight: "80vh", display: "flex", alignItems: "center" }}>
-      <div style={{
-        maxWidth: 900, margin: "0 auto", width: "100%",
-        display: "flex", flexDirection: "column", alignItems: "center",
-        gap: "clamp(40px, 6vw, 64px)",
-        opacity: 1, transform: "translateY(0)",
-        transition: "opacity 0.9s ease, transform 0.9s ease",
-      }}>
+    <section ref={ref} style={{ background: f.bg, borderTop: "1px solid rgba(255,255,255,0.05)", padding: "clamp(80px, 14vw, 128px) 24px", minHeight: "72vh", display: "flex", alignItems: "center", opacity: visible ? 1 : 0, transform: visible ? "none" : "translateY(32px)", transition: "opacity 0.9s, transform 0.9s" }}>
+      <div style={{ maxWidth: 900, margin: "0 auto", width: "100%", display: "flex", flexDirection: "column", alignItems: "center", gap: "clamp(40px, 6vw, 64px)" }}>
         <div style={{ textAlign: "center", maxWidth: 560 }}>
-          <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)", marginBottom: "16px" }}>{f.eyebrow}</p>
-          <h2 style={{ fontSize: "clamp(36px, 8vw, 64px)", fontWeight: "700", letterSpacing: "-2px", lineHeight: 1.05, color: "#f5f5f7", whiteSpace: "pre-line", marginBottom: "20px" }}>{f.headline}</h2>
-          <p style={{ fontSize: "clamp(15px, 2vw, 17px)", color: "rgba(255,255,255,0.45)", lineHeight: 1.7, letterSpacing: "-0.2px" }}>{f.body}</p>
+          <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.26)", marginBottom: "18px" }}>{f.eyebrow}</p>
+          <h2 style={{ fontSize: "clamp(38px, 9vw, 68px)", fontWeight: "700", letterSpacing: "-2.5px", lineHeight: 1.03, whiteSpace: "pre-line", marginBottom: "22px" }}>{f.headline}</h2>
+          <p style={{ fontSize: "clamp(15px, 2vw, 17px)", color: "rgba(255,255,255,0.4)", lineHeight: 1.72, letterSpacing: "-0.2px" }}>{f.body}</p>
         </div>
-        <div style={{ display: "flex", justifyContent: "center" }}>
-          <FeatureVisual type={f.visual} />
-        </div>
+        <FeatureVisual type={f.visual} />
       </div>
     </section>
   );
 }
 
-function EngravingSection({ engraving, setEngraving, colorway, isFounder }) {
-  const [ref, visible] = useReveal(0.2);
-  return (
-    <section ref={ref} style={{ padding: "80px 24px 72px", maxWidth: 600, margin: "0 auto", textAlign: "center", borderTop: "1px solid rgba(255,255,255,0.06)", opacity: 1, transform: "translateY(0)", transition: "opacity 0.8s ease, transform 0.8s ease" }}>
-      <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.35)", marginBottom: "12px" }}>Engraving</p>
-      <h2 style={{ fontSize: "clamp(26px, 5vw, 36px)", fontWeight: "700", letterSpacing: "-0.9px", marginBottom: "8px" }}>Make it yours.</h2>
-      <p style={{ fontSize: "14px", color: "rgba(255,255,255,0.4)", marginBottom: "36px", lineHeight: 1.6 }}>
-        Add your name, student ID, or a short message.<br />Laser-engraved on the back of your card.
-      </p>
-      <div style={{ position: "relative", marginBottom: "32px" }}>
-        <input
-          type="text"
-          maxLength={30}
-          placeholder="Your name, quote, or student ID"
-          value={engraving}
-          onChange={e => setEngraving(e.target.value)}
-          style={{
-            width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
-            borderRadius: "12px", padding: "14px 50px 14px 16px", color: "#f5f5f7", fontSize: "15px",
-            outline: "none", fontFamily: "inherit", transition: "border-color 0.15s",
-          }}
-          onFocus={e => e.target.style.borderColor = "rgba(255,255,255,0.25)"}
-          onBlur={e => e.target.style.borderColor = "rgba(255,255,255,0.1)"}
-        />
-        <span style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", fontSize: "12px", color: "rgba(255,255,255,0.25)" }}>{engraving.length}/30</span>
-      </div>
-      {/* Live preview — real card photo with engraving overlay */}
-      <div style={{ position: "relative", width: "100%", maxWidth: 280, margin: "0 auto" }}>
-        <img
-          src={isFounder ? TITANIUM_IMG : colorway.img}
-          alt={isFounder ? "Titanium Black" : colorway.name}
-          style={{ width: "100%", display: "block", borderRadius: 16, boxShadow: `0 24px 48px rgba(0,0,0,0.8)` }}
-        />
-        {(engraving || true) && (
-          <div style={{
-            position: "absolute", bottom: "18%", left: 0, right: 0, textAlign: "center",
-            fontSize: "clamp(11px, 3vw, 14px)",
-            color: isFounder ? "rgba(200,200,200,0.75)" : (colorway.id === "white" ? "rgba(30,30,30,0.65)" : `${colorway.accent}cc`),
-            fontFamily: "'SF Pro Display', -apple-system, sans-serif",
-            letterSpacing: "0.04em", fontWeight: 400,
-            padding: "0 12px",
-          }}>
-            {engraving || <span style={{ opacity: 0.35 }}>Your engraving here</span>}
-          </div>
-        )}
-      </div>
-      {engraving && <p style={{ fontSize: "12px", color: "rgba(255,255,255,0.25)", marginTop: "16px" }}>Preview — actual engraving may vary slightly</p>}
-    </section>
-  );
-}
-
+/* ─── Spec Section ───────────────────────────────────────────────────────── */
 function SpecSection() {
   const [ref, visible] = useReveal(0.1);
   return (
-    <section ref={ref} style={{ padding: "80px 24px 88px", maxWidth: 680, margin: "0 auto", borderTop: "1px solid rgba(255,255,255,0.06)", opacity: 1, transform: "translateY(0)", transition: "opacity 0.8s ease, transform 0.8s ease" }}>
-      <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.35)", marginBottom: "12px", textAlign: "center" }}>What's inside</p>
+    <section ref={ref} style={{ padding: "88px 24px 96px", maxWidth: 680, margin: "0 auto", borderTop: "1px solid rgba(255,255,255,0.06)", opacity: visible ? 1 : 0, transform: visible ? "none" : "translateY(24px)", transition: "opacity 0.8s, transform 0.8s" }}>
+      <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.32)", marginBottom: "12px", textAlign: "center" }}>What's inside</p>
       <h2 style={{ fontSize: "clamp(28px, 6vw, 42px)", fontWeight: "700", letterSpacing: "-1px", marginBottom: "52px", textAlign: "center" }}>Everything a founder gets.</h2>
-      <div>
-        {SPECS.map((f, i) => (
-          <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: "16px", padding: "20px 0", borderBottom: i < SPECS.length - 1 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
-            <span style={{ fontSize: "22px", flexShrink: 0, marginTop: "1px" }}>{f.icon}</span>
-            <div>
-              <div style={{ fontSize: "15px", fontWeight: "600", color: "#f5f5f7", letterSpacing: "-0.3px", marginBottom: "3px" }}>{f.label}</div>
-              <div style={{ fontSize: "13px", color: "rgba(255,255,255,0.38)", lineHeight: 1.55 }}>{f.desc}</div>
-            </div>
+      {SPECS.map((f, i) => (
+        <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: "18px", padding: "22px 0", borderBottom: i < SPECS.length - 1 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
+          <span style={{ fontSize: "22px", flexShrink: 0, marginTop: "1px" }}>{f.icon}</span>
+          <div>
+            <div style={{ fontSize: "15px", fontWeight: "600", letterSpacing: "-0.3px", marginBottom: "4px" }}>{f.label}</div>
+            <div style={{ fontSize: "13px", color: "rgba(255,255,255,0.34)", lineHeight: 1.6 }}>{f.desc}</div>
           </div>
-        ))}
-      </div>
+        </div>
+      ))}
     </section>
   );
 }
 
+/* ─── Counter ────────────────────────────────────────────────────────────── */
 function CounterSection() {
   const [ref, visible] = useReveal(0.2);
   const remaining = 247;
   return (
-    <section ref={ref} style={{ padding: "72px 24px", background: "#0a0a0a", textAlign: "center", borderTop: "1px solid rgba(255,255,255,0.06)", borderBottom: "1px solid rgba(255,255,255,0.06)", opacity: 1, transform: "translateY(0)", transition: "opacity 0.8s ease, transform 0.8s ease" }}>
-      <div style={{ fontSize: "clamp(52px, 14vw, 88px)", fontWeight: "700", letterSpacing: "-4px", color: "#f5f5f7", lineHeight: 1 }}>{remaining}</div>
-      <div style={{ fontSize: "15px", color: "rgba(255,255,255,0.4)", marginTop: "10px", letterSpacing: "-0.2px" }}>of 500 founding spots remaining</div>
-      <div style={{ width: "100%", maxWidth: "320px", height: "3px", background: "rgba(255,255,255,0.07)", borderRadius: "2px", margin: "22px auto 0", overflow: "hidden" }}>
+    <section ref={ref} style={{ padding: "80px 24px", background: "#0a0a0a", textAlign: "center", borderTop: "1px solid rgba(255,255,255,0.06)", borderBottom: "1px solid rgba(255,255,255,0.06)", opacity: visible ? 1 : 0, transform: visible ? "none" : "translateY(24px)", transition: "opacity 0.8s, transform 0.8s" }}>
+      <div style={{ fontSize: "clamp(56px, 16vw, 96px)", fontWeight: "700", letterSpacing: "-5px", lineHeight: 1 }}>{remaining}</div>
+      <div style={{ fontSize: "15px", color: "rgba(255,255,255,0.36)", marginTop: "12px" }}>of 500 founding spots remaining</div>
+      <div style={{ width: "280px", height: "3px", background: "rgba(255,255,255,0.07)", borderRadius: "2px", margin: "24px auto 0", overflow: "hidden" }}>
         <div style={{ height: "100%", width: `${((500 - remaining) / 500) * 100}%`, background: "linear-gradient(90deg, #888, #f5f5f7)", borderRadius: "2px" }} />
       </div>
-      <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.22)", marginTop: "10px" }}>{500 - remaining} members have already applied</div>
+      <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.2)", marginTop: "10px" }}>{500 - remaining} members have already applied</div>
     </section>
   );
 }
 
-function FounderDeliverySection({ founderDelivery, setFounder }) {
-  const [ref, visible] = useReveal(0.15);
+/* ─── "One More Thing" — Steve Jobs stage photo ─────────────────────────── */
+function OneMoreThingSection({ isFounder, setFounder }) {
+  const [ref, visible] = useReveal(0.08);
   const perks = [
     "Titanium Black card — exclusive, never sold separately",
-    "Guaranteed founding number #0001–#0050 (top 50 only)",
+    "Guaranteed founding number #0001–#0005 (top 5 only)",
     "White-glove premium packaging + express delivery",
     "1-on-1 onboarding session with Vincent",
     "Lifetime Pro + priority support forever",
   ];
   return (
-    <section ref={ref} style={{ padding: "80px 24px", background: "#000", borderTop: "1px solid rgba(255,255,255,0.06)", opacity: 1, transform: "translateY(0)", transition: "opacity 0.8s ease, transform 0.8s ease" }}>
-      <div style={{ maxWidth: 680, margin: "0 auto" }}>
-        <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.35)", marginBottom: "12px", textAlign: "center" }}>Founder Delivery</p>
-        <h2 style={{ fontSize: "clamp(28px, 6vw, 42px)", fontWeight: "700", letterSpacing: "-1px", marginBottom: "8px", textAlign: "center" }}>The rarest card<br />in the world.</h2>
-        <p style={{ fontSize: "14px", color: "rgba(255,255,255,0.4)", marginBottom: "48px", textAlign: "center", lineHeight: 1.6 }}>Only 50 Titanium Black cards exist. Ever.</p>
+    <section ref={ref} style={{ position: "relative", minHeight: "100vh", display: "flex", alignItems: "center", overflow: "hidden", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+      {/* Stage photo — full bleed */}
+      <img
+        src={STAGE_IMG}
+        alt="FschoolAI Founder Delivery"
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top", animation: visible ? "slowZoom 14s ease-in-out forwards" : "none" }}
+      />
+      {/* Gradient: dark on left for text, fades to photo on right */}
+      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to right, rgba(0,0,0,0.94) 0%, rgba(0,0,0,0.78) 40%, rgba(0,0,0,0.2) 100%)" }} />
+      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(0,0,0,0.25) 0%, transparent 15%, transparent 85%, rgba(0,0,0,0.4) 100%)" }} />
 
-        {/* Two-column layout: card image + perks */}
-        <div style={{ display: "flex", gap: "clamp(24px, 5vw, 56px)", alignItems: "center", flexWrap: "wrap", justifyContent: "center", marginBottom: "40px" }}>
-          <img src={TITANIUM_IMG} alt="Titanium Black Founding Card" style={{ width: "clamp(140px, 30vw, 200px)", borderRadius: 16, boxShadow: "0 32px 64px rgba(0,0,0,0.8), 0 0 32px rgba(150,150,150,0.08)", objectFit: "cover" }} />
-          <div style={{ flex: 1, minWidth: 240 }}>
-            {perks.map((p, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "12px 0", borderBottom: i < perks.length - 1 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
-                <span style={{ color: "#a78bfa", fontSize: 14, flexShrink: 0, marginTop: 1 }}>✦</span>
-                <span style={{ fontSize: "14px", color: "rgba(255,255,255,0.7)", lineHeight: 1.5 }}>{p}</span>
-              </div>
-            ))}
-          </div>
+      {/* Text content — left side */}
+      <div style={{ position: "relative", zIndex: 2, padding: "80px 32px", maxWidth: 500, opacity: visible ? 1 : 0, transform: visible ? "none" : "translateY(32px)", transition: "opacity 1s ease 0.2s, transform 1s ease 0.2s" }}>
+        <p style={{ fontSize: "15px", color: "rgba(255,255,255,0.4)", marginBottom: "20px", fontStyle: "italic", letterSpacing: "-0.1px" }}>One more thing.</p>
+        <h2 style={{ fontSize: "clamp(36px, 8vw, 60px)", fontWeight: "700", letterSpacing: "-2px", lineHeight: 1.04, marginBottom: "16px" }}>
+          The rarest card<br />in the world.
+        </h2>
+        <p style={{ fontSize: "clamp(18px, 3vw, 22px)", color: "rgba(255,255,255,0.45)", marginBottom: "40px", letterSpacing: "-0.3px" }}>
+          Only 5 exist. Ever.
+        </p>
+
+        {/* Perks */}
+        <div style={{ marginBottom: "36px" }}>
+          {perks.map((p, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: "12px", padding: "10px 0", borderBottom: i < perks.length - 1 ? "1px solid rgba(255,255,255,0.07)" : "none" }}>
+              <span style={{ color: "rgba(255,255,255,0.35)", fontSize: "14px", flexShrink: 0, marginTop: "1px" }}>—</span>
+              <span style={{ fontSize: "14px", color: "rgba(255,255,255,0.62)", lineHeight: 1.5 }}>{p}</span>
+            </div>
+          ))}
         </div>
 
-        {/* Toggle — Apple AppleCare style */}
-        <div style={{
-          border: founderDelivery ? "1px solid rgba(167,139,250,0.4)" : "1px solid rgba(255,255,255,0.1)",
-          borderRadius: "16px", padding: "20px 20px",
-          background: founderDelivery ? "rgba(167,139,250,0.06)" : "rgba(255,255,255,0.03)",
-          transition: "all 0.3s ease", cursor: "pointer",
-        }} onClick={() => setFounder(f => !f)}>
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <div style={{
-              width: 22, height: 22, borderRadius: "50%",
-              border: founderDelivery ? "none" : "2px solid rgba(255,255,255,0.25)",
-              background: founderDelivery ? "#a78bfa" : "transparent",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              flexShrink: 0, transition: "all 0.2s",
-            }}>
-              {founderDelivery && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round"><path d="M5 12l5 5L20 7"/></svg>}
+        {/* AppleCare-style toggle */}
+        <div onClick={() => setFounder(f => !f)} style={{ border: isFounder ? "1px solid rgba(255,255,255,0.35)" : "1px solid rgba(255,255,255,0.12)", borderRadius: "16px", padding: "18px 20px", background: isFounder ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.04)", cursor: "pointer", transition: "all 0.3s" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+            <div style={{ width: "22px", height: "22px", borderRadius: "50%", border: isFounder ? "none" : "2px solid rgba(255,255,255,0.3)", background: isFounder ? "#f5f5f7" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.2s" }}>
+              {isFounder && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="3" strokeLinecap="round"><path d="M5 12l5 5L20 7"/></svg>}
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: "15px", fontWeight: "600", color: "#f5f5f7", letterSpacing: "-0.3px" }}>Add Founder Delivery</div>
-              <div style={{ fontSize: "13px", color: "rgba(255,255,255,0.4)", marginTop: "2px" }}>Titanium Black · Top 50 · White-glove · 1-on-1 with Vincent</div>
+              <div style={{ fontSize: "15px", fontWeight: "600", letterSpacing: "-0.3px" }}>Add Founder Delivery</div>
+              <div style={{ fontSize: "13px", color: "rgba(255,255,255,0.36)", marginTop: "2px" }}>Titanium Black · Top 5 · White-glove · 1-on-1</div>
             </div>
             <div style={{ textAlign: "right", flexShrink: 0 }}>
-              <div style={{ fontSize: "17px", fontWeight: "700", color: founderDelivery ? "#a78bfa" : "#f5f5f7", letterSpacing: "-0.5px" }}>$3,000</div>
+              <div style={{ fontSize: "18px", fontWeight: "700", letterSpacing: "-0.5px" }}>$3,000</div>
               <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.25)", marginTop: "1px" }}>One time</div>
             </div>
           </div>
         </div>
-        {founderDelivery && (
-          <p style={{ fontSize: "12px", color: "rgba(167,139,250,0.6)", marginTop: "12px", textAlign: "center" }}>
-            ✦ Titanium Black colorway selected · Founding #0001–#0050 guaranteed
-          </p>
-        )}
+        {isFounder && <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.42)", marginTop: "12px" }}>Titanium Black selected · Founding #0001–#0005 guaranteed</p>}
       </div>
     </section>
   );
 }
 
+/* ─── Specialist — Apple "Set up with a Specialist" ─────────────────────── */
 function SpecialistSection() {
   const [ref, visible] = useReveal(0.2);
   return (
-    <section ref={ref} style={{ padding: "72px 24px", background: "#f5f5f7", opacity: 1, transform: "translateY(0)", transition: "opacity 0.8s ease, transform 0.8s ease" }}>
+    <section ref={ref} style={{ padding: "72px 24px", background: "#f5f5f7", opacity: visible ? 1 : 0, transform: visible ? "none" : "translateY(24px)", transition: "opacity 0.8s, transform 0.8s" }}>
       <div style={{ maxWidth: 560, margin: "0 auto", textAlign: "center" }}>
-        {/* Icon row */}
-        <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "clamp(8px, 2vw, 16px)", marginBottom: "28px", flexWrap: "wrap" }}>
-          {["🧠", "📱", "🎓", "📡", "🔗", "🏆"].map((icon, i) => (
-            <div key={i} style={{ width: "clamp(40px, 8vw, 52px)", height: "clamp(40px, 8vw, 52px)", borderRadius: "12px", background: "#e8e8e8", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "clamp(18px, 3.5vw, 24px)" }}>{icon}</div>
-          ))}
-        </div>
-        <h2 style={{ fontSize: "clamp(24px, 5vw, 34px)", fontWeight: "700", letterSpacing: "-0.8px", color: "#1d1d1f", marginBottom: "16px", lineHeight: 1.2 }}>
-          Set up your identity card<br />with a one-on-one session<br />with a Specialist.
-        </h2>
-        <p style={{ fontSize: "15px", color: "#6e6e73", lineHeight: 1.6, marginBottom: "24px" }}>
-          When you apply for your Founding Card, you can book a free Personal Setup session. We'll help you activate your Brain ID, connect Canvas, configure NFC, and make the most of your card.
+        <p style={{ fontSize: "17px", color: "#1d1d1f", lineHeight: 1.65, letterSpacing: "-0.3px" }}>
+          Set up your identity card with a one-on-one session with a Specialist.{" "}
+          <a href="mailto:hello@fschoolai.com" style={{ color: "#0066cc", textDecoration: "none" }}>Book a free Personal Setup session.</a>
         </p>
-        <a href="#apply" style={{ fontSize: "15px", color: "#0071e3", textDecoration: "none", fontWeight: "500", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-          Learn more about Personal Setup
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
-        </a>
       </div>
     </section>
   );
 }
 
-function ApplicationSection({ formData, setFormData, submitted, submitting, handleSubmit, colorway, isFounder, engraving, founderDelivery }) {
+/* ─── Apply — Apple checkout flow ────────────────────────────────────────── */
+function ApplySection({ cw, isFounder, engraving, setFounder, formData, setFormData, submitted, submitting, handleSubmit, selected, setSelected, inp }) {
   const [ref, visible] = useReveal(0.1);
-  const inputStyle = {
-    width: "100%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)",
-    borderRadius: "12px", padding: "14px 16px", color: "#f5f5f7", fontSize: "15px",
-    outline: "none", fontFamily: "inherit", transition: "border-color 0.15s",
-  };
   return (
-    <section id="apply" ref={ref} style={{ padding: "88px 24px 100px", maxWidth: 480, margin: "0 auto", textAlign: "center", borderTop: "1px solid rgba(255,255,255,0.06)", opacity: 1, transform: "translateY(0)", transition: "opacity 0.8s ease, transform 0.8s ease" }}>
-      <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.35)", marginBottom: "12px" }}>Founding Edition</p>
-      <h2 style={{ fontSize: "clamp(28px, 6vw, 42px)", fontWeight: "700", letterSpacing: "-1px", marginBottom: "8px" }}>Apply for your card.</h2>
-      <p style={{ fontSize: "15px", color: "rgba(255,255,255,0.4)", marginBottom: "40px", letterSpacing: "-0.2px", lineHeight: 1.6 }}>
-        {founderDelivery ? "Founder Delivery — $3,000. We'll reach out to complete your order." : "Free for founding members. We'll reach out when your card is ready to ship."}
-      </p>
+    <section id="apply" ref={ref} style={{ padding: "88px 24px 100px", borderTop: "1px solid rgba(255,255,255,0.06)", opacity: visible ? 1 : 0, transform: visible ? "none" : "translateY(24px)", transition: "opacity 0.8s, transform 0.8s" }}>
+      <div style={{ maxWidth: 480, margin: "0 auto" }}>
+        <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.32)", marginBottom: "12px", textAlign: "center" }}>Founding Edition</p>
+        <h2 style={{ fontSize: "clamp(28px, 6vw, 42px)", fontWeight: "700", letterSpacing: "-1px", marginBottom: "8px", textAlign: "center" }}>Apply for your card.</h2>
+        <p style={{ fontSize: "15px", color: "rgba(255,255,255,0.36)", marginBottom: "44px", textAlign: "center", letterSpacing: "-0.2px", lineHeight: 1.6 }}>
+          {isFounder ? "Founder Delivery — $3,000. We'll reach out to complete your order." : "Free for founding members. We'll reach out when your card is ready to ship."}
+        </p>
 
-      {submitted ? (
-        <div style={{ background: "rgba(48,209,88,0.07)", border: "1px solid rgba(48,209,88,0.18)", borderRadius: "16px", padding: "44px 24px" }}>
-          <div style={{ fontSize: "44px", marginBottom: "16px" }}>🎉</div>
-          <div style={{ fontSize: "22px", fontWeight: "700", color: "#30d158", marginBottom: "8px", letterSpacing: "-0.5px" }}>You're on the list.</div>
-          <div style={{ fontSize: "14px", color: "rgba(255,255,255,0.45)", lineHeight: 1.7 }}>
-            We'll email you when your founding card is ready to ship.<br />Welcome to the founding 500.
+        {submitted ? (
+          <div style={{ background: "rgba(48,209,88,0.06)", border: "1px solid rgba(48,209,88,0.15)", borderRadius: "20px", padding: "52px 24px", textAlign: "center" }}>
+            <div style={{ fontSize: "48px", marginBottom: "18px" }}>🎉</div>
+            <div style={{ fontSize: "24px", fontWeight: "700", color: "#30d158", marginBottom: "10px", letterSpacing: "-0.6px" }}>You're on the list.</div>
+            <div style={{ fontSize: "14px", color: "rgba(255,255,255,0.42)", lineHeight: 1.75 }}>We'll email you when your founding card is ready to ship.<br />Welcome to the founding 500.</div>
           </div>
-        </div>
-      ) : (
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          {/* Colorway display */}
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "12px", padding: "12px 16px" }}>
-            {isFounder ? (
-              <div style={{ width: 20, height: 20, borderRadius: "50%", background: "linear-gradient(135deg, #2a2a2a, #1a1a1a)", border: "1px solid #555", flexShrink: 0 }} />
-            ) : (
-              <div style={{ width: 20, height: 20, borderRadius: "50%", background: colorway.hex, boxShadow: `0 0 8px ${colorway.hex}60`, flexShrink: 0 }} />
-            )}
-            <span style={{ fontSize: "14px", color: "rgba(255,255,255,0.6)", flex: 1, textAlign: "left" }}>
-              {isFounder ? "Titanium Black — Founder Delivery ($3,000)" : colorway.name}
-            </span>
-            <a href="#" onClick={e => { e.preventDefault(); document.querySelector('[data-colorway-section]')?.scrollIntoView({ behavior: "smooth" }); }} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.3)", fontSize: "12px", cursor: "pointer", textDecoration: "none" }}>Change</a>
-          </div>
+        ) : (
+          <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "0" }}>
 
-          {/* Engraving display */}
-          {engraving && (
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "12px", padding: "12px 16px" }}>
-              <span style={{ fontSize: "13px", color: "rgba(255,255,255,0.35)", flex: 1, textAlign: "left" }}>✍️ Engraving: <span style={{ color: "rgba(255,255,255,0.6)" }}>"{engraving}"</span></span>
+            {/* Order summary */}
+            <div style={{ marginBottom: "8px" }}>
+              <div style={{ fontSize: "12px", fontWeight: "600", letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)", marginBottom: "12px", paddingLeft: "4px" }}>Your selection</div>
+
+              {/* Colorway row */}
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: "14px 14px 0 0", padding: "14px 16px", borderBottom: "none" }}>
+                <div style={{ width: "20px", height: "20px", borderRadius: "50%", background: isFounder ? "linear-gradient(135deg,#3a3a3a,#1a1a1a)" : cw.hex, border: isFounder ? "1px solid #555" : "none", flexShrink: 0 }} />
+                <span style={{ fontSize: "14px", color: "rgba(255,255,255,0.62)", flex: 1 }}>{isFounder ? "Titanium Black — Founder Delivery" : cw.name}</span>
+                <a href="#colorway" onClick={e => { e.preventDefault(); document.querySelector('[data-colorway-section]')?.scrollIntoView({ behavior: "smooth" }); }} style={{ fontSize: "13px", color: "rgba(255,255,255,0.28)", textDecoration: "none" }}>Change</a>
+              </div>
+
+              {/* Engraving row */}
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)", borderTop: "1px solid rgba(255,255,255,0.05)", borderRadius: "0", padding: "14px 16px", borderBottom: "none" }}>
+                <span style={{ fontSize: "14px", color: engraving ? "rgba(255,255,255,0.62)" : "rgba(255,255,255,0.22)", flex: 1 }}>{engraving ? `✍️  "${engraving}"` : "No engraving"}</span>
+                <a href="#engraving-input" onClick={e => { e.preventDefault(); document.getElementById("engraving-input")?.focus(); }} style={{ fontSize: "13px", color: "rgba(255,255,255,0.28)", textDecoration: "none" }}>Edit</a>
+              </div>
+
+              {/* Delivery toggle */}
+              <div onClick={() => setFounder(f => !f)} style={{ display: "flex", alignItems: "center", gap: "12px", background: isFounder ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.04)", border: isFounder ? "1px solid rgba(255,255,255,0.18)" : "1px solid rgba(255,255,255,0.07)", borderTop: "1px solid rgba(255,255,255,0.05)", borderRadius: "0 0 14px 14px", padding: "14px 16px", cursor: "pointer", transition: "all 0.2s" }}>
+                <div style={{ width: "20px", height: "20px", borderRadius: "50%", border: isFounder ? "none" : "2px solid rgba(255,255,255,0.2)", background: isFounder ? "#f5f5f7" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.2s" }}>
+                  {isFounder && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="3" strokeLinecap="round"><path d="M5 12l5 5L20 7"/></svg>}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: "14px", color: isFounder ? "#f5f5f7" : "rgba(255,255,255,0.48)", fontWeight: isFounder ? 600 : 400 }}>{isFounder ? "Founder Delivery — $3,000" : "Standard — Free"}</div>
+                  <div style={{ fontSize: "12px", color: "rgba(255,255,255,0.26)", marginTop: "2px" }}>{isFounder ? "Titanium Black · Top 5 · White-glove · 1-on-1 with Vincent" : "Ships Q4 2026"}</div>
+                </div>
+                {!isFounder && <span style={{ fontSize: "13px", color: "rgba(255,255,255,0.28)" }}>Upgrade</span>}
+              </div>
             </div>
-          )}
 
-          <input type="text" placeholder="Full name" value={formData.name} onChange={e => setFormData(p => ({ ...p, name: e.target.value }))} required style={inputStyle} onFocus={e => e.target.style.borderColor = "rgba(255,255,255,0.25)"} onBlur={e => e.target.style.borderColor = "rgba(255,255,255,0.09)"} />
-          <input type="text" placeholder="University or school" value={formData.university} onChange={e => setFormData(p => ({ ...p, university: e.target.value }))} style={inputStyle} onFocus={e => e.target.style.borderColor = "rgba(255,255,255,0.25)"} onBlur={e => e.target.style.borderColor = "rgba(255,255,255,0.09)"} />
-          <input type="email" placeholder="Email address" value={formData.email} onChange={e => setFormData(p => ({ ...p, email: e.target.value }))} required style={inputStyle} onFocus={e => e.target.style.borderColor = "rgba(255,255,255,0.25)"} onBlur={e => e.target.style.borderColor = "rgba(255,255,255,0.09)"} />
+            {/* Details */}
+            <div style={{ marginTop: "24px", display: "flex", flexDirection: "column", gap: "10px" }}>
+              <div style={{ fontSize: "12px", fontWeight: "600", letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)", marginBottom: "4px", paddingLeft: "4px" }}>Your details</div>
+              <input type="text" placeholder="Full name" value={formData.name} onChange={e => setFormData(p => ({ ...p, name: e.target.value }))} required style={inp} onFocus={e => e.target.style.borderColor = "rgba(255,255,255,0.25)"} onBlur={e => e.target.style.borderColor = "rgba(255,255,255,0.09)"} />
+              <input type="text" placeholder="University or school" value={formData.university} onChange={e => setFormData(p => ({ ...p, university: e.target.value }))} style={inp} onFocus={e => e.target.style.borderColor = "rgba(255,255,255,0.25)"} onBlur={e => e.target.style.borderColor = "rgba(255,255,255,0.09)"} />
+              <input type="email" placeholder="Email address" value={formData.email} onChange={e => setFormData(p => ({ ...p, email: e.target.value }))} required style={inp} onFocus={e => e.target.style.borderColor = "rgba(255,255,255,0.25)"} onBlur={e => e.target.style.borderColor = "rgba(255,255,255,0.09)"} />
+            </div>
 
-          <button type="submit" disabled={submitting || !formData.name || !formData.email} style={{
-            marginTop: "8px", background: submitting ? "rgba(245,245,247,0.5)" : "#f5f5f7", color: "#000",
-            border: "none", borderRadius: "980px", padding: "16px", fontSize: "15px", fontWeight: "650",
-            letterSpacing: "-0.3px", cursor: submitting ? "default" : "pointer", fontFamily: "inherit",
-            opacity: (!formData.name || !formData.email) ? 0.4 : 1, transition: "opacity 0.2s",
-          }}>
-            {submitting ? "Submitting…" : founderDelivery ? "Apply for Founder Delivery →" : "Apply for my card →"}
-          </button>
-          <p style={{ fontSize: "12px", color: "rgba(255,255,255,0.18)", marginTop: "4px" }}>
-            {founderDelivery ? "$3,000 · Titanium Black · Top 50 · Ships Q4 2026." : "Free. No credit card required. Ships Q4 2026."}
-          </p>
-        </form>
-      )}
+            {/* Submit */}
+            <button type="submit" disabled={submitting || !formData.name || !formData.email} style={{ marginTop: "20px", background: submitting ? "rgba(245,245,247,0.5)" : "#f5f5f7", color: "#000", border: "none", borderRadius: "980px", padding: "17px", fontSize: "16px", fontWeight: "650", letterSpacing: "-0.3px", cursor: submitting ? "default" : "pointer", fontFamily: "inherit", opacity: (!formData.name || !formData.email) ? 0.45 : 1, transition: "opacity 0.2s" }}>
+              {submitting ? "Submitting…" : isFounder ? "Apply for Founder Delivery →" : "Apply for my card →"}
+            </button>
+            <p style={{ fontSize: "12px", color: "rgba(255,255,255,0.18)", marginTop: "10px", textAlign: "center" }}>
+              {isFounder ? "$3,000 · Titanium Black · Top 5 · Ships Q4 2026." : "Free. No credit card required. Ships Q4 2026."}
+            </p>
+          </form>
+        )}
+      </div>
     </section>
   );
 }
