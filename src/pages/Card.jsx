@@ -369,27 +369,7 @@ export default function Card() {
         </div>
       </section>
 
-      {/* ── Countdown ── */}
-      <section style={{ background: "#111", borderTop: "1px solid rgba(255,255,255,0.06)", borderBottom: "1px solid rgba(255,255,255,0.06)", padding: "32px 24px", textAlign: "center" }}>
-        <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.35)", marginBottom: "18px" }}>Applications close</p>
-        <div style={{ display: "flex", justifyContent: "center", gap: "clamp(20px, 5vw, 48px)", flexWrap: "wrap" }}>
-          {[{ v: countdown.days, l: "Days" }, { v: countdown.hours, l: "Hours" }, { v: countdown.minutes, l: "Min" }, { v: countdown.seconds, l: "Sec" }].map(({ v, l }) => (
-            <div key={l} style={{ textAlign: "center", minWidth: "52px" }}>
-              <div style={{ fontSize: "clamp(34px, 8vw, 52px)", fontWeight: "700", letterSpacing: "-2px", color: "#f5f5f7", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{String(v).padStart(2, "0")}</div>
-              <div style={{ fontSize: "10px", color: "rgba(255,255,255,0.3)", marginTop: "6px", letterSpacing: "0.06em", textTransform: "uppercase" }}>{l}</div>
-            </div>
-          ))}
-        </div>
-        <p style={{ fontSize: "12px", color: "rgba(255,255,255,0.3)", marginTop: "16px" }}>June 30, 2026 · Midnight</p>
-      </section>
-
-      {/* ── Manifesto ── */}
-      <ManifestoSection />
-
-      {/* ── Cinematic Feature Sections ── */}
-      {FEATURES.map((f, i) => <FeatureSection key={i} feature={f} index={i} />)}
-
-      {/* ── Colorway Picker ── */}
+            {/* ── Colorway Picker ── (right after hero, Apple style) */}
       <section data-colorway-section style={{ padding: "80px 24px 72px", maxWidth: "700px", margin: "0 auto", textAlign: "center" }}>
         <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.35)", marginBottom: "12px" }}>Colorway</p>
         <h2 style={{ fontSize: "clamp(26px, 5vw, 34px)", fontWeight: "700", letterSpacing: "-0.8px", marginBottom: "4px" }}>{isFounder ? "Titanium Black" : colorway.name}</h2>
@@ -433,9 +413,25 @@ export default function Card() {
         </div>
       </section>
 
-      {/* ── Engraving ── */}
+            {/* ── Engraving ── */}
       <EngravingSection engraving={engraving} setEngraving={setEngraving} colorway={colorway} isFounder={isFounder} />
-
+      {/* ── Countdown ── */}
+      <section style={{ background: "#111", borderTop: "1px solid rgba(255,255,255,0.06)", borderBottom: "1px solid rgba(255,255,255,0.06)", padding: "32px 24px", textAlign: "center" }}>
+        <p style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.35)", marginBottom: "18px" }}>Applications close</p>
+        <div style={{ display: "flex", justifyContent: "center", gap: "clamp(20px, 5vw, 48px)", flexWrap: "wrap" }}>
+          {[{ v: countdown.days, l: "Days" }, { v: countdown.hours, l: "Hours" }, { v: countdown.minutes, l: "Min" }, { v: countdown.seconds, l: "Sec" }].map(({ v, l }) => (
+            <div key={l} style={{ textAlign: "center", minWidth: "52px" }}>
+              <div style={{ fontSize: "clamp(34px, 8vw, 52px)", fontWeight: "700", letterSpacing: "-2px", color: "#f5f5f7", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{String(v).padStart(2, "0")}</div>
+              <div style={{ fontSize: "10px", color: "rgba(255,255,255,0.3)", marginTop: "6px", letterSpacing: "0.06em", textTransform: "uppercase" }}>{l}</div>
+            </div>
+          ))}
+        </div>
+        <p style={{ fontSize: "12px", color: "rgba(255,255,255,0.3)", marginTop: "16px" }}>June 30, 2026 · Midnight</p>
+      </section>
+      {/* ── Manifesto ── */}
+      <ManifestoSection />
+      {/* ── Cinematic Feature Sections ── */}
+      {FEATURES.map((f, i) => <FeatureSection key={i} feature={f} index={i} />)}
       {/* ── Spec List ── */}
       <SpecSection />
 
