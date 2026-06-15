@@ -1,5 +1,4 @@
 {
-  "buildCommand": "npm run build && node scripts/inject-ops-credentials.js",
   "crons": [
     { "path": "/api/assignment-reminder",   "schedule": "0 8 * * *"    },
     { "path": "/api/brain-scheduler-fast",  "schedule": "*/5 * * * *"  },

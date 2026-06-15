@@ -198,13 +198,12 @@ async function writeContextWindow(personId, context) {
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 export default async function handler(req, res) {
-  // Auth check
+  // Auth check — fail-closed: missing CRON_SECRET means misconfigured, not open.
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
-    const auth = req.headers.authorization ?? req.headers["x-cron-secret"];
-    if (auth !== `Bearer ${cronSecret}` && auth !== cronSecret) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
+  if (!cronSecret) return res.status(500).json({ error: "CRON_SECRET not configured" });
+  const auth = req.headers.authorization ?? req.headers["x-cron-secret"];
+  if (auth !== `Bearer ${cronSecret}` && auth !== cronSecret) {
+    return res.status(401).json({ error: "Unauthorized" });
   }
 
   if (!BRAIN_URL || !BRAIN_KEY) {

@@ -26,13 +26,12 @@ const brain = createClient(
 );
 
 export default async function handler(req, res) {
-  // Auth check — accept Authorization: Bearer <secret> (Vercel cron) or x-cron-secret header
+  // Auth check — fail-closed: missing CRON_SECRET means misconfigured, not open.
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret) {
-    const auth = req.headers.authorization ?? req.headers["x-cron-secret"] ?? req.query.secret;
-    if (auth !== `Bearer ${cronSecret}` && auth !== cronSecret) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
+  if (!cronSecret) return res.status(500).json({ error: "CRON_SECRET not configured" });
+  const auth = req.headers.authorization ?? req.headers["x-cron-secret"] ?? req.query.secret;
+  if (auth !== `Bearer ${cronSecret}` && auth !== cronSecret) {
+    return res.status(401).json({ error: "Unauthorized" });
   }
 
   const startTime = Date.now();
