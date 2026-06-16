@@ -6,7 +6,16 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useApp } from "../context/AppContext";
 import { supabase } from "../api/supabase";
 
-// ── Friends adapter ──────────────────────────────────────────────────────────
+// ── Room code generator ───────────────────────────────────────────────────────
+// Unambiguous chars (no 0/O, 1/I/L). 6 chars = 32^6 = ~1B combinations.
+const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+function generateRoomCode() {
+  let code = "";
+  for (let i = 0; i < 6; i++) code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
+  return code;
+}
+
+// ── Friends adapter ───────────────────────────────────────────────────────────
 // Wraps Siddharth's friends.js so the invite UI doesn't depend on its internals.
 // listFriends returns [{ friend_id, friends_since }] — enrich with names via
 // getUserProfiles. If the RPC doesn't exist yet (migrations 004/005 not run),
@@ -153,8 +162,11 @@ function Lobby({ onJoin, totalOnline, roomCounts, pendingInvites = [], onDismiss
   const [rooms,       setRooms]       = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [showCreate,  setShowCreate]  = useState(false);
-  const [joiningId,   setJoiningId]   = useState(null);
-  const [pendingReqs, setPendingReqs] = useState({}); // roomId → 'requested'|'accepted'
+  const [joiningId,    setJoiningId]    = useState(null);
+  const [pendingReqs,  setPendingReqs]  = useState({}); // roomId → 'requested'|'accepted'
+  const [codeInput,    setCodeInput]    = useState("");
+  const [codeError,    setCodeError]    = useState("");
+  const [codeLookingUp, setCodeLookingUp] = useState(false);
   const lobbyChannelRef = useRef(null);
   const onJoinRef       = useRef(onJoin);
   useEffect(() => { onJoinRef.current = onJoin; }, [onJoin]);
@@ -230,18 +242,28 @@ function Lobby({ onJoin, totalOnline, roomCounts, pendingInvites = [], onDismiss
   // so invites arrive even when the user is inside a room.
 
   async function handleCreate({ name, courseId, roomType }) {
-    const { data: room, error } = await supabase
-      .from("study_rooms")
-      .insert({
-        created_by: userId,
-        name:       name.trim(),
-        // ── FIX: course_id is BIGINT — parse to Number, send null when empty ──
-        course_id:  courseId ? Number(courseId) : null,
-        room_type:  roomType,
-      })
-      .select()
-      .single();
-    if (error || !room) { console.error("[rooms] create:", error?.message); return; }
+    // Generate a unique join code — retry up to 5 times on collision
+    let room = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const join_code = generateRoomCode();
+      const { data, error } = await supabase
+        .from("study_rooms")
+        .insert({
+          created_by: userId,
+          name:       name.trim(),
+          course_id:  courseId ? Number(courseId) : null,
+          room_type:  roomType,
+          join_code,
+        })
+        .select()
+        .single();
+      if (!error) { room = data; break; }
+      // Unique violation on join_code → retry with a new code
+      if (!error.message?.includes("unique") && !error.message?.includes("join_code")) {
+        console.error("[rooms] create:", error.message); return;
+      }
+    }
+    if (!room) { console.error("[rooms] create: failed to generate unique code"); return; }
 
     await supabase.from("room_members").upsert(
       { room_id: room.id, user_id: userId, role: "host", status: "joined" },
@@ -297,6 +319,28 @@ function Lobby({ onJoin, totalOnline, roomCounts, pendingInvites = [], onDismiss
     const { data: room } = await supabase
       .from("study_rooms").select().eq("id", invite.room_id).single();
     if (room) onJoin(room);
+  }
+
+  async function handleJoinByCode() {
+    const code = codeInput.trim().toUpperCase();
+    if (code.length < 6) return;
+    setCodeLookingUp(true);
+    setCodeError("");
+    const { data: room } = await supabase
+      .from("study_rooms")
+      .select()
+      .eq("join_code", code)
+      .eq("is_active", true)
+      .maybeSingle();
+    setCodeLookingUp(false);
+    if (!room) { setCodeError("No active room found with that code."); return; }
+    // Code is the authorization — join directly regardless of room_type
+    await supabase.from("room_members").upsert(
+      { room_id: room.id, user_id: userId, role: "member", status: "joined" },
+      { onConflict: "room_id,user_id" }
+    );
+    setCodeInput("");
+    onJoin(room);
   }
 
   const S = styles;
@@ -372,7 +416,40 @@ function Lobby({ onJoin, totalOnline, roomCounts, pendingInvites = [], onDismiss
         </div>
       )}
 
-      <button onClick={fetchRooms} style={S.ghostBtn}>↻ Refresh</button>
+      <div style={{ display:"flex", alignItems:"center", gap:"8px", marginTop:"16px", marginBottom:"4px" }}>
+        <button onClick={fetchRooms} style={{ ...S.ghostBtn, marginTop:0 }}>↻ Refresh</button>
+        {/* Join with code — works for private rooms, bypasses host approval */}
+        <div style={{ display:"flex", gap:"6px", flex:1 }}>
+          <input
+            value={codeInput}
+            onChange={e => { setCodeInput(e.target.value.toUpperCase().slice(0, 6)); setCodeError(""); }}
+            onKeyDown={e => e.key === "Enter" && handleJoinByCode()}
+            placeholder="Room code (e.g. FS7K2P)"
+            maxLength={6}
+            style={{
+              flex:1, background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.09)",
+              borderRadius:"8px", padding:"7px 12px", color:"var(--text-primary)", fontSize:"13px",
+              outline:"none", fontFamily:"monospace", letterSpacing:"2px",
+              transition:"border-color 0.15s",
+            }}
+            onFocus={e => (e.target.style.borderColor="rgba(255,255,255,0.22)")}
+            onBlur={e  => (e.target.style.borderColor="rgba(255,255,255,0.09)")}
+          />
+          <button
+            onClick={handleJoinByCode}
+            disabled={codeInput.length < 6 || codeLookingUp}
+            style={{
+              ...S.accentBtn, padding:"7px 14px", fontSize:"12px",
+              opacity: codeInput.length < 6 ? 0.4 : 1,
+            }}
+          >
+            {codeLookingUp ? "…" : "Join"}
+          </button>
+        </div>
+      </div>
+      {codeError && (
+        <p style={{ fontSize:"12px", color:"rgba(255,100,90,0.8)", marginTop:"4px" }}>{codeError}</p>
+      )}
 
       {showCreate && (
         <CreateRoomModal
@@ -520,13 +597,14 @@ function RoomView({ room, onLeave, roomCounts }) {
   const [requests,      setRequests]      = useState([]); // pending join requests (host only)
   const [showInvite,    setShowInvite]    = useState(false);
   const [tick,          setTick]          = useState(0);
-  const channelRef   = useRef(null);
-  const reqChRef     = useRef(null);
-  const sessionIdRef = useRef(null);
-  const joinedAtRef  = useRef(Date.now());
-  const workingOnRef = useRef("");
-  const leftRef      = useRef(false);
-  const isHost       = room.created_by === userId;
+  const channelRef        = useRef(null);
+  const reqChRef          = useRef(null);
+  const sessionIdRef      = useRef(null);
+  const joinedAtRef       = useRef(Date.now());
+  const workingOnRef      = useRef("");
+  const leftRef           = useRef(false);
+  const workingOnDebounce = useRef(null);   // debounce timer for presence track
+  const isHost            = room.created_by === userId;
 
   useEffect(() => {
     startSession();
@@ -537,6 +615,7 @@ function RoomView({ room, onLeave, roomCounts }) {
     window.addEventListener("beforeunload", handleUnload);
     return () => {
       clearInterval(timer);
+      clearTimeout(workingOnDebounce.current); // cancel any pending presence update
       window.removeEventListener("beforeunload", handleUnload);
       endSession();
     };
@@ -568,6 +647,12 @@ function RoomView({ room, onLeave, roomCounts }) {
     });
     ch.on("presence", { event: "sync" }, () => {
       setMembers(Object.values(ch.presenceState()).flat());
+    })
+    // Host broadcast: room was closed — all non-host members leave cleanly
+    .on("broadcast", { event: "room_closed" }, () => {
+      if (!leftRef.current) {
+        endSession().then(() => onLeave());
+      }
     })
     .subscribe(async (status) => {
       if (status === "SUBSCRIBED") await ch.track(presencePayload());
@@ -655,15 +740,36 @@ function RoomView({ room, onLeave, roomCounts }) {
       .eq("room_id", room.id).eq("user_id", userId).then(() => {});
   }
 
-  async function handleWorkingOnChange(val) {
+  function handleWorkingOnChange(val) {
+    // Update local state immediately (smooth typing)
     setWorkingOn(val);
     workingOnRef.current = val;
-    if (channelRef.current) {
-      try { await channelRef.current.track(presencePayload(val)); } catch {}
-    }
+    // Debounce presence track: fires 500ms after the user STOPS typing.
+    // This means re-track REPLACES the single presence entry (same userId key)
+    // without broadcasting on every keystroke — no duplicate names, no flicker.
+    clearTimeout(workingOnDebounce.current);
+    workingOnDebounce.current = setTimeout(async () => {
+      if (channelRef.current) {
+        try { await channelRef.current.track(presencePayload(val)); } catch {}
+      }
+    }, 500);
   }
 
   async function handleLeave() {
+    await endSession();
+    onLeave();
+  }
+
+  async function handleCloseRoom() {
+    // 1. Mark room inactive so it disappears from the lobby
+    await supabase.from("study_rooms").update({ is_active: false }).eq("id", room.id);
+    // 2. Broadcast room_closed to all members on the presence channel
+    if (channelRef.current) {
+      try {
+        await channelRef.current.send({ type: "broadcast", event: "room_closed", payload: {} });
+      } catch {}
+    }
+    // 3. Host's own cleanup and exit
     await endSession();
     onLeave();
   }
@@ -698,6 +804,19 @@ function RoomView({ room, onLeave, roomCounts }) {
           >
             Invite friends
           </button>
+          {isHost && (
+            <button
+              onClick={handleCloseRoom}
+              style={{
+                background:"rgba(255,59,48,0.07)", border:"1px solid rgba(255,59,48,0.18)",
+                borderRadius:"8px", padding:"8px 14px", color:"rgba(255,100,90,0.7)",
+                fontSize:"12px", fontWeight:"500", cursor:"pointer", fontFamily:"inherit",
+              }}
+              title="Close room for everyone"
+            >
+              Close room
+            </button>
+          )}
           <button onClick={handleLeave} style={S.leaveBtn}>Leave</button>
         </div>
       </div>
@@ -753,6 +872,29 @@ function RoomView({ room, onLeave, roomCounts }) {
           Visible to everyone in the room.
         </p>
       </div>
+
+      {/* Room code — share to invite anyone directly */}
+      {room.join_code && (
+        <div style={{
+          display:"flex", alignItems:"center", justifyContent:"space-between",
+          background:"rgba(255,255,255,0.03)", border:"1px solid var(--color-border)",
+          borderRadius:"10px", padding:"10px 14px", marginBottom:"20px",
+        }}>
+          <div>
+            <span style={{ fontSize:"10px", color:"var(--text-dim)", letterSpacing:"1.5px", textTransform:"uppercase" }}>Room code</span>
+            <p style={{ fontFamily:"'Fraunces',serif", fontSize:"18px", fontWeight:"600",
+              color:"var(--color-accent)", letterSpacing:"3px", marginTop:"2px" }}>
+              {room.join_code}
+            </p>
+          </div>
+          <button
+            onClick={() => { navigator.clipboard?.writeText(room.join_code).catch(() => {}); }}
+            style={{ ...S.ghostBtn, marginTop:0, padding:"6px 14px", fontSize:"12px" }}
+          >
+            Copy
+          </button>
+        </div>
+      )}
 
       {/* Member list */}
       <p style={{ ...S.sectionLabel, marginBottom:"12px" }}>In this room</p>
