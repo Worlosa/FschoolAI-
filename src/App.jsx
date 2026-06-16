@@ -21,9 +21,10 @@ import Canvas      from "./pages/Canvas";
 import Assignment  from "./pages/Assignment";
 import Study       from "./pages/Study";
 import Toolkit     from "./pages/Toolkit";
+import Courses     from "./pages/Courses";
+import Files       from "./pages/Files";
 import Identity    from "./pages/Identity";
 import Leaderboard from "./pages/Leaderboard";
-import Files       from "./pages/Files";
 
 const PAGES = {
   work:        Work,
@@ -31,9 +32,10 @@ const PAGES = {
   assignment:  Assignment,
   study:       Study,
   toolkit:     Toolkit,
+  courses:     Courses,
+  files:       Files,
   identity:    Identity,
   leaderboard: Leaderboard,
-  files:       Files,
 };
 
 const LOGGED_IN_KEY = "fschool_logged_in";
@@ -244,14 +246,13 @@ export default function App() {
     }
 
     // ── Signup ────────────────────────────────────────────────────────────────
-    localStorage.setItem("fschool_name", creds.name);
-
+    const email = creds.email.toLowerCase().trim();
     const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(creds.password));
     const password_hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
 
-    const email = creds.email.toLowerCase().trim();
-
-    // Check for existing account — prevents duplicate signups
+    // Check for existing account — prevents duplicate signups.
+    // Duplicate email → send them to log in. Do NOT silently adopt an existing
+    // account (that was an account-takeover path and required no password).
     const { data: existing } = await supabase
       .from("users")
       .select("id")
@@ -295,6 +296,20 @@ export default function App() {
     setOnboardingInitName(creds.name);
     setShowOnboarding(true);
   }, [setUserId]);
+
+  // Resume onboarding after a signup reload — identity is now the new user, so
+  // any writes from onboarding land on the correct (fresh) id.
+  useEffect(() => {
+    const pending = localStorage.getItem("fschool_pending_onboarding");
+    if (!pending) return;
+    localStorage.removeItem("fschool_pending_onboarding");
+    try {
+      const { email, name } = JSON.parse(pending);
+      setOnboardingEmail(email);
+      setOnboardingInitName(name);
+      setShowOnboarding(true);
+    } catch { /* ignore malformed */ }
+  }, []);
 
   // ── Onboarding complete ────────────────────────────────────────────────────
   const handleOnboardingComplete = useCallback(async ({

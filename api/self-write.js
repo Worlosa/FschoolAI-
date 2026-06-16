@@ -34,6 +34,8 @@ export default async function handler(req, res) {
     "apikey":        supabaseKey,
     "Authorization": `Bearer ${supabaseKey}`,
     "Content-Type":  "application/json",
+    "Accept-Profile":  "public",   // app data lives in the `neuroagi` schema,
+    "Content-Profile": "public",   // not public.* (that's Vincent's)
   };
 
   // ── 1. Fetch existing living mind ──────────────────────────────────────────

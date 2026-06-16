@@ -1,58 +1,36 @@
 -- supabase-files-storage-migration.sql
--- Enables binary file storage for the browser extension's file-capture pipeline.
+-- Stores the ACTUAL file bytes (not just LMS links) so a student can open the
+-- real document, and the agent can hand out a working link to it.
 --
--- What this does:
---   1. Adds storage_path column to public.files (missing from the initial migration).
---   2. Creates the private `course-files` bucket in Supabase Storage.
---   3. Grants the extension's anon/publishable key permission to upload (INSERT +
---      UPDATE) into that bucket — reads stay server-only via signed URLs.
+-- Design:
+--   • Bucket `course-files` is PRIVATE. The browser extension uploads file bytes
+--     with the anon/publishable key (the only key it can ship), so anon needs
+--     INSERT + UPDATE on objects in this bucket — but NOT read.
+--   • Downloads happen ONLY through short-lived signed URLs minted server-side
+--     with the service key (see api/file-url.js + api/tutor-context.js). So the
+--     bucket is never world-readable and links expire.
 --
--- Background:
---   The extension fetches file bytes via the student's LMS session (only it can —
---   the URLs are cookie-gated), then uploads the raw bytes here so students can open
---   the real document later (api/file-url.js mints short-lived signed URLs with the
---   service key). The bucket is PRIVATE: no object is world-readable. Downloads only
---   happen through those server-minted signed links.
---
--- Run once in: Supabase Dashboard → SQL Editor → Run.
--- Idempotent — safe to re-run.
---
--- IMPORTANT: targets public schema only (our live schema). The neuroagi schema is
--- dead and ignored. Johan's original version targeted neuroagi by mistake.
+-- Run once in the Supabase SQL editor for the project the app/extension use.
 
--- ── 1. storage_path column ──────────────────────────────────────────────────────
--- Stores the bucket-relative path ("<userId>/<lms_file_id>.pdf") written by the
--- extension after a successful upload. NULL until the extension uploads the file.
-ALTER TABLE public.files
-  ADD COLUMN IF NOT EXISTS storage_path TEXT;
+-- 1. Where each file's bytes live in the bucket (path relative to the bucket,
+--    e.g. "<userId>/<lms_file_id>.pdf"). NULL until the extension uploads it.
+alter table if exists neuroagi.files
+  add column if not exists storage_path text;
 
--- ── 2. Private course-files bucket ─────────────────────────────────────────────
--- 25 MB file_size_limit matches the extension's MAX_FILE_BYTES guard (25_000_000).
--- public = false: no object is directly downloadable — only via signed URLs.
-INSERT INTO storage.buckets (id, name, public, file_size_limit)
-VALUES ('course-files', 'course-files', false, 26214400)
-ON CONFLICT (id) DO UPDATE
-  SET public          = false,
-      file_size_limit = 26214400;
+-- 2. Ensure the private bucket exists (idempotent; also created out-of-band).
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('course-files', 'course-files', false, 26214400)
+on conflict (id) do update set public = false;
 
--- ── 3. Anon write policies ──────────────────────────────────────────────────────
--- The extension ships only the publishable (anon) key — it cannot carry a service
--- key. So anon needs INSERT + UPDATE on objects in this bucket. SELECT is NOT
--- granted: downloads go through api/file-url.js which uses the service key.
---
--- Note: this app uses custom auth (users.id TEXT in localStorage), NOT Supabase
--- Auth. auth.uid() is always NULL here, so role-based policies must use
--- `TO anon, authenticated` (not `TO authenticated` alone).
+-- 3. Let the extension's anon key WRITE bytes into this bucket (reads stay
+--    server-only via signed URLs, so no anon SELECT policy is granted).
+drop policy if exists "course-files anon insert" on storage.objects;
+create policy "course-files anon insert" on storage.objects
+  for insert to anon, authenticated
+  with check (bucket_id = 'course-files');
 
-DROP POLICY IF EXISTS "course-files anon insert" ON storage.objects;
-CREATE POLICY "course-files anon insert" ON storage.objects
-  FOR INSERT
-  TO anon, authenticated
-  WITH CHECK (bucket_id = 'course-files');
-
-DROP POLICY IF EXISTS "course-files anon update" ON storage.objects;
-CREATE POLICY "course-files anon update" ON storage.objects
-  FOR UPDATE
-  TO anon, authenticated
-  USING      (bucket_id = 'course-files')
-  WITH CHECK (bucket_id = 'course-files');
+drop policy if exists "course-files anon update" on storage.objects;
+create policy "course-files anon update" on storage.objects
+  for update to anon, authenticated
+  using      (bucket_id = 'course-files')
+  with check (bucket_id = 'course-files');

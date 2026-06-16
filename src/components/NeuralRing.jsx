@@ -20,17 +20,32 @@ import { awardTokens } from "../api/tokens";
 import ArtifactPanel   from "./ArtifactPanel";
 
 // ── Claude proxy helper (tutor brain — better quality than Groq for conversation) ──
-async function claudeTutor(messages, system, signal) {
+// Returns the full proxy response: { content, contentBlocks, stop_reason, usage }.
+// `tools` is optional; when present the caller drives a tool-use loop.
+async function claudeTutor(messages, system, signal, tools) {
   const res = await fetch("/api/claude", {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages, system, max_tokens: 400 }),
+    body: JSON.stringify({ messages, system, max_tokens: 400, ...(tools ? { tools } : {}) }),
     signal,  // abort signal from stopResponse()
   });
   if (!res.ok) throw new Error(`Claude proxy ${res.status}`);
-  const { content } = await res.json();
-  return content ?? "";
+  return await res.json();
 }
+
+// The agent's one data-fetch tool. The model calls it only when an answer needs
+// the student's live records; the result is served by /api/tutor-context.
+const RECALL_TOOL = {
+  name: "recall",
+  description: "Look up the student's live academic data — course grades/scores, assignment due dates, missing or late work, synced course files, and flashcards. Call this whenever the answer depends on their actual courses, scores, deadlines, files, or submission status; never guess those. Pass the student's question (or a focused rephrase) as `query`.",
+  input_schema: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "What to look up, e.g. 'current grades in all courses', 'what's due this week', 'is the HW2 file available'" },
+    },
+    required: ["query"],
+  },
+};
 
 // ── Fire-and-forget impression writer — never awaited in critical path ──
 function writeImpression(userId, userMessage, tutorResponse) {
@@ -191,11 +206,44 @@ function buildChatSystem(courseOptions, userData, assignments, flashcardMap, syl
     : "No courses loaded yet";
 
   const now = Date.now();
+
+  // Per-course grades the tutor can speak to directly
+  const courseGrades = (courses || [])
+    .filter(c => c.currentScore != null || c.finalScore != null)
+    .map(c => {
+      const pct = c.currentScore ?? c.finalScore;
+      return `- ${c.name || c.courseCode}: ${Math.round(pct)}%`;
+    })
+    .join("\n");
+
+  // Upcoming (future, unsubmitted)
   const upcoming = (assignments || [])
-    .filter(a => a.dueAt && new Date(a.dueAt).getTime() > now)
+    .filter(a => a.dueAt && new Date(a.dueAt).getTime() > now && !a.submission?.submittedAt)
     .sort((a, b) => new Date(a.dueAt) - new Date(b.dueAt))
-    .slice(0, 5)
+    .slice(0, 8)
     .map(a => `- ${a.name} (${a.courseName || a.courseCode || ""}) — due ${new Date(a.dueAt).toLocaleDateString()}`)
+    .join("\n");
+
+  // Recent graded / submitted work with scores
+  const recentWork = (assignments || [])
+    .filter(a => a.submission?.score != null || a.submission?.submittedAt)
+    .sort((a, b) => new Date(b.dueAt || 0) - new Date(a.dueAt || 0))
+    .slice(0, 12)
+    .map(a => {
+      const score = a.submission?.score;
+      const scoreStr = score != null
+        ? (a.pointsPossible ? ` — ${Math.round((score / a.pointsPossible) * 100)}%` : ` — ${score}`)
+        : " — submitted";
+      return `- ${a.name} (${a.courseName || a.courseCode || ""})${scoreStr}`;
+    })
+    .join("\n");
+
+  // Anything overdue and not submitted
+  const overdue = (assignments || [])
+    .filter(a => a.dueAt && new Date(a.dueAt).getTime() < now && !a.submission?.submittedAt)
+    .sort((a, b) => new Date(b.dueAt) - new Date(a.dueAt))
+    .slice(0, 8)
+    .map(a => `- ${a.name} (${a.courseName || a.courseCode || ""}) — was due ${new Date(a.dueAt).toLocaleDateString()}`)
     .join("\n");
 
   const userContext = userData ? [
@@ -239,8 +287,17 @@ function buildChatSystem(courseOptions, userData, assignments, flashcardMap, syl
 STUDENT DATA:
 ${userContext || "No user data yet"}
 
+COURSE GRADES (you CAN share these when asked):
+${courseGrades || "No grades synced yet"}
+
 UPCOMING ASSIGNMENTS:
 ${upcoming || "None"}
+
+OVERDUE / NOT SUBMITTED:
+${overdue || "None"}
+
+RECENT GRADED / SUBMITTED WORK (with scores — you CAN share these when asked):
+${recentWork || "None"}
 
 COURSES (internal reference — never list back verbatim):
 - ${courseList}
@@ -308,8 +365,10 @@ RESPONSE STYLE — CRITICAL:
 RULES:
 - Be human and conversational. Max 2 sentences for casual questions, more only when asked.
 - NEVER read out course codes (e.g. GGRC25H3, MDSB11H3) — use the course name only.
-- NEVER dump assignments, deadlines, or course lists unless the student directly asks.
-- NEVER mention GPA/streak/stats unless directly asked.
+- You DO have access to their courses, assignments, grades, and scores (listed above) — answer confidently and specifically when asked. Never say you can't see them.
+- Don't dump the full lists unprompted, but when asked about assignments/grades/a course, give the real specifics from the data above.
+- The summary above is NOT complete — it does NOT contain the student's course files/PDFs, full assignment instructions, or older/detailed records. For ANY question about files, what a specific assignment actually requires, or details not shown above, you MUST call the \`recall\` tool first. NEVER tell the student a file or record "isn't synced" or "doesn't exist" without calling \`recall\` to check — its absence here does not mean it doesn't exist.
+- Only mention GPA/streak/stats when relevant or asked.
 - If asked something personal (name, age, city) — answer from STUDENT DATA or say you don't have it. Do not pivot to courses.
 - Match the student's energy — casual when they're casual, focused when they need help.
 - Use the living mind doc to inform your tone — you know this student well.
@@ -1927,7 +1986,9 @@ export default function NeuralRing() {
       }
 
       // ── Dynamic context fetch (chatbot agent upgrade) ─────────────────────
-      // Fires in parallel — if it resolves before Claude, gets injected into prompt
+      // Fires in parallel — if it resolves before Claude, gets injected into prompt.
+      // The merged /api/tutor-context now also classifies file_lookup and surfaces
+      // synced extension files, so the tutor can answer about them on this path.
       let dynamicContext = null;
       abortCtrlRef.current = new AbortController();
       const contextFetch = fetch("/api/tutor-context", {
@@ -1948,8 +2009,8 @@ export default function NeuralRing() {
         ? buildVoiceSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, availableVoices, leaderboardRank)
         : buildChatSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, messages.length === 0, availableVoices);
 
-      // Wait briefly for context fetch (max 1.2s) — if still pending, proceed without it
-      await Promise.race([contextFetch, new Promise(r => setTimeout(r, 1200))]);
+      abortCtrlRef.current = new AbortController();
+      const signal = abortCtrlRef.current.signal;
 
       // Append dynamic context to system prompt if retrieved
       const finalSystem = dynamicContext

@@ -55,6 +55,8 @@ export default async function handler(req, res) {
     "apikey":        supabaseKey,
     "Authorization": `Bearer ${supabaseKey}`,
     "Content-Type":  "application/json",
+    "Accept-Profile":  "public",   // unified on public.* (live fschoolai.com schema)
+    "Content-Profile": "public",
   };
 
   // ── 0a. Fetch brain.context_window in parallel with classification ─────────
@@ -137,6 +139,72 @@ export default async function handler(req, res) {
       })()
     : Promise.resolve(null);
 
+  // Resolve a keyword → matching files (with extracted content_text when present).
+  // Shared by `file_lookup` AND `assignment_detail`: for many courses the actual
+  // instructions live in an attached file, NOT the assignment's `description`
+  // field (which is often empty), so an assignment query must also surface files.
+  async function fetchFilesContext(kw, { contentChars = 4000, limit = 25 } = {}) {
+    let courseIds = [];
+    if (kw) {
+      const cr = await fetch(
+        `${supabaseUrl}/rest/v1/courses?user_id=eq.${userId}&select=id&or=(name.ilike.*${encodeURIComponent(kw)}*,course_code.ilike.*${encodeURIComponent(kw)}*)`,
+        { headers: sbHeaders }
+      );
+      if (cr.ok) courseIds = (await cr.json()).map(c => c.id);
+    }
+
+    // Files with extracted content rank first (nulls last) so the model sees
+    // readable text, not just an index of links — and so content-bearing files
+    // aren't pushed off the end by the row `limit`.
+    let url = `${supabaseUrl}/rest/v1/files?user_id=eq.${userId}&select=name,file_type,status,folder,source_url,storage_path,content_text,courses(name,course_code)&order=content_text.desc.nullslast,name.asc&limit=${limit}`;
+    if (kw) {
+      const k   = encodeURIComponent(kw);
+      const ors = [`name.ilike.*${k}*`, `folder.ilike.*${k}*`];
+      if (courseIds.length) ors.push(`course_id.in.(${courseIds.join(",")})`);
+      url += `&or=(${ors.join(",")})`;
+    }
+    const r = await fetch(url, { headers: sbHeaders });
+    if (!r.ok) return null;
+    const rows = await r.json();
+    if (!rows.length) return null;
+
+    // Mint a signed link (private bucket) for stored files so the tutor can hand
+    // the student a URL that opens the actual document. Done in parallel, capped.
+    await Promise.all(
+      rows.filter(f => f.storage_path).slice(0, 10).map(async (f) => {
+        try {
+          const s = await fetch(`${supabaseUrl}/storage/v1/object/sign/course-files/${f.storage_path}`, {
+            method:  "POST",
+            headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, "Content-Type": "application/json" },
+            body:    JSON.stringify({ expiresIn: 3600 }),
+          });
+          if (s.ok) f._openUrl = `${supabaseUrl}/storage/v1${(await s.json()).signedURL}`;
+        } catch { /* leave unlinked — content_text + source_url still available */ }
+      })
+    );
+
+    const anyText = rows.some(f => f.content_text);
+    const header = anyText
+      ? "FILES (some include extracted CONTENT — use it to answer; 'open' is a ready-to-share link to the actual file):\n"
+      : "FILES (synced index — share the 'open' link or source_url; don't invent contents):\n";
+    return header + rows
+      .map(f => {
+        const course = f.courses?.course_code || f.courses?.name || "";
+        const line = [
+          `• ${f.name}`,
+          f.file_type ? `(${f.file_type})` : null,
+          course      ? `— ${course}` : null,
+          f.status    ? `— ${f.status}` : null,
+          f._openUrl   ? `— open: ${f._openUrl}` : (f.source_url ? `— ${f.source_url}` : null),
+        ].filter(Boolean).join(" ");
+        const body = kw && f.content_text
+          ? `\n   content: ${String(f.content_text).slice(0, contentChars)}`
+          : "";
+        return line + body;
+      })
+      .join("\n");
+  }
+
   // ── 1. Classify the query ──────────────────────────────────────────────────
   let queryType = "none";
   let keyword   = null;
@@ -154,7 +222,7 @@ export default async function handler(req, res) {
         max_tokens: 40,
         messages:   [{
           role: "user",
-          content: `Classify this student query for a DB lookup. Return JSON only: {"type":"assignment_detail"|"course_grades"|"missing_late"|"flashcard_detail"|"none","keyword":"extracted course/assignment name or null"}
+          content: `Classify this student query for a DB lookup. Return JSON only: {"type":"assignment_detail"|"course_grades"|"missing_late"|"flashcard_detail"|"file_lookup"|"none","keyword":"extracted course/assignment/file name or null"}
 
 Query: "${userMessage.slice(0, 200)}"
 
@@ -163,6 +231,9 @@ Examples:
 "Which assignments am I missing?" → {"type":"missing_late","keyword":null}
 "Show me my Physics flashcards" → {"type":"flashcard_detail","keyword":"Physics"}
 "What's due for Media Studies essay?" → {"type":"assignment_detail","keyword":"Media Studies"}
+"Do you have the Haskell project file?" → {"type":"file_lookup","keyword":"Haskell project"}
+"What files / readings do I have for Linear Algebra?" → {"type":"file_lookup","keyword":"Linear Algebra"}
+"Send me the syllabus" → {"type":"file_lookup","keyword":"syllabus"}
 "How's my GPA?" → {"type":"none","keyword":null}
 "What's up?" → {"type":"none","keyword":null}`,
         }],
@@ -245,24 +316,48 @@ Examples:
     }
 
     else if (queryType === "assignment_detail") {
-      let url = `${supabaseUrl}/rest/v1/assignments?user_id=eq.${userId}&select=title,due_at,score,points_possible,missing,late,submitted_at&order=due_at.asc&limit=20`;
+      // `description` = the assignment instructions, so the tutor can advise on what
+      // the work actually requires (keyword-matched queries pull the most detail).
+      let url = `${supabaseUrl}/rest/v1/assignments?user_id=eq.${userId}&select=title,due_at,score,points_possible,missing,late,submitted_at,description&order=due_at.asc&limit=20`;
       if (keyword) url += `&title=ilike.*${encodeURIComponent(keyword)}*`;
       const r = await fetch(url, { headers: sbHeaders });
       if (r.ok) {
         const rows = await r.json();
         if (rows.length) {
+          // When the query targets a specific assignment (keyword), include the full
+          // instructions for the top matches; otherwise just the one-line summary.
           context = "ASSIGNMENT DETAILS:\n" + rows
-            .map(a => [
-              `• ${a.title}`,
-              a.due_at        ? `due ${new Date(a.due_at).toLocaleDateString()}` : null,
-              a.score != null ? `score ${a.score}/${a.points_possible}` : null,
-              a.submitted_at  ? `submitted` : null,
-              a.missing       ? "MISSING" : null,
-              a.late          ? "LATE"    : null,
-            ].filter(Boolean).join(" | "))
+            .map(a => {
+              const line = [
+                `• ${a.title}`,
+                a.due_at        ? `due ${new Date(a.due_at).toLocaleDateString()}` : null,
+                a.score != null ? `score ${a.score}/${a.points_possible}` : null,
+                a.submitted_at  ? `submitted` : null,
+                a.missing       ? "MISSING" : null,
+                a.late          ? "LATE"    : null,
+              ].filter(Boolean).join(" | ");
+              const instr = keyword && a.description
+                ? `\n   instructions: ${String(a.description).slice(0, 1200)}`
+                : "";
+              return line + instr;
+            })
             .join("\n");
         }
       }
+      // The assignment's own `description` is frequently empty — the real brief
+      // lives in an attached file. Always append matching file content so
+      // "guide me through <assignment>" can actually read the instructions.
+      if (keyword) {
+        const filesCtx = await fetchFilesContext(keyword, { contentChars: 6000, limit: 8 });
+        if (filesCtx) context = (context ? context + "\n\n" : "") + filesCtx;
+      }
+    }
+
+    else if (queryType === "file_lookup") {
+      // Resolves the keyword against file name/folder AND course (so "Linear
+      // Algebra" and "Haskell project" both work) and surfaces extracted content.
+      context = await fetchFilesContext(keyword)
+        ?? "FILES: none matching that in the synced index.";
     }
 
     else if (queryType === "flashcard_detail") {

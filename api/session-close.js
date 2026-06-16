@@ -56,6 +56,8 @@ export default async function handler(req, res) {
     "Authorization": `Bearer ${supabaseKey}`,
     "Content-Type":  "application/json",
     "Prefer":        "return=minimal",
+    "Accept-Profile":  "public",   // app data lives in the `neuroagi` schema,
+    "Content-Profile": "public",   // not public.* (that's Vincent's)
   };
 
   try {

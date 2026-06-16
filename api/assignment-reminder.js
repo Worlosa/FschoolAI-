@@ -29,6 +29,8 @@ async function sbFetch(path, params = {}) {
       apikey:        SB_KEY,
       Authorization: `Bearer ${SB_KEY}`,
       "Content-Type": "application/json",
+      "Accept-Profile":  "public",   // unified on public.* (live fschoolai.com schema)
+      "Content-Profile": "public",
     },
   });
   return res.json();
