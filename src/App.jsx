@@ -21,11 +21,9 @@ import Canvas      from "./pages/Canvas";
 import Assignment  from "./pages/Assignment";
 import Study       from "./pages/Study";
 import Toolkit     from "./pages/Toolkit";
-import Courses     from "./pages/Courses";
 import Files       from "./pages/Files";
 import Identity    from "./pages/Identity";
 import Leaderboard from "./pages/Leaderboard";
-import Files       from "./pages/Files";
 import StudyRooms  from "./pages/StudyRooms";
 
 const PAGES = {
