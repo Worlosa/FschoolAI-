@@ -32,11 +32,9 @@ const PAGES = {
   assignment:  Assignment,
   study:       Study,
   toolkit:     Toolkit,
-  courses:     Courses,
   files:       Files,
   identity:    Identity,
   leaderboard: Leaderboard,
-  files:       Files,
   rooms:       StudyRooms,
 };
 
