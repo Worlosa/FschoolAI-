@@ -20,6 +20,7 @@ import {
   removeFriend,
   getUserProfiles,
   findUserByEmail,
+  searchUsersByName,
 } from "../api/friends";
 
 // ── Local cache helpers ───────────────────────────────────────────────────────
@@ -73,9 +74,12 @@ export default function FriendsSection({ userId }) {
   const [requests,    setRequests]    = useState([]);
   const [reqProfiles, setReqProfiles] = useState({});
 
-  const [addInput, setAddInput] = useState("");
-  const [addState, setAddState] = useState("idle"); // idle | loading | sent | error
-  const [addMsg,   setAddMsg]   = useState("");
+  // People search (add a friend by name OR email)
+  const [query,      setQuery]      = useState("");
+  const [results,    setResults]    = useState(null);  // null = not searched yet; [] = no matches
+  const [searching,  setSearching]  = useState(false);
+  const [actionMsg,  setActionMsg]  = useState("");
+  const [pendingIds, setPendingIds] = useState({});    // id → true (optimistic "request sent")
 
   // "warm" = loaded from cache, still fetching live; "live" = live fetch done; "error"
   const [loadState, setLoadState] = useState("warm");
@@ -123,30 +127,56 @@ export default function FriendsSection({ userId }) {
 
   useEffect(() => { load(); }, [load]);
 
-  // ── Add by email ────────────────────────────────────────────────────────────
+  // ── Search people by name or email ───────────────────────────────────────────
 
-  async function handleAdd() {
-    const val = addInput.trim();
-    if (!val) return;
-    setAddState("loading");
-    setAddMsg("");
+  async function handleSearch() {
+    const q = query.trim();
+    if (!q) { setResults(null); return; }
+    setSearching(true);
+    setActionMsg("");
     try {
-      const target = await findUserByEmail(val);
-      if (!target)          { setAddState("error"); setAddMsg("No account found with that email."); return; }
-      if (target.id === userId) { setAddState("error"); setAddMsg("That's you!"); return; }
-      await sendFriendRequest(userId, target.id);
-      setAddState("sent");
-      setAddMsg(`Request sent to ${target.name || target.email}.`);
-      setAddInput("");
-      await load();
+      // An "@" means they typed an email → exact lookup; otherwise search by name.
+      const found = q.includes("@")
+        ? await findUserByEmail(q).then(u => (u ? [u] : []))
+        : await searchUsersByName(q);
+      setResults(found.filter(u => u.id !== userId)); // never list yourself
     } catch (e) {
-      const msg = e.message?.includes("blocked")        ? "You've been blocked by this user."
-                : e.message?.includes("already friends") ? "Already friends."
-                : e.message || "Couldn't send request.";
-      setAddState("error");
-      setAddMsg(msg);
+      console.warn("[FriendsSection] search error:", e.message);
+      setResults([]);
+      setActionMsg("Search failed. Check your connection.");
     }
-    setTimeout(() => setAddState("idle"), 3500);
+    setSearching(false);
+  }
+
+  // Classify a search result against the current user's graph so each row shows
+  // the right action. Everything it needs (friends + requests) is already loaded.
+  function relationshipFor(id) {
+    if (id === userId) return "self";
+    if (friends.some(f => f.id === id)) return "friend";
+    if (pendingIds[id]) return "pending";
+    const req = requests.find(r => r.other_user_id === id);
+    if (req?.direction === "outgoing") return "pending";
+    if (req?.direction === "incoming") return "incoming";
+    return "none";
+  }
+
+  // ── Add (send request) ────────────────────────────────────────────────────────
+
+  async function handleSendRequest(target) {
+    setPendingIds(p => ({ ...p, [target.id]: true })); // optimistic
+    setActionMsg("");
+    try {
+      await sendFriendRequest(userId, target.id);
+      setActionMsg(`Request sent to ${target.name || target.email || "user"}.`);
+      await load(); // refresh friends + requests from Supabase
+    } catch (e) {
+      setPendingIds(p => { const n = { ...p }; delete n[target.id]; return n; });
+      const msg = e.message?.includes("blocked")         ? "This user isn't accepting requests."
+                : e.message?.includes("already friends")  ? "You're already friends."
+                : e.message?.includes("yourself")         ? "That's you!"
+                : e.message || "Couldn't send request.";
+      setActionMsg(msg);
+    }
   }
 
   // ── Accept / Decline ────────────────────────────────────────────────────────
@@ -206,19 +236,19 @@ export default function FriendsSection({ userId }) {
     <div style={{ marginBottom: "32px" }}>
       <p style={LABEL}>Friends</p>
 
-      {/* ── Add by email ──────────────────────────────────────────────── */}
+      {/* ── Find & add people (by name or email) ──────────────────────── */}
       <div style={{ ...CARD, marginBottom: "12px" }}>
         <p style={{ fontSize: "12px", color: "var(--text-secondary)", marginBottom: "10px" }}>
-          Add a friend by email
+          Find people by name or email
         </p>
         <div style={{ display: "flex", gap: "8px" }}>
           <input
             ref={inputRef}
-            type="email"
-            placeholder="friend@school.edu"
-            value={addInput}
-            onChange={e => setAddInput(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && handleAdd()}
+            type="text"
+            placeholder="Search name or email…"
+            value={query}
+            onChange={e => { setQuery(e.target.value); if (actionMsg) setActionMsg(""); }}
+            onKeyDown={e => e.key === "Enter" && handleSearch()}
             style={{
               flex: 1,
               background: "rgba(255,255,255,0.04)",
@@ -229,28 +259,76 @@ export default function FriendsSection({ userId }) {
             }}
           />
           <button
-            onClick={handleAdd}
-            disabled={addState === "loading" || !addInput.trim()}
+            onClick={handleSearch}
+            disabled={searching || !query.trim()}
             style={{
-              background: addState === "sent" ? "rgba(52,199,89,0.15)" : "rgba(255,255,255,0.08)",
-              border:     "1px solid " + (addState === "sent" ? "rgba(52,199,89,0.3)" : "rgba(255,255,255,0.12)"),
+              background: "rgba(255,255,255,0.08)",
+              border: "1px solid rgba(255,255,255,0.12)",
               borderRadius: "var(--radius-sm)", padding: "9px 14px",
-              color:   addState === "sent" ? "rgba(52,199,89,0.9)" : "var(--text-primary)",
+              color: "var(--text-primary)",
               fontSize: "13px", fontWeight: 500, cursor: "pointer",
               fontFamily: "inherit", transition: "all 0.15s",
-              opacity: addState === "loading" ? 0.55 : 1,
+              opacity: searching || !query.trim() ? 0.55 : 1,
             }}
           >
-            {addState === "loading" ? "…" : addState === "sent" ? "✓" : "Add"}
+            {searching ? "…" : "Search"}
           </button>
         </div>
-        {addMsg && (
-          <p style={{
-            fontSize: "12px", marginTop: "8px",
-            color: addState === "error" ? "rgba(255,100,90,0.85)" : "rgba(52,199,89,0.85)",
-          }}>
-            {addMsg}
+
+        {actionMsg && (
+          <p style={{ fontSize: "12px", marginTop: "8px", color: "rgba(255,255,255,0.6)" }}>
+            {actionMsg}
           </p>
+        )}
+
+        {/* Results */}
+        {results !== null && (
+          results.length === 0 ? (
+            <p style={{ fontSize: "12px", color: "var(--text-dim)", marginTop: "10px" }}>
+              No one found{query.includes("@") ? " with that email" : ""}. Try a different spelling.
+            </p>
+          ) : (
+            <div style={{ marginTop: "8px" }}>
+              {results.map((u, i) => {
+                const rel = relationshipFor(u.id);
+                return (
+                  <div key={u.id} style={{ ...ROW, ...(i < results.length - 1 ? ROW_BORDER : {}) }}>
+                    <Avatar name={u.name} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: "13px", fontWeight: 500, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {u.name || "Unknown"}
+                      </p>
+                      <p style={{ fontSize: "11px", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {u.email || u.id.slice(0, 8) + "…"}
+                      </p>
+                    </div>
+                    {rel === "friend" && (
+                      <span style={{ fontSize: "12px", color: "rgba(52,199,89,0.8)", fontWeight: 500 }}>✓ Friend</span>
+                    )}
+                    {rel === "pending" && (
+                      <span style={{ fontSize: "12px", color: "var(--text-dim)" }}>Pending</span>
+                    )}
+                    {rel === "incoming" && (
+                      <button
+                        onClick={() => handleRespond(u.id, true)}
+                        style={{ background: "rgba(52,199,89,0.12)", border: "1px solid rgba(52,199,89,0.25)", borderRadius: "8px", padding: "5px 12px", color: "rgba(52,199,89,0.9)", fontSize: "12px", cursor: "pointer", fontFamily: "inherit" }}
+                      >
+                        Accept
+                      </button>
+                    )}
+                    {rel === "none" && (
+                      <button
+                        onClick={() => handleSendRequest(u)}
+                        style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "8px", padding: "5px 12px", color: "var(--text-primary)", fontSize: "12px", fontWeight: 500, cursor: "pointer", fontFamily: "inherit" }}
+                      >
+                        Add
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )
         )}
       </div>
 
