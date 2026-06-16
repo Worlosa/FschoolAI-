@@ -23,12 +23,13 @@ export const DOT_GRID = [
 
 export const LABEL = {
   work:        "Work",
-  canvas:      "Courses",
+  canvas:      "Canvas",
   assignment:  "Assignment",
   study:       "Study",
   files:       "Files",
   rooms:       "Rooms",
   toolkit:     "Toolkit",
+  courses:     "Courses",
   identity:    "Identity",
   leaderboard: "Leaderboard",
 };

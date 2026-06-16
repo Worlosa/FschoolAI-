@@ -6,26 +6,18 @@
 // Shared with the popup: lmsApiSync() + extractPageContent(), injected into pages.
 importScripts("shared-sync.js");
 
-// ── Secure proxy — all Supabase writes go through /api/extension-sync ────────
-// SECURITY: No Supabase keys are stored in the extension bundle.
-// The server validates userId and uses the service-role key for all writes.
-const SYNC_PROXY = "https://fschoolai.com/api/extension-sync";
+const SUPABASE_URL  = "https://wqgxpouhbwhwpzudrptp.supabase.co";
+const SUPABASE_ANON = "sb_publishable_e-3KMudaL-iXf5GGsuiQaA_VW21ZZFA";
 
-async function syncProxy(action, userId, payload = {}) {
-  const res = await fetch(SYNC_PROXY, {
-    method:  "POST",
-    headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify({ userId, action, ...payload }),
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.error ?? `extension-sync ${res.status}`);
-  return json;
-}
+// Write to the isolated `neuroagi` schema — the SAME schema the app reads from
+// (src/supabase.js + every api/* route set schema = 'neuroagi'). Both sides MUST
+// match or synced data is invisible to the app. NOT public.* — that's Vincent's.
+const SB_PROFILE = { "Accept-Profile": "public", "Content-Profile": "public" };
 
 // ── Claude extraction via Vercel proxy ────────────────────────────────────────
 // We route through our own API to keep ANTHROPIC_API_KEY server-side.
 async function callClaude(system, userContent) {
-  const res = await fetch("https://fschoolai.com/api/claude", {
+  const res = await fetch("https://neuro-agi-topaz.vercel.app/api/claude", {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -62,32 +54,59 @@ Rules:
 - grade: letter grade (A, B+, etc.) or percentage — whatever is shown
 - If the page is a login page or has no academic data, return { "pageType": "other", "courses": [], "assignments": [], "grades": [] }`;
 
-// ── Supabase write helpers — all routed through secure server proxy ───────────
-// sbUpsert: maps table + rows to the appropriate extension-sync action
-async function sbUpsert(table, rows, _onConflict) {
+// ── Supabase write ────────────────────────────────────────────────────────────
+// onConflict (e.g. "user_id,data_type") is required so PostgREST UPDATES the
+// existing row instead of INSERTing a duplicate (which hits the unique constraint).
+async function sbUpsert(table, rows, onConflict) {
   if (!rows?.length) return;
-  const userId = rows[0]?.user_id;
-  if (!userId) return;  // course_content rows have no user_id — use upsert_course_content directly
-  const actionMap = {
-    canvas_data:    "upsert_canvas_data",
-    courses:        "upsert_courses",
-    assignments:    "upsert_assignments",
-    files:          "upsert_files",
-    course_content: "upsert_course_content",
-  };
-  const action = actionMap[table];
-  if (!action) { console.warn("[NeuroAgi] sbUpsert: unknown table", table); return; }
-  if (table === "course_content") {
-    await syncProxy("upsert_course_content", userId, { rows });
-  } else {
-    await syncProxy(action, userId, { rows });
+  const url = onConflict
+    ? `${SUPABASE_URL}/rest/v1/${table}?on_conflict=${onConflict}`
+    : `${SUPABASE_URL}/rest/v1/${table}`;
+  const res = await fetch(url, {
+    method:  "POST",
+    headers: {
+      "apikey":        SUPABASE_ANON,
+      "Authorization": `Bearer ${SUPABASE_ANON}`,
+      "Content-Type":  "application/json",
+      "Prefer":        "resolution=merge-duplicates",
+      ...SB_PROFILE,
+    },
+    body: JSON.stringify(rows),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    console.error(`[NeuroAgi] Supabase ${table} error:`, body);
+    throw new Error(`Supabase ${table} write failed (${res.status}): ${body.slice(0, 200)}`);
   }
 }
 
-// appendBlob: server-side merge via upsert_canvas_data action
+// Read existing canvas_data blob, append new items (deduped by key), write back.
+// Needed because auto-crawl captures many courses — each must add to the blob, not replace it.
 async function appendBlob(userId, dataType, newItems, keyFn) {
-  const keyFnName = keyFn.toString().includes("canvas_course_id") ? "canvas_course_id" : "canvas_assignment_id";
-  await syncProxy("upsert_canvas_data", userId, { dataType, items: newItems, keyFn: keyFnName });
+  let existing = [];
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/canvas_data?user_id=eq.${userId}&data_type=eq.${dataType}&select=payload`,
+      { headers: { "apikey": SUPABASE_ANON, "Authorization": `Bearer ${SUPABASE_ANON}`, ...SB_PROFILE } }
+    );
+    const rows = await res.json();
+    if (Array.isArray(rows?.[0]?.payload)) existing = rows[0].payload;
+  } catch { /* no existing row */ }
+
+  // Merge + dedup
+  const seen = new Set(existing.map(keyFn));
+  const merged = [...existing];
+  for (const item of newItems) {
+    const k = keyFn(item);
+    if (!seen.has(k)) { seen.add(k); merged.push(item); }
+  }
+
+  await sbUpsert("canvas_data", [{
+    user_id:   userId,
+    data_type: dataType,
+    payload:   merged,
+    synced_at: new Date().toISOString(),
+  }], "user_id,data_type");
 }
 
 // ── Structured-table ingest ───────────────────────────────────────────────────
@@ -156,8 +175,11 @@ async function ingestStructured(userId, parsed) {
   // 3. Fetch course UUIDs so assignments can reference them
   const codeToId = {};
   try {
-    const { courses: courseRows } = await syncProxy("get_courses", userId);
-    (courseRows || []).forEach(r => { codeToId[r.canvas_course_id] = r.id; });
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/courses?user_id=eq.${userId}&select=id,canvas_course_id`,
+      { headers: { "apikey": SUPABASE_ANON, "Authorization": `Bearer ${SUPABASE_ANON}`, ...SB_PROFILE } }
+    );
+    (await res.json()).forEach(r => { codeToId[r.canvas_course_id] = r.id; });
   } catch { /* leave empty */ }
 
   // 4. Upsert assignments (canvas_assignment_id = stable code_name key)
@@ -208,8 +230,11 @@ async function ingestApiData(userId, data) {
   // 2. Map course id → row UUID so assignments can reference it.
   const refToId = {};
   try {
-    const { courses: courseRows } = await syncProxy("get_courses", userId);
-    (courseRows || []).forEach(r => { refToId[String(r.canvas_course_id)] = r.id; });
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/courses?user_id=eq.${userId}&select=id,canvas_course_id`,
+      { headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, ...SB_PROFILE } }
+    );
+    (await res.json()).forEach(r => { refToId[String(r.canvas_course_id)] = r.id; });
   } catch { /* leave empty */ }
 
   // 3. Bulk-upsert assignments. Dedupe by canvas_assignment_id first: PostgREST
@@ -238,11 +263,18 @@ async function ingestApiData(userId, data) {
     await sbUpsert("assignments", [...rowByKey.values()], "user_id,canvas_assignment_id");
   }
 
-  // 4. Prune stale assignments via server proxy
+  // 4. Prune stale assignments: rows in these same courses from an earlier sync
+  //    (older updated_at) that we did NOT just write — clears leftovers from
+  //    removed/renamed items or older id schemes, preventing duplicate buildup.
   const syncedCourseIds = [...new Set(Object.values(refToId))];
   if (syncedCourseIds.length) {
-    syncProxy("delete_stale", userId, { table: "assignments", column: "course_id", keepIds: syncedCourseIds })
-      .catch(e => console.warn("[NeuroAgi] assignment prune failed:", e.message));
+    try {
+      await fetch(
+        `${SUPABASE_URL}/rest/v1/assignments?user_id=eq.${userId}&source=eq.extension` +
+        `&course_id=in.(${syncedCourseIds.join(",")})&updated_at=lt.${now}`,
+        { method: "DELETE", headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, ...SB_PROFILE } }
+      );
+    } catch (e) { console.warn("[NeuroAgi] assignment prune failed:", e.message); }
   }
 
   // 5. Files index. Tag each file to its course UUID and (Canvas submissions) its
@@ -250,8 +282,11 @@ async function ingestApiData(userId, data) {
   if (files.length) {
     const assignRefToId = {};
     try {
-      const { assignments: assignRows } = await syncProxy("get_assignments", userId);
-      (assignRows || []).forEach(r => { assignRefToId[String(r.canvas_assignment_id)] = r.id; });
+      const res = await fetch(
+        `${SUPABASE_URL}/rest/v1/assignments?user_id=eq.${userId}&select=id,canvas_assignment_id`,
+        { headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, ...SB_PROFILE } }
+      );
+      (await res.json()).forEach(r => { assignRefToId[String(r.canvas_assignment_id)] = r.id; });
     } catch { /* leave empty */ }
 
     const fileByKey = new Map();   // dedupe by lms_file_id (PostgREST rejects dup conflict keys)
@@ -275,118 +310,24 @@ async function ingestApiData(userId, data) {
     }
     await sbUpsert("files", [...fileByKey.values()], "user_id,lms_file_id");
 
-    const syncedCourseIds2 = [...new Set(Object.values(refToId))];
-    if (syncedCourseIds2.length) {
-      syncProxy("delete_stale", userId, { table: "files", column: "course_id", keepIds: syncedCourseIds2 })
-        .catch(e => console.warn("[NeuroAgi] file prune failed:", e.message));
+    const syncedCourseIds = [...new Set(Object.values(refToId))];
+    if (syncedCourseIds.length) {
+      try {
+        await fetch(
+          `${SUPABASE_URL}/rest/v1/files?user_id=eq.${userId}&source=eq.extension` +
+          `&course_id=in.(${syncedCourseIds.join(",")})&updated_at=lt.${now}`,
+          { method: "DELETE", headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, ...SB_PROFILE } }
+        );
+      } catch (e) { console.warn("[NeuroAgi] file prune failed:", e.message); }
     }
-  }
-
-  // 6. Announcements → course_content (content_type = "announcement")
-  const announcements = data.announcements || [];
-  if (announcements.length) {
-    const annRows = [];
-    for (const a of announcements) {
-      if (!a.content) continue;
-      annRows.push({
-        university_id:    null,
-        course_id:        String(a.course_ref),
-        canvas_course_id: String(a.course_ref),
-        content_type:     "announcement",
-        content_hash:     String(a.id),
-        text:             a.content,
-        summary:          (a.title || "").slice(0, 500),
-        concepts:         null,
-        week_number:      null,
-        module_name:      a.author ? `From: ${a.author}` : null,
-        professor_name:   a.author || null,
-        source_url:       null,
-        first_seen_at:    a.posted_at || now,
-        last_seen_at:     now,
-        seen_by_count:    1,
-      });
-    }
-    if (annRows.length) await sbUpsert("course_content", annRows, "canvas_course_id,content_hash").catch(e => console.warn("[NeuroAgi] announcements write:", e.message));
-  }
-
-  // 7. Pages (lecture notes, readings, syllabus) → course_content
-  const pages = data.pages || [];
-  if (pages.length) {
-    const pageRows = [];
-    for (const p of pages) {
-      if (!p.content || p.content.length < 50) continue;
-      pageRows.push({
-        university_id:    null,
-        course_id:        String(p.course_ref),
-        canvas_course_id: String(p.course_ref),
-        content_type:     p.module_name === "Syllabus" ? "syllabus" : "lecture",
-        content_hash:     String(p.id),
-        text:             p.content,
-        summary:          (p.title || "").slice(0, 500),
-        concepts:         null,
-        week_number:      null,
-        module_name:      p.module_name || null,
-        professor_name:   null,
-        source_url:       null,
-        first_seen_at:    p.updated_at || now,
-        last_seen_at:     now,
-        seen_by_count:    1,
-      });
-    }
-    if (pageRows.length) await sbUpsert("course_content", pageRows, "canvas_course_id,content_hash").catch(e => console.warn("[NeuroAgi] pages write:", e.message));
-  }
-
-  // 8. Inbox messages → course_content (content_type = "inbox")
-  const inbox = data.inbox || [];
-  if (inbox.length) {
-    const inboxRows = [];
-    for (const m of inbox) {
-      if (!m.body || m.body.length < 10) continue;
-      inboxRows.push({
-        university_id:    null,
-        course_id:        m.course_ref ? String(m.course_ref) : "inbox",
-        canvas_course_id: m.course_ref ? String(m.course_ref) : "inbox",
-        content_type:     "inbox",
-        content_hash:     String(m.id),
-        text:             `Subject: ${m.subject}\nFrom: ${m.from}\n\n${m.body}`,
-        summary:          m.subject || "(no subject)",
-        concepts:         null,
-        week_number:      null,
-        module_name:      null,
-        professor_name:   m.from || null,
-        source_url:       null,
-        first_seen_at:    m.created_at || now,
-        last_seen_at:     now,
-        seen_by_count:    1,
-        is_private:       true,  // inbox messages are always private — never shared across students
-      });
-    }
-    if (inboxRows.length) await sbUpsert("course_content", inboxRows, "canvas_course_id,content_hash").catch(e => console.warn("[NeuroAgi] inbox write:", e.message));
-  }
-
-  // 9. Update professor field on courses if fetched
-  const coursesWithProf = courses.filter(c => c.professor);
-  if (coursesWithProf.length) {
-    // Re-upsert courses with professor field populated — server proxy handles the merge
-    await syncProxy("upsert_courses", userId, {
-      rows: coursesWithProf.map(c => ({
-        user_id:          userId,
-        canvas_course_id: String(c.id),
-        professor:        c.professor,
-        updated_at:       now,
-      })),
-    }).catch(e => console.warn("[NeuroAgi] professor update failed:", e.message));
   }
 
   return {
-    courses:       courses.length,
-    assignments:   assignments.length,
-    files:         files.length,
-    announcements: announcements.length,
-    pages:         pages.length,
-    inbox:         inbox.length,
-    grades:        courses.filter(c => c.current_score != null).length
-                   + assignments.filter(a => a.score != null).length,
+    courses:     courses.length,
+    assignments: assignments.length,
+    files:       files.length,
+    grades:      courses.filter(c => c.current_score != null).length
+                 + assignments.filter(a => a.score != null).length,
   };
 }
 
@@ -401,7 +342,7 @@ async function ingestApiData(userId, data) {
 // Bounded + skips files that already have BOTH stored.
 // NOTE: points at the same Vercel base as the Claude proxy — /api/extract must be
 // DEPLOYED there. For local testing, set EXTRACT_URL to http://localhost:5173/api/extract.
-const EXTRACT_URL = "https://fschoolai.com/api/extract";
+const EXTRACT_URL = "https://neuro-agi-topaz.vercel.app/api/extract";
 const MAX_EXTRACT_PER_SYNC = 10;
 const MAX_FILE_BYTES = 25_000_000;   // matches the bucket's file_size_limit
 
@@ -437,12 +378,18 @@ async function extractFileContents(userId, files) {
   const candidates = (files || []).filter(f => f.source_url && f.id);
   if (!candidates.length) return;
 
-  // Pull the set of files that are already DONE via the secure proxy
+  // Pull the set of files that are already DONE (have both content_text AND a
+  // stored binary) in ONE query, then skip them. Doing this up front (instead of
+  // slicing the first N and per-file probing) means each sync advances to the
+  // NEXT unfinished files — otherwise the first N would be retried forever and
+  // files past them would never be reached.
   let done = new Set();
   try {
-    const { assignments: doneFiles } = await syncProxy("get_assignments", userId).catch(() => ({ assignments: [] }));
-    // Re-use get_stats to check which files already have content_text + storage_path
-    // (full dedup check happens server-side in extension-sync for the upsert)
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/files?user_id=eq.${userId}&content_text=not.is.null&storage_path=not.is.null&select=lms_file_id`,
+      { headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, ...SB_PROFILE } }
+    );
+    if (r.ok) done = new Set((await r.json()).map(x => String(x.lms_file_id)));
   } catch { /* if the probe fails, fall through and (re)attempt */ }
 
   const targets = candidates
@@ -469,16 +416,12 @@ async function extractFileContents(userId, files) {
                     || MIME_BY_EXT[ext] || "application/octet-stream";
       let storagePath = null;
       try {
-        // Upload via the server-side file-url proxy (keeps storage key server-side)
-        const formData = new FormData();
-        formData.append("file", new Blob([buf], { type: ctype }), safe);
-        formData.append("userId", userId);
-        formData.append("path", path);
-        const up = await fetch("https://fschoolai.com/api/file-url", {
-          method: "POST",
-          body:   formData,
+        const up = await fetch(`${SUPABASE_URL}/storage/v1/object/course-files/${path}`, {
+          method:  "POST",
+          headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, "Content-Type": ctype, "x-upsert": "true" },
+          body:    buf,
         });
-        if (up.ok) { const d = await up.json(); storagePath = d.path ?? path; }
+        if (up.ok) storagePath = path;
       } catch { /* storage upload failed — keep going, still extract text */ }
 
       // 2. Extract readable text for the tutor.
@@ -492,10 +435,11 @@ async function extractFileContents(userId, files) {
       if (ex?.text)     patch.content_text = ex.text;
       if (storagePath)  patch.storage_path = storagePath;
       if (Object.keys(patch).length) {
-        // Patch via upsert_files (server enforces userId scoping)
-        await syncProxy("upsert_files", userId, {
-          rows: [{ user_id: userId, lms_file_id: String(f.id), ...patch }],
-        }).catch(() => {});
+        await fetch(`${SUPABASE_URL}/rest/v1/files?user_id=eq.${userId}&lms_file_id=eq.${key}`, {
+          method:  "PATCH",
+          headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}`, "Content-Type": "application/json", Prefer: "return=minimal", ...SB_PROFILE },
+          body:    JSON.stringify(patch),
+        });
       }
     } catch { /* skip this file */ }
   }
@@ -547,65 +491,6 @@ ${tables ? `Tables found:\n${tables}` : ""}`;
   const counts = await ingestStructured(userId, parsed);
   const stats  = await getCurrentStats(userId);
 
-  // ── Library ingestion (fire-and-forget) ──────────────────────────────────
-  // Send the raw page text to /api/extension-content so it can be stored
-  // in the shared course_content library. This is the data moat:
-  // content seen by one student benefits all students at that university.
-  // Only fires when there's meaningful text (>200 chars) and a course context.
-  if (text && text.length > 200 && parsed.pageType !== 'other') {
-    // Detect content type from page context
-    const lowerTitle = (title || '').toLowerCase();
-    const lowerUrl   = (url   || '').toLowerCase();
-    const contentType =
-      lowerTitle.includes('syllabus') || lowerUrl.includes('syllabus') ? 'syllabus' :
-      lowerTitle.includes('module')   || lowerUrl.includes('module')   ? 'module'   :
-      lowerTitle.includes('lecture')  || lowerUrl.includes('lecture')  ? 'lecture'  :
-      lowerTitle.includes('rubric')   || lowerUrl.includes('rubric')   ? 'rubric'   :
-      lowerTitle.includes('announce') || lowerUrl.includes('announce') ? 'announcement' :
-      'lecture'; // default
-
-    // Derive university from URL
-    let universityId = 'unknown';
-    try {
-      const host = new URL(url).hostname;
-      const UNI_MAP = {
-        'canvas.utoronto.ca': 'uoft', 'q.utoronto.ca': 'uoft',
-        'canvas.ubc.ca': 'ubc', 'canvas.mcmaster.ca': 'mcmaster',
-        'canvas.queensu.ca': 'queens', 'learn.uwaterloo.ca': 'uwaterloo',
-        'owl.uwo.ca': 'uwo', 'mycourses.mcgill.ca': 'mcgill',
-        'canvas.mit.edu': 'mit', 'canvas.stanford.edu': 'stanford',
-      };
-      universityId = UNI_MAP[host] ?? host.replace(/^www\./, '').split('.').slice(-2, -1)[0] ?? 'unknown';
-    } catch { /* keep unknown */ }
-
-    // Use first course found as courseId
-    const firstCourse = parsed.courses?.[0];
-    const courseId    = firstCourse?.code || firstCourse?.name || 'unknown';
-
-    // H4 fix: extract numeric Canvas course ID from URL (e.g. /courses/423038/)
-    // This populates canvas_course_id so the library can join to the courses table
-    // by either key — prevents duplicate rows for the same course.
-    let canvasCourseId = null;
-    try {
-      const m = url.match(/\/courses\/(\d+)/);
-      if (m) canvasCourseId = m[1];
-    } catch { /* ignore */ }
-    fetch('https://fschoolai.com/api/extension-content', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userId,
-        universityId,
-        courseId,
-        canvasCourseId,  // numeric LMS ID — populates canvas_course_id column (H4 fix)
-        contentType,
-        text:          text.slice(0, 50000), // hard cap per API contract
-        sourceUrl:     url,
-        professorName: firstCourse?.instructor ?? null,
-      }),
-    }).catch(() => {}); // fire and forget — never blocks the main extract flow
-  }
-
   const parts = [];
   if (counts.courses)     parts.push(`${counts.courses} courses`);
   if (counts.assignments) parts.push(`${counts.assignments} assignments`);
@@ -620,15 +505,26 @@ ${tables ? `Tables found:\n${tables}` : ""}`;
 }
 
 async function getCurrentStats(userId) {
+  // Count rows in the structured tables (HEAD request returns Content-Range count)
   const stats = { courses: "—", assignments: "—", grades: "—", files: "—" };
   try {
-    const { stats: s } = await syncProxy("get_stats", userId);
-    if (s) {
-      stats.courses     = s.courses     ?? "—";
-      stats.assignments = s.assignments ?? "—";
-      stats.files       = s.files       ?? "—";
-      stats.grades      = "—"; // grades count not separately tracked in proxy yet
-    }
+    const headers = {
+      "apikey": SUPABASE_ANON,
+      "Authorization": `Bearer ${SUPABASE_ANON}`,
+      "Prefer": "count=exact",
+      "Range": "0-0",
+      ...SB_PROFILE,
+    };
+    const countFrom = async (q) => {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/${q}`, { headers });
+      const cr  = res.headers.get("content-range"); // e.g. "0-0/23"
+      const total = cr?.split("/")?.[1];
+      return total != null ? Number(total) : "—";
+    };
+    stats.courses     = await countFrom(`courses?user_id=eq.${userId}&source=eq.extension&select=id`);
+    stats.assignments = await countFrom(`assignments?user_id=eq.${userId}&source=eq.extension&select=id`);
+    stats.grades      = await countFrom(`assignments?user_id=eq.${userId}&source=eq.extension&score=not.is.null&select=id`);
+    stats.files       = await countFrom(`files?user_id=eq.${userId}&source=eq.extension&select=id`);
   } catch { /* leave dashes */ }
   return stats;
 }

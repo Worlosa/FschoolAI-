@@ -373,8 +373,7 @@ export default function Assignment() {
               onMouseUp={handleTextSelect}
               onTouchEnd={() => setTimeout(handleTextSelect, 150)}
               onSelect={handleTextSelect}
-              style={{ WebkitTouchCallout: "none" }}
-              style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-card)", padding: "20px", color: "var(--text-primary)", fontSize: "14px", lineHeight: "1.85", whiteSpace: "pre-wrap", marginBottom: "14px", outline: "none", cursor: "text", minHeight: "320px", width: "100%", boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }}
+              style={{ WebkitTouchCallout: "none", background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-card)", padding: "20px", color: "var(--text-primary)", fontSize: "14px", lineHeight: "1.85", whiteSpace: "pre-wrap", marginBottom: "14px", outline: "none", cursor: "text", minHeight: "320px", width: "100%", boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }}
             />
 
             <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "12px", marginBottom: "16px", overflow: "hidden" }}>

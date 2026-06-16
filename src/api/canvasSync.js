@@ -432,17 +432,38 @@ export async function syncCanvasData(userId, canvasToken, canvasBaseUrl) {
  * FIX: manual courses have no canvas_course_id — use DB id as fallback.
  */
 export async function loadCanvasData(userId) {
-  const [cResult, aResult, blobResult, fcResult] = await Promise.all([
+  // Files index. `storage_path` only exists once supabase-files-storage-migration.sql
+  // has run; selecting an unknown column makes PostgREST 400 the WHOLE query (→ the
+  // Files page shows "No files yet"). So fall back to the column set without it,
+  // keeping the page working pre-migration — storage_path is null then anyway.
+  const FILE_COLS      = 'id, course_id, assignment_id, name, file_type, size_bytes, source_url, folder, status, storage_path';
+  const FILE_COLS_BASE = 'id, course_id, assignment_id, name, file_type, size_bytes, source_url, folder, status';
+  const loadFiles = async () => {
+    const res = await supabase.from('files').select(FILE_COLS).eq('user_id', userId);
+    if (res.error && /storage_path/.test(res.error.message || '')) {
+      return supabase.from('files').select(FILE_COLS_BASE).eq('user_id', userId);
+    }
+    return res;
+  };
+
+  const [cResult, aResult, blobResult, fcResult, fileResult] = await Promise.all([
     supabase.from('courses').select('*').eq('user_id', userId),
     supabase.from('assignments').select('*, courses(id, canvas_course_id, course_code, name)').eq('user_id', userId),
     // Single query for all blob types — avoids 5 separate requests and 400s on missing rows
     supabase.from('canvas_data').select('data_type, payload').eq('user_id', userId),
     supabase.from('flashcards').select('course_id, cards, generated_at').eq('user_id', userId),
+    loadFiles(),
   ]);
 
   // Build a lookup map from the single blob query
   const blobMap = {};
   (blobResult.data || []).forEach(row => { blobMap[row.data_type] = row.payload; });
+
+  console.log("[loadCanvasData] userId:", userId,
+    "| blob types:", Object.keys(blobMap),
+    "| ext_courses:", blobMap['ext_courses']?.length ?? 0,
+    "| ext_assignments:", blobMap['ext_assignments']?.length ?? 0,
+    "| ext_grades:", blobMap['ext_grades']?.length ?? 0);
 
   const annResult  = { data: { payload: blobMap['announcements']    ?? [] } };
   const modResult  = { data: { payload: blobMap['modules']          ?? [] } };
@@ -505,15 +526,108 @@ export async function loadCanvasData(userId) {
     };
   });
 
+  // Extension file index → app shape. `courseDbId` matches a course's DB UUID
+  // (course.dbId in the mapped courses above), so the UI can group by course.
+  const files = (fileResult.data || []).map(f => ({
+    id:             f.id,
+    courseDbId:     f.course_id,
+    assignmentDbId: f.assignment_id,
+    name:           f.name,
+    fileType:       f.file_type,
+    sizeBytes:      f.size_bytes,
+    sourceUrl:      f.source_url,
+    storagePath:    f.storage_path,   // path in the private `course-files` bucket (null until uploaded)
+    folder:         f.folder,
+    status:         f.status,
+  }));
+
   // Build flashcard map: course_id → cards[]
   const flashcardMap = {};
   (fcResult.data || []).forEach(row => {
     flashcardMap[row.course_id] = { cards: row.cards, generatedAt: row.generated_at };
   });
 
+  // ── Merge browser-extension data (non-Canvas users) ──────────────────────────
+  // The Chrome extension writes ext_courses / ext_assignments / ext_grades blobs.
+  // Convert them to the app's shape and append so they show on the dashboard.
+  const extCourses     = blobMap['ext_courses']     ?? [];
+  const extAssignments = blobMap['ext_assignments'] ?? [];
+  const extGrades      = blobMap['ext_grades']      ?? [];
+
+  // Parse a percentage/score string ("85%", "85/100", "A") into a 0-100 number
+  function parseScore(g) {
+    if (g == null) return null;
+    const s = String(g);
+    const pct = s.match(/(\d{1,3}(?:\.\d+)?)\s*%/);
+    if (pct) return parseFloat(pct[1]);
+    const frac = s.match(/(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/);
+    if (frac) return (parseFloat(frac[1]) / parseFloat(frac[2])) * 100;
+    const num = s.match(/^\s*(\d{1,3}(?:\.\d+)?)\s*$/);
+    if (num) return parseFloat(num[1]);
+    return null; // letter grades left unscored
+  }
+
+  if (extCourses.length) {
+    // Map course name → score from ext_grades
+    const gradeByCourse = {};
+    extGrades.forEach(g => {
+      const score = parseScore(g.percentage) ?? parseScore(g.score) ?? null;
+      if (g.course) gradeByCourse[g.course.toLowerCase()] = score;
+    });
+
+    extCourses.forEach((c, i) => {
+      const key = (c.name ?? c.code ?? `ext${i}`).toLowerCase();
+      const score = gradeByCourse[key]
+        ?? gradeByCourse[(c.code ?? "").toLowerCase()]
+        ?? null;
+      courses.push({
+        id:               `ext_${c.code ?? i}`,
+        dbId:             null,
+        name:             c.name ?? c.code ?? "Course",
+        courseCode:       c.code ?? "",
+        currentScore:     score,
+        finalScore:       null,
+        imageUrl:         null,
+        source:           "extension",
+        isManual:         false,
+        enrollmentState:  "active",
+        accessRestricted: false,
+        assignmentGroups: null,
+      });
+    });
+  }
+
+  if (extAssignments.length) {
+    extAssignments.forEach((a, i) => {
+      const due = a.dueDate ? new Date(a.dueDate) : null;
+      const validDue = due && !isNaN(due.getTime()) ? due.toISOString() : null;
+      const submitted = a.status === "submitted" || a.status === "graded";
+      assignments.push({
+        id:             `ext_a_${i}_${(a.name ?? "").slice(0, 20)}`,
+        name:           a.name ?? "Assignment",
+        description:    null,
+        dueAt:          validDue,
+        pointsPossible: a.pointsPossible != null ? Number(String(a.pointsPossible).replace(/[^\d.]/g, "")) || null : null,
+        courseId:       `ext_${a.course ?? ""}`,
+        courseCode:     a.course ?? "",
+        courseName:     a.course ?? "",
+        source:         "extension",
+        isManual:       false,
+        submission: {
+          score:          parseScore(a.grade),
+          submittedAt:    submitted ? new Date().toISOString() : null,
+          submissionType: null,
+          late:           false,
+          missing:        a.status === "missing",
+        },
+      });
+    });
+  }
+
   return {
     courses,
     assignments,
+    files,
     announcements:    annResult.data?.payload  ?? [],
     modules:          modResult.data?.payload  ?? [],
     assignmentGroups: agResult.data?.payload   ?? [],
