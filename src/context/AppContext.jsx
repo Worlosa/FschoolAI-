@@ -106,6 +106,11 @@ export function AppProvider({ children }) {
   const [tokenSummary, setTokenSummary] = useState(null);
   // Per-course-card change badges: { [courseId]: { newAssignments, gradedAssignments, scoreChanged, scoreDelta } }
   const [cardChanges, setCardChanges] = useState({});
+  // Navigation mode: 'swipe' (spatial/gesture graph) | 'tabs' (bottom tab bar).
+  // localStorage mirror so it's available instantly and survives a missing DB column.
+  const [navMode, setNavModeState] = useState(() => {
+    try { return localStorage.getItem("fschool_nav_mode") || "swipe"; } catch { return "swipe"; }
+  });
 
   // Helper — apply any result object (from loadCanvasData or syncCanvasData)
   // to the relevant state setters. Only overwrites when the array is non-empty
@@ -446,6 +451,25 @@ export function AppProvider({ children }) {
     setUserData(prev => ({ ...(prev ?? { id: userId }), ...patch }));
   }, [userId]);
 
+  /** Switch navigation mode. Drives the UI immediately via localStorage + state,
+   *  then best-effort persists to Supabase (the column may not exist yet — never throw). */
+  const setNavMode = useCallback((mode) => {
+    if (mode !== "swipe" && mode !== "tabs") return;
+    setNavModeState(mode);
+    try { localStorage.setItem("fschool_nav_mode", mode); } catch { /* quota */ }
+    updateUserField("nav_mode", mode).catch(() => { /* column may be absent — localStorage still wins */ });
+  }, [updateUserField]);
+
+  // When the user row loads (or changes), adopt its server-side nav_mode if set.
+  // Existing users have null nav_mode → we keep the localStorage/default value.
+  useEffect(() => {
+    const m = userData?.nav_mode;
+    if (m === "swipe" || m === "tabs") {
+      setNavModeState(m);
+      try { localStorage.setItem("fschool_nav_mode", m); } catch { /* quota */ }
+    }
+  }, [userData?.nav_mode]);
+
   return (
     <AppContext.Provider value={{
       userId,
@@ -480,6 +504,8 @@ export function AppProvider({ children }) {
       setStudyConfig,
       tokenSummary,
       refreshTokens,
+      navMode,
+      setNavMode,
     }}>
       {children}
     </AppContext.Provider>
