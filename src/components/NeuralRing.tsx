@@ -2158,7 +2158,18 @@ export default function NeuralRing() {
 
       // Use Claude for tutor brain; fall back to Groq if key missing
       // Strip UI-only props (hasArtifact) so they don't reach the Anthropic/Groq API
-      const apiMessages = [...messages, userMsg].map(({ role, content }) => ({ role, content }));
+      // Sanitize history before sending: drop empty/whitespace messages (failed
+      // turns can leave empty assistant rows) and merge consecutive same-role
+      // turns, so the conversation is always valid for the Anthropic API.
+      const apiMessages = [...messages, userMsg]
+        .map(({ role, content }) => ({ role, content: typeof content === "string" ? content : "" }))
+        .filter(m => m.content.trim().length > 0)
+        .reduce((acc, m) => {
+          const last = acc[acc.length - 1];
+          if (last && last.role === m.role) last.content += "\n\n" + m.content;
+          else acc.push({ ...m });
+          return acc;
+        }, []);
       // Inject barge-in interrupted context so Claude can merge vs switch intent
       const interruptText = interruptedTextRef.current;
       interruptedTextRef.current = null;
@@ -2252,7 +2263,7 @@ export default function NeuralRing() {
           // Streaming failed — try non-streaming Sonnet, then Groq as last resort
           try {
             console.warn("[tutor] Sonnet stream failed, trying non-streaming:", err.message);
-            raw = (await claudeTutor(apiMessages, finalSystem, abortCtrlRef.current?.signal))?.content ?? "";
+            raw = await claudeTutor(apiMessages, finalSystem, abortCtrlRef.current?.signal);
             console.log("[tutor] served by: claude-sonnet-4-6 (non-streaming fallback)");
           } catch (claudeErr) {
             console.warn("[tutor] Sonnet also failed, falling back to Groq:", claudeErr.message);
@@ -2263,7 +2274,7 @@ export default function NeuralRing() {
       } else {
         // Text chat / muted voice — non-streaming Sonnet, Groq fallback
         try {
-          raw = (await claudeTutor(apiMessages, finalSystem, abortCtrlRef.current?.signal))?.content ?? "";
+          raw = await claudeTutor(apiMessages, finalSystem, abortCtrlRef.current?.signal);
           console.log("[tutor] served by: claude-sonnet-4-6");
         } catch (claudeErr) {
           console.warn("[tutor] Sonnet failed, falling back to Groq:", claudeErr.message);
@@ -2352,8 +2363,10 @@ export default function NeuralRing() {
         setTimeout(() => setPendingNav({ page: cmd.page }), 600);
       }
 
-      logChat(userId, "assistant", cleanText, null, currentConvIdRef.current);
-      writeImpression(userId, userMsg.content, cleanText);
+      if (cleanText) {
+        logChat(userId, "assistant", cleanText, null, currentConvIdRef.current);
+        writeImpression(userId, userMsg.content, cleanText);
+      }
 
       // ── Self-write trigger — fires every 6th exchange ─────────────────────
       exchangeCountRef.current += 1;
