@@ -2129,6 +2129,7 @@ export default function NeuralRing() {
       // The merged /api/tutor-context now also classifies file_lookup and surfaces
       // synced extension files, so the tutor can answer about them on this path.
       let dynamicContext = null;
+      let ragContext = null;
       abortCtrlRef.current = new AbortController();
       const contextFetch = fetch("/api/tutor-context", {
         method:  "POST",
@@ -2143,6 +2144,31 @@ export default function NeuralRing() {
         .then(d => { dynamicContext = d?.context ?? null; })
         .catch(() => {});
 
+      // RAG retrieval over the student's uploaded documents (textbooks, notes, PDFs).
+      // Runs in parallel with tutor-context and grounds the answer in source material.
+      const ragFetch = fetch("/api/rag?action=query", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, query: userMsg.content }),
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+          const passages = d?.passages ?? [];
+          if (passages.length) {
+            ragContext = passages.map((p, i) =>
+              `[${i + 1}] ${p.title}${p.heading ? " — " + p.heading : ""}${p.loc ? " (" + p.loc + ")" : ""}\n${p.text}`
+            ).join("\n\n");
+          }
+        })
+        .catch(() => {});
+
+      // Wait briefly so retrieval can ground the reply, but never block the chat
+      // for long — whichever of (both fetches | 3s) finishes first wins.
+      await Promise.race([
+        Promise.allSettled([contextFetch, ragFetch]),
+        new Promise(r => setTimeout(r, 3000)),
+      ]);
+
       console.log("[vdiag] system-prompt gate | voiceModeRef.current:", voiceModeRef.current, "→ using:", voiceModeRef.current ? "buildVoiceSystem" : "buildChatSystem");
       const system = voiceModeRef.current
         ? buildVoiceSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, availableVoices, leaderboardRank)
@@ -2151,10 +2177,12 @@ export default function NeuralRing() {
       abortCtrlRef.current = new AbortController();
       const signal = abortCtrlRef.current.signal;
 
-      // Append dynamic context to system prompt if retrieved
-      const finalSystem = dynamicContext
-        ? `${system}\n\nLIVE DATA (just fetched for this query):\n${dynamicContext}`
-        : system;
+      // System prompt = base + live DB data + grounded source passages (with citations).
+      const finalSystem = [
+        system,
+        dynamicContext ? `LIVE DATA (just fetched for this query):\n${dynamicContext}` : "",
+        ragContext ? `SOURCE MATERIAL — passages from the student's own uploaded documents. When you use one, ground your answer in it and cite it inline as [n].\n\n${ragContext}` : "",
+      ].filter(Boolean).join("\n\n");
 
       // Use Claude for tutor brain; fall back to Groq if key missing
       // Strip UI-only props (hasArtifact) so they don't reach the Anthropic/Groq API

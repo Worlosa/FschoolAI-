@@ -340,7 +340,40 @@ const authMigrateProxyPlugin = {
   },
 };
 
+// RAG proxy — runs the real api/rag.ts handler under the dev server so document
+// ingest + retrieval work with `npm run dev`. Like auth-migrate, the handler builds
+// its Supabase client at MODULE LOAD, so we inject env first and DYNAMICALLY import
+// per request. Reads ?action=ingest|query.
+const ragProxyPlugin = {
+  name: "rag-proxy",
+  configureServer(server) {
+    server.middlewares.use("/api/rag", async (req, res) => {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      if (req.method === "OPTIONS") { res.statusCode = 200; res.end(); return; }
+      process.env.SUPABASE_URL         = loadEnvKey("SUPABASE_URL");
+      process.env.SUPABASE_SERVICE_KEY = loadEnvKey("SUPABASE_SERVICE_KEY");
+      process.env.OPENAI_API_KEY       = loadEnvKey("OPENAI_API_KEY");
+      const url = new URL(req.url, "http://localhost");
+      req.query = Object.fromEntries(url.searchParams.entries());
+      let body = "";
+      req.on("data", c => { body += c; });
+      req.on("end", async () => {
+        try { req.body = body ? JSON.parse(body) : {}; } catch { req.body = {}; }
+        res.status = (code) => { res.statusCode = code; return res; };
+        res.json   = (obj)  => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(obj)); };
+        try {
+          const { default: handler } = await import("./api/rag.js");
+          await handler(req, res);
+        } catch (err) {
+          res.statusCode = 502; res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ error: err.message }));
+        }
+      });
+    });
+  },
+};
+
 export default defineConfig({
-  plugins: [react(), canvasProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin, fileUrlProxyPlugin, authMigrateProxyPlugin],
+  plugins: [react(), canvasProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin, fileUrlProxyPlugin, authMigrateProxyPlugin, ragProxyPlugin],
   server:  { port: 5173, host: "0.0.0.0", allowedHosts: true },
 });
