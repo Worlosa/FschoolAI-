@@ -2252,7 +2252,7 @@ export default function NeuralRing() {
           // Streaming failed — try non-streaming Sonnet, then Groq as last resort
           try {
             console.warn("[tutor] Sonnet stream failed, trying non-streaming:", err.message);
-            raw = await claudeTutor(apiMessages, finalSystem, abortCtrlRef.current?.signal);
+            raw = (await claudeTutor(apiMessages, finalSystem, abortCtrlRef.current?.signal))?.content ?? "";
             console.log("[tutor] served by: claude-sonnet-4-6 (non-streaming fallback)");
           } catch (claudeErr) {
             console.warn("[tutor] Sonnet also failed, falling back to Groq:", claudeErr.message);
@@ -2263,7 +2263,7 @@ export default function NeuralRing() {
       } else {
         // Text chat / muted voice — non-streaming Sonnet, Groq fallback
         try {
-          raw = await claudeTutor(apiMessages, finalSystem, abortCtrlRef.current?.signal);
+          raw = (await claudeTutor(apiMessages, finalSystem, abortCtrlRef.current?.signal))?.content ?? "";
           console.log("[tutor] served by: claude-sonnet-4-6");
         } catch (claudeErr) {
           console.warn("[tutor] Sonnet failed, falling back to Groq:", claudeErr.message);
