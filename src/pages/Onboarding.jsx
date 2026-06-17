@@ -137,6 +137,7 @@ function defaultDraft(email, initName) {
     token: "",
     isCustomSchool: false,
     goals: [],
+    navMode: "swipe",
     onboardingComplete: false,
   };
 }
@@ -278,6 +279,10 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
       return;
     }
     if (step === 2) {
+      setStep(3);
+      return;
+    }
+    if (step === 3) {
       setStep("gen");
       runGeneration();
     }
@@ -286,6 +291,7 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
   function handleBack() {
     if (step === 1) setStep(0);
     else if (step === 2) setStep(1);
+    else if (step === 3) setStep(2);
   }
 
   function skipToStep2() {
@@ -344,6 +350,7 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
       token,
       baseUrl:       base,
       goals:         draft.goals,
+      navMode:       draft.navMode,
     };
     setCompletionPayload(payload);
     setStep("discord");
@@ -364,7 +371,7 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
   }
 
   /* ── Progress ───────────────────────────────────────────────────────────── */
-  const progress = (step === "gen" || step === "discord") ? 100 : ((Number(step) + 1) / 3) * 100;
+  const progress = (step === "gen" || step === "discord") ? 100 : ((Number(step) + 1) / 4) * 100;
 
   /* ── Discord reward step ─────────────────────────────────────────────────── */
   if (step === "discord") {
@@ -508,7 +515,7 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
         {step !== "gen" && (
           <>
             {/* Back button */}
-            {(step === 1 || step === 2) && (
+            {(step === 1 || step === 2 || step === 3) && (
               <button
                 className="ob-back"
                 onClick={handleBack}
@@ -529,7 +536,7 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
             {step === 0 && (
               <div style={{ animation: "obFadeIn 0.3s ease", flex: 1 }}>
                 <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.22)", letterSpacing: "3px", textTransform: "uppercase", marginBottom: "18px" }}>
-                  1 of 3
+                  1 of 4
                 </p>
                 <h1 style={{ color: "#F5F5F5", fontSize: "34px", fontWeight: "700", letterSpacing: "-1px", lineHeight: "1.1", marginBottom: "10px" }}>
                   What should I call you?
@@ -553,7 +560,7 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
             {step === 1 && (
               <div style={{ animation: "obFadeIn 0.3s ease", flex: 1 }}>
                 <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.22)", letterSpacing: "3px", textTransform: "uppercase", marginBottom: "18px" }}>
-                  2 of 3
+                  2 of 4
                 </p>
                 <h1 style={{ color: "#F5F5F5", fontSize: "34px", fontWeight: "700", letterSpacing: "-1px", lineHeight: "1.1", marginBottom: "10px" }}>
                   Where do you study?
@@ -704,7 +711,7 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
             {step === 2 && (
               <div style={{ animation: "obFadeIn 0.3s ease", flex: 1 }}>
                 <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.22)", letterSpacing: "3px", textTransform: "uppercase", marginBottom: "18px" }}>
-                  3 of 3
+                  3 of 4
                 </p>
                 <h1 style={{ color: "#F5F5F5", fontSize: "34px", fontWeight: "700", letterSpacing: "-1px", lineHeight: "1.1", marginBottom: "10px" }}>
                   What brings you here?
@@ -745,6 +752,50 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
               </div>
             )}
 
+            {/* ── Step 3: Navigation mode ──────────────────────────────── */}
+            {step === 3 && (
+              <div style={{ animation: "obFadeIn 0.3s ease", flex: 1 }}>
+                <p style={{ fontSize: "11px", color: "rgba(255,255,255,0.22)", letterSpacing: "3px", textTransform: "uppercase", marginBottom: "18px" }}>
+                  4 of 4
+                </p>
+                <h1 style={{ color: "#F5F5F5", fontSize: "34px", fontWeight: "700", letterSpacing: "-1px", lineHeight: "1.1", marginBottom: "10px" }}>
+                  How do you want to move around?
+                </h1>
+                <p style={{ color: "rgba(255,255,255,0.32)", fontSize: "15px", marginBottom: "28px", lineHeight: "1.65" }}>
+                  You can change this anytime in your profile.
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                  {[
+                    { mode: "swipe", title: "Swipe",   desc: "Glide between pages with gestures — the original feel." },
+                    { mode: "tabs",  title: "Tab bar", desc: "Tap a bar at the bottom — familiar and direct." },
+                  ].map(opt => {
+                    const on = draft.navMode === opt.mode;
+                    return (
+                      <button
+                        key={opt.mode}
+                        onClick={() => setDraft(d => ({ ...d, navMode: opt.mode }))}
+                        style={{
+                          textAlign: "left", cursor: "pointer", fontFamily: "inherit",
+                          background: on ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.04)",
+                          border: `1px solid ${on ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.08)"}`,
+                          borderRadius: "16px", padding: "18px 20px",
+                          transition: "all 0.15s",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
+                          <span style={{ fontSize: "17px", fontWeight: 650, color: on ? "#F5F5F5" : "rgba(255,255,255,0.6)" }}>
+                            {opt.title}
+                          </span>
+                          {on && <span style={{ color: "#F5F5F5", fontSize: "15px" }}>✓</span>}
+                        </div>
+                        <span style={{ fontSize: "13px", color: "rgba(255,255,255,0.4)", lineHeight: 1.5 }}>{opt.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Continue button */}
             <button
               className="ob-cont"
@@ -764,7 +815,7 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
                 transition: "background 0.15s, transform 0.15s",
               }}
             >
-              {step === 2 ? "Finish →" : "Continue →"}
+              {step === 3 ? "Finish →" : "Continue →"}
             </button>
           </>
         )}

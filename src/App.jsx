@@ -7,6 +7,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { NAV, LABEL }       from "./navigation/navConfig";
 import { useSwipe }         from "./navigation/useSwipe";
 import PageDots             from "./components/PageDots";
+import BottomNav            from "./components/BottomNav";
 import NeuralRing           from "./components/NeuralRing";
 import Landing              from "./pages/Landing";
 import Onboarding           from "./pages/Onboarding";
@@ -72,17 +73,31 @@ const SHELL_STYLES = `
   .app-main {
     padding: 20px 22px 100px;
   }
+  /* Tabs nav mode — mobile: bottom bar needs clearance below content. */
+  .app-nav-tabs .app-main {
+    padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  }
+  /* Tabs nav mode — web (≥768px): sidebar replaces the bottom bar, so shift
+     content right to clear it (232px rail + 22px gutter) and drop the bottom pad. */
+  @media (min-width: 768px) {
+    .app-nav-tabs .app-header { padding-left: calc(var(--nav-rail, 232px) + 22px); }
+    .app-nav-tabs .app-main   { padding-left: calc(var(--nav-rail, 232px) + 22px); padding-bottom: 100px; }
+  }
 `;
 
-if (!document.getElementById("app-shell-styles")) {
-  const tag = document.createElement("style");
-  tag.id = "app-shell-styles";
+{
+  // Update in place so HMR / style tweaks take effect without a manual reload.
+  let tag = document.getElementById("app-shell-styles");
+  if (!tag) {
+    tag = document.createElement("style");
+    tag.id = "app-shell-styles";
+    document.head.appendChild(tag);
+  }
   tag.textContent = SHELL_STYLES;
-  document.head.appendChild(tag);
 }
 
 export default function App() {
-  const { userId, setUserId, refreshUser, userData, saveCanvasCredentials, updateUserField, pendingNav, setPendingNav, tokenSummary } = useApp();
+  const { userId, setUserId, refreshUser, userData, saveCanvasCredentials, updateUserField, pendingNav, setPendingNav, tokenSummary, navMode, setNavMode } = useApp();
 
   const [isLoggedIn, setIsLoggedIn] = useState(
     () => Boolean(localStorage.getItem(LOGGED_IN_KEY))
@@ -92,6 +107,17 @@ export default function App() {
   const [onboardingInitName,  setOnboardingInitName] = useState("");
   const [currentPage,         setCurrentPage]        = useState("work");
   const [visible,             setVisible]            = useState(true);
+  // Web sidebar (tabs mode) collapse state — persisted.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => { try { return localStorage.getItem("fschool_sidebar_collapsed") === "1"; } catch { return false; } }
+  );
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed(v => {
+      const next = !v;
+      try { localStorage.setItem("fschool_sidebar_collapsed", next ? "1" : "0"); } catch { /* quota */ }
+      return next;
+    });
+  }, []);
 
   // ── Verify banner state ────────────────────────────────────────────────────
   const [verifyBanner, setVerifyBanner] = useState(() => {
@@ -324,9 +350,10 @@ export default function App() {
 
   // ── Onboarding complete ────────────────────────────────────────────────────
   const handleOnboardingComplete = useCallback(async ({
-    preferredName, schoolName, schoolCity, schoolCountry, schoolContinent, token, baseUrl,
+    preferredName, schoolName, schoolCity, schoolCountry, schoolContinent, token, baseUrl, navMode: chosenNavMode,
   }) => {
     if (preferredName) localStorage.setItem("fschool_name", preferredName);
+    if (chosenNavMode) setNavMode(chosenNavMode);
     try {
       const patch = { id: userId };
       if (preferredName)   patch.name            = preferredName;
@@ -342,7 +369,7 @@ export default function App() {
     localStorage.setItem(LOGGED_IN_KEY, "1");
     setShowOnboarding(false);
     setIsLoggedIn(true);
-  }, [userId, updateUserField, saveCanvasCredentials]);
+  }, [userId, updateUserField, saveCanvasCredentials, setNavMode]);
 
   // ── Overlays (render in BOTH logged-in and logged-out states so a reset
   // link works even when the user isn't signed in on this device) ───────────
@@ -548,9 +575,9 @@ export default function App() {
 
   return (
     <div
-      className="app-shell"
-      onTouchStart={onTouchStart}
-      onTouchEnd={onTouchEnd}
+      className={navMode === "tabs" ? "app-shell app-nav-tabs" : "app-shell"}
+      style={{ "--nav-rail": sidebarCollapsed ? "64px" : "232px" }}
+      {...(navMode === "tabs" ? {} : { onTouchStart, onTouchEnd })}
     >
       {overlays}
       <TokenToast />
@@ -589,7 +616,7 @@ export default function App() {
               </span>
             </button>
           )}
-          <PageDots currentPage={currentPage} />
+          {navMode === "tabs" ? <span style={{ width: 24 }} /> : <PageDots currentPage={currentPage} />}
         </header>
 
         <main className="app-main">
@@ -598,6 +625,15 @@ export default function App() {
       </div>
 
       <NeuralRing />
+
+      {navMode === "tabs" && (
+        <BottomNav
+          currentPage={currentPage}
+          onNavigate={navigate}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={toggleSidebar}
+        />
+      )}
     </div>
   );
 }
