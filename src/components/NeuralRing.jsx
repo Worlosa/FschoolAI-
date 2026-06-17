@@ -30,7 +30,8 @@ async function claudeTutor(messages, system, signal, tools) {
     signal,  // abort signal from stopResponse()
   });
   if (!res.ok) throw new Error(`Claude proxy ${res.status}`);
-  return await res.json();
+  const data = await res.json();
+  return data?.content ?? "";
 }
 
 // The agent's one data-fetch tool. The model calls it only when an answer needs
@@ -200,7 +201,7 @@ function getUrgentAssignments(assignments) {
   });
 }
 
-function buildChatSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, isFirstMessage = false, voicesForContext = []) {
+function buildChatSystem(courseOptions, userData, courses, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, isFirstMessage = false, voicesForContext = []) {
   const courseList = courseOptions.length
     ? courseOptions.join("\n- ")
     : "No courses loaded yet";
@@ -1612,10 +1613,10 @@ export default function NeuralRing() {
   // path for the obvious verbs that never need AI interpretation.
   const NAV_INTENTS = [
     { re: /\b(take me to|go to|open|let'?s|start)\s*(study|flashcard|flash card|review)\b/i,           page: "study"       },
-    { re: /\b(open|go to|take me to)?\s*toolkit\b|\bmy tools\b|\bbrain mode\b/i,                       page: "toolkit"     },
-    { re: /\b(show|open|go to|take me to)?\s*(leaderboard|ranking|scoreboard|my rank|standings)\b/i,  page: "leaderboard" },
-    { re: /\b(go to|open|sync|take me to)?\s*(canvas|my courses?|course page)\b/i,                    page: "canvas"      },
-    { re: /\b(go to|open|show|take me to)?\s*(assignments?|my assignments?|homework)\b/i,             page: "assignment"  },
+    { re: /\b(open|go to|take me to)\s*toolkit\b|\bmy tools\b|\bbrain mode\b/i,                        page: "toolkit"     },
+    { re: /\b(show|open|go to|take me to)\s*(leaderboard|ranking|scoreboard|my rank|standings)\b/i,   page: "leaderboard" },
+    { re: /\b(go to|open|sync|take me to)\s*(canvas|my courses?|course page)\b/i,                     page: "canvas"      },
+    { re: /\b(go to|open|show|take me to)\s*(assignments?|my assignments?|homework)\b/i,              page: "assignment"  },
     { re: /\b(go home|take me home|open dashboard|go to dashboard|go to work|my work)\b/i,            page: "work"        },
     { re: /\b(my profile|open profile|go to profile|settings|identity|go to identity)\b/i,            page: "identity"    },
   ];
@@ -1990,14 +1991,14 @@ export default function NeuralRing() {
       // The merged /api/tutor-context now also classifies file_lookup and surfaces
       // synced extension files, so the tutor can answer about them on this path.
       let dynamicContext = null;
-      abortCtrlRef.current = new AbortController();
       const contextFetch = fetch("/api/tutor-context", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId,
           userMessage:   userMsg.content,
-          brainPersonId: userData?.brain_person_id ?? null, // enriches tutor with brain context
+          brainPersonId: userData?.brain_person_id ?? null,
+          courseIds:     courses.map(c => c.id).filter(Boolean),
         }),
       })
         .then(r => r.ok ? r.json() : null)
@@ -2007,7 +2008,10 @@ export default function NeuralRing() {
       console.log("[vdiag] system-prompt gate | voiceModeRef.current:", voiceModeRef.current, "→ using:", voiceModeRef.current ? "buildVoiceSystem" : "buildChatSystem");
       const system = voiceModeRef.current
         ? buildVoiceSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, availableVoices, leaderboardRank)
-        : buildChatSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, messages.length === 0, availableVoices);
+        : buildChatSystem(courseOptions, userData, courses, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, messages.length === 0, availableVoices);
+
+      // Wait for dynamic context before building final prompt
+      await contextFetch;
 
       abortCtrlRef.current = new AbortController();
       const signal = abortCtrlRef.current.signal;

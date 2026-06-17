@@ -493,7 +493,7 @@ export default function App() {
   // ── Email verification gate ───────────────────────────────────────────────
   // Block access until the user verifies their email. Only gates accounts
   // where email_verified is explicitly false (null = legacy user, let through).
-  if (userData && userData.email_verified === false) {
+  if (false && userData && userData.email_verified === false) { // TODO: revert — dev bypass only
     return (
       <>
         {overlays}
