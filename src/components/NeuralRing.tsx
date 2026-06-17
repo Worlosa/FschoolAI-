@@ -2129,14 +2129,14 @@ export default function NeuralRing() {
       // The merged /api/tutor-context now also classifies file_lookup and surfaces
       // synced extension files, so the tutor can answer about them on this path.
       let dynamicContext = null;
-      abortCtrlRef.current = new AbortController();
       const contextFetch = fetch("/api/tutor-context", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userId,
           userMessage:   userMsg.content,
-          brainPersonId: userData?.brain_person_id ?? null, // enriches tutor with brain context
+          brainPersonId: userData?.brain_person_id ?? null,
+          courseIds:     courses.map(c => c.id).filter(Boolean),
         }),
       })
         .then(r => r.ok ? r.json() : null)
@@ -2147,6 +2147,9 @@ export default function NeuralRing() {
       const system = voiceModeRef.current
         ? buildVoiceSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, availableVoices, leaderboardRank)
         : buildChatSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, messages.length === 0, availableVoices, courses);
+
+      // Wait for dynamic context before building final prompt
+      await contextFetch;
 
       abortCtrlRef.current = new AbortController();
       const signal = abortCtrlRef.current.signal;
