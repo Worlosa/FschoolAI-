@@ -21,6 +21,10 @@ create index if not exists chat_conversations_user_updated_idx
 create index if not exists chat_logs_conversation_idx
   on public.chat_logs (conversation_id, created_at);
 
+-- This app uses the anon key with no Supabase Auth (like chat_logs/users), so
+-- RLS must be OFF or every insert is rejected (error 42501). Match the siblings.
+alter table public.chat_conversations disable row level security;
+
 -- ── One-time backfill: legacy flat history → one conversation per user ────────
 -- Safe to re-run: only touches rows that still have a null conversation_id.
 do $$

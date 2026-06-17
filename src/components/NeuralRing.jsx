@@ -229,7 +229,7 @@ function getUrgentAssignments(assignments) {
   });
 }
 
-function buildChatSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, isFirstMessage = false, voicesForContext = []) {
+function buildChatSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, isFirstMessage = false, voicesForContext = [], courses = []) {
   const courseList = courseOptions.length
     ? courseOptions.join("\n- ")
     : "No courses loaded yet";
@@ -648,15 +648,15 @@ function buildSituationGreeting(assignments, courses, userData) {
   const greetings = {
     overdue: [
       `${name}, you've got ${overdue.length} overdue assignment${overdue.length > 1 ? "s" : ""}. Let's deal with that first.`,
-      `Before anything else — ${overdue[0].name || "an assignment"} is past due. Want to tackle it now?`,
+      `Before anything else — ${overdue[0]?.name || "an assignment"} is past due. Want to tackle it now?`,
     ],
     urgent: [
-      `${due24h[0].name || "An assignment"} is due in under 24 hours. How far along are you?`,
+      `${due24h[0]?.name || "An assignment"} is due in under 24 hours. How far along are you?`,
       `Tight window — ${due24h.length} assignment${due24h.length > 1 ? "s" : ""} due today. Let's prioritize.`,
     ],
     upcoming: [
       `You've got ${due48h.length} thing${due48h.length > 1 ? "s" : ""} due in the next 48 hours. Good time to get ahead.`,
-      `${due48h[0].name || "Something"} is coming up. Want to break it down together?`,
+      `${due48h[0]?.name || "Something"} is coming up. Want to break it down together?`,
     ],
     streak: [
       `${streak} days in a row — that's real momentum, ${name}. What are we working on today?`,
@@ -2133,7 +2133,7 @@ export default function NeuralRing() {
       console.log("[vdiag] system-prompt gate | voiceModeRef.current:", voiceModeRef.current, "→ using:", voiceModeRef.current ? "buildVoiceSystem" : "buildChatSystem");
       const system = voiceModeRef.current
         ? buildVoiceSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, availableVoices, leaderboardRank)
-        : buildChatSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, messages.length === 0, availableVoices);
+        : buildChatSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, messages.length === 0, availableVoices, courses);
 
       abortCtrlRef.current = new AbortController();
       const signal = abortCtrlRef.current.signal;
