@@ -93,6 +93,39 @@ function sectionize(text) {
   return sections.length ? sections : [{ heading: null, text: String(text).trim() }];
 }
 
+/** Page-aware sectionizer: splits [{page, text}] into sections tagged with the
+ *  page range they span, so retrieved passages can cite real page numbers. */
+function sectionizePages(pages) {
+  const sections = [];
+  let cur = { heading: null, text: "", locStart: null, locEnd: null };
+  const push = () => {
+    if (cur.text.trim())
+      sections.push({ heading: cur.heading, text: cur.text.trim(), locStart: cur.locStart, locEnd: cur.locEnd });
+  };
+  for (const pg of pages) {
+    const page = pg?.page ?? null;
+    const blocks = String(pg?.text ?? "").replace(/\r\n/g, "\n").split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
+    for (const block of blocks) {
+      const firstLine = block.split("\n")[0];
+      const headingHere = block.split("\n").length === 1 && isHeading(firstLine);
+      if (headingHere) {
+        push();
+        cur = { heading: firstLine.replace(/^#{1,6}\s+/, "").trim(), text: "", locStart: page, locEnd: page };
+        continue;
+      }
+      if (cur.text && (cur.text.length + block.length) > SECTION_MAX) {
+        push();
+        cur = { heading: cur.heading, text: "", locStart: page, locEnd: page };
+      }
+      if (cur.locStart == null) cur.locStart = page;
+      cur.locEnd = page;
+      cur.text += (cur.text ? "\n\n" : "") + block;
+    }
+  }
+  push();
+  return sections;
+}
+
 const CHUNK_MAX = 900; // chars per embedded chunk
 
 /** Split section text into small chunks on paragraph/sentence boundaries. */
@@ -126,12 +159,20 @@ function chunkText(text) {
 
 // ── Ingest ────────────────────────────────────────────────────────────────────
 async function ingest(body) {
-  const { userId, courseId = null, title = "Untitled", kind = "text", sourceUrl = null, text } = body ?? {};
+  const { userId, courseId = null, title = "Untitled", kind = "text", sourceUrl = null, text, pages } = body ?? {};
   if (!userId) return { status: 400, json: { error: "userId required" } };
-  if (!text || typeof text !== "string" || !text.trim())
-    return { status: 400, json: { error: "text required" } };
 
-  const sections = sectionize(text);
+  // Prefer structured per-page input (real page-number citations); fall back to
+  // a flat text string for callers that don't have page structure.
+  let sections;
+  if (Array.isArray(pages) && pages.some(p => p?.text && String(p.text).trim())) {
+    sections = sectionizePages(pages);
+  } else if (text && typeof text === "string" && text.trim()) {
+    sections = sectionize(text).map(s => ({ ...s, locStart: null, locEnd: null }));
+  } else {
+    return { status: 400, json: { error: "text or pages required" } };
+  }
+  if (!sections.length) return { status: 400, json: { error: "no content to index" } };
 
   // Build section + chunk rows with client-generated ids so chunk→section linkage
   // is deterministic (no reliance on insert ordering).
@@ -142,7 +183,7 @@ async function ingest(body) {
     const sectionId = randomUUID();
     sectionRows.push({
       id: sectionId, document_id: documentId, user_id: userId, course_id: courseId,
-      heading: sec.heading, ordinal: idx, loc_start: null, loc_end: null, full_text: sec.text,
+      heading: sec.heading, ordinal: idx, loc_start: sec.locStart ?? null, loc_end: sec.locEnd ?? null, full_text: sec.text,
     });
     for (const content of chunkText(sec.text)) {
       chunkRows.push({

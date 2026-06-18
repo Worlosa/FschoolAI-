@@ -61,11 +61,16 @@ import extractHandler from "./api/extract.js";
 import fileUrlHandler from "./api/file-url.js";
 
 function loadEnvKey(key) {
-  try {
-    const raw = readFileSync(resolve(process.cwd(), ".env"), "utf8");
-    const match = raw.match(new RegExp(`^${key}=(.+)$`, "m"));
-    return match?.[1]?.trim() ?? process.env[key];
-  } catch { return process.env[key]; }
+  // Read .env.local first (Vite's convention, where users put local secrets), then
+  // fall back to .env, then the process env. Strips surrounding quotes if present.
+  for (const file of [".env.local", ".env"]) {
+    try {
+      const raw = readFileSync(resolve(process.cwd(), file), "utf8");
+      const match = raw.match(new RegExp(`^${key}=(.+)$`, "m"));
+      if (match?.[1]) return match[1].trim().replace(/^["']|["']$/g, "");
+    } catch { /* file missing — try the next one */ }
+  }
+  return process.env[key];
 }
 
 const groqProxyPlugin = {

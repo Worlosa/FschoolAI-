@@ -29,15 +29,17 @@ export default function DocUpload() {
 
   const busy = status === "reading" || status === "extracting" || status === "indexing";
 
-  async function ingest(text, title, kind) {
+  async function ingest({ text = null, pages = null, title, kind }: any) {
     if (!userId) { setStatus("error"); setMessage("Not signed in."); return; }
-    if (!text || !text.trim()) { setStatus("error"); setMessage("Nothing to index — no text found."); return; }
+    const hasContent = (pages && pages.some(p => p?.text?.trim())) || (text && text.trim());
+    if (!hasContent) { setStatus("error"); setMessage("Nothing to index — no text found."); return; }
     setStatus("indexing"); setMessage("Indexing…");
     try {
       const res = await fetch("/api/rag?action=ingest", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ userId, courseId: courseId || null, title, kind, text }),
+        // Prefer structured pages (page-number citations); fall back to flat text.
+        body:    JSON.stringify({ userId, courseId: courseId || null, title, kind, pages, text }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) throw new Error(data.error || `ingest ${res.status}`);
@@ -63,7 +65,8 @@ export default function DocUpload() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.text) throw new Error(data.error || "Couldn't extract text from that file.");
       const kind = /pdf/i.test(file.type || file.name) ? "pdf" : "text";
-      await ingest(data.text, file.name, kind);
+      if (data.truncated) setMessage("Large file — indexing the first portion…");
+      await ingest({ text: data.text, pages: data.pages, title: file.name, kind });
     } catch (err) {
       setStatus("error");
       setMessage(err?.message || "Couldn't read that file.");
@@ -167,7 +170,7 @@ export default function DocUpload() {
             }}
           />
           <button
-            onClick={() => ingest(pasteText, pasteTitle.trim() || "Pasted notes", "text").then(() => { setPasteText(""); setPasteTitle(""); })}
+            onClick={() => ingest({ text: pasteText, title: pasteTitle.trim() || "Pasted notes", kind: "text" }).then(() => { setPasteText(""); setPasteTitle(""); })}
             disabled={busy || !pasteText.trim()}
             style={{
               marginTop: "8px", background: "var(--color-accent)", color: "#111", border: "none",
