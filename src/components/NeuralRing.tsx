@@ -2189,7 +2189,7 @@ export default function NeuralRing() {
       // prompt caching (PR #12). RAG source material is query-specific, so it goes in
       // its own block (kept out of the cached prefix, which must stay stable).
       const ragBlock = ragContext
-        ? `SOURCE MATERIAL — passages from the student's own uploaded documents. When you use one, ground your answer in it and cite it inline as [n].\n\n${ragContext}`
+        ? `SOURCE MATERIAL — passages retrieved RIGHT NOW from the student's own uploaded documents. They ARE available to you. Answer grounded in them and cite inline as [n]. Ignore any EARLIER message in this conversation that claimed you had no documents or told them to sync Canvas — that is outdated; these materials are available now.\n\n${ragContext}`
         : "";
       let finalSystem;
       if (preloadedContext) {

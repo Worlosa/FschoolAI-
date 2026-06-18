@@ -8,7 +8,19 @@ import { useRef, useState, useEffect } from "react";
 import { useApp } from "../context/AppContext";
 import { supabase } from "../api/supabase";
 
-const ACCEPT = ".pdf,.txt,.md,.markdown,.html";
+const ACCEPT = ".pdf,.txt,.md,.markdown,.html,.docx,.pptx,.png,.jpg,.jpeg,.webp,.gif,.mp3,.wav,.m4a,.mp4,.mov,.webm";
+
+// Map a file's MIME/name to the RAG `kind` tag.
+function kindForFile(file) {
+  const s = `${file.type} ${file.name}`.toLowerCase();
+  if (/pdf/.test(s)) return "pdf";
+  if (/wordprocessingml|\.docx\b/.test(s)) return "docx";
+  if (/presentationml|\.pptx\b/.test(s)) return "pptx";
+  if (/image\/|\.(png|jpe?g|webp|gif|bmp|tiff?)\b/.test(s)) return "image";
+  if (/audio\/|\.(mp3|wav|m4a|aac|ogg|flac)\b/.test(s)) return "audio";
+  if (/video\/|\.(mp4|mov|webm|mpeg)\b/.test(s)) return "video";
+  return "text";
+}
 
 function readAsBase64(file) {
   return new Promise((resolve, reject) => {
@@ -28,6 +40,7 @@ export default function DocUpload() {
   const [showPaste, setShowPaste] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const [pasteTitle, setPasteTitle] = useState("");
+  const [youtubeUrl, setYoutubeUrl] = useState("");
   const [docs, setDocs] = useState([]); // already-indexed documents for this user
 
   const busy = status === "reading" || status === "extracting" || status === "indexing";
@@ -98,10 +111,14 @@ export default function DocUpload() {
 
   async function handleFile(file) {
     if (!file) return;
+    const kind = kindForFile(file);
     setStatus("reading"); setMessage(`Reading ${file.name}…`);
     try {
       const base64 = await readAsBase64(file);
-      setStatus("extracting"); setMessage("Extracting text…");
+      setStatus("extracting");
+      setMessage(kind === "image" ? "Reading image (OCR)…"
+               : kind === "audio" || kind === "video" ? "Transcribing… (this can take a moment)"
+               : "Extracting text…");
       const res = await fetch("/api/extract", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
@@ -109,12 +126,31 @@ export default function DocUpload() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.text) throw new Error(data.error || "Couldn't extract text from that file.");
-      const kind = /pdf/i.test(file.type || file.name) ? "pdf" : "text";
       if (data.truncated) setMessage("Large file — indexing the first portion…");
       await ingest({ text: data.text, pages: data.pages, title: file.name, kind });
     } catch (err) {
       setStatus("error");
       setMessage(err?.message || "Couldn't read that file.");
+    }
+  }
+
+  async function handleYoutube(rawUrl) {
+    const url = (rawUrl || "").trim();
+    if (!url) return;
+    setStatus("extracting"); setMessage("Fetching YouTube transcript…");
+    try {
+      const res = await fetch("/api/extract", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ youtubeUrl: url }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.text) throw new Error(data.error || "Couldn't fetch a transcript for that video.");
+      await ingest({ text: data.text, pages: data.pages, title: `YouTube — ${url}`, kind: "youtube" });
+      setYoutubeUrl("");
+    } catch (err) {
+      setStatus("error");
+      setMessage(err?.message || "Couldn't fetch that transcript.");
     }
   }
 
@@ -133,7 +169,7 @@ export default function DocUpload() {
         <div style={{ minWidth: 0 }}>
           <p style={{ color: "var(--text-primary)", fontSize: "14px", fontWeight: 600 }}>Add study material</p>
           <p style={{ color: "var(--text-dim)", fontSize: "12px", marginTop: "2px" }}>
-            Upload a PDF or notes — the tutor answers grounded in it.
+            PDF, Word, slides, image, audio/video — or a YouTube link. The tutor answers grounded in it.
           </p>
         </div>
       </div>
@@ -151,9 +187,9 @@ export default function DocUpload() {
             fontSize: "13px", fontFamily: "inherit", outline: "none",
           }}
         >
-          <option value="">No specific course</option>
+          <option value="" style={{ background: "#15171c", color: "#F5F5F5" }}>No specific course</option>
           {courses.map((c, i) => (
-            <option key={c.dbId ?? c.id ?? i} value={c.dbId ?? c.id ?? ""}>
+            <option key={c.dbId ?? c.id ?? i} value={c.dbId ?? c.id ?? ""} style={{ background: "#15171c", color: "#F5F5F5" }}>
               {c.courseCode || c.name || `Course ${i + 1}`}
             </option>
           ))}
@@ -174,7 +210,7 @@ export default function DocUpload() {
             cursor: busy ? "default" : "pointer", fontFamily: "inherit", opacity: busy ? 0.6 : 1,
           }}
         >
-          {busy ? "Working…" : "Upload PDF / file"}
+          {busy ? "Working…" : "Upload file"}
         </button>
         <button
           onClick={() => setShowPaste(v => !v)}
@@ -186,6 +222,35 @@ export default function DocUpload() {
           }}
         >
           Paste text
+        </button>
+      </div>
+
+      {/* YouTube link → transcript */}
+      <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
+        <input
+          value={youtubeUrl}
+          onChange={e => setYoutubeUrl(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") handleYoutube(youtubeUrl); }}
+          disabled={busy}
+          placeholder="Paste a YouTube link…"
+          style={{
+            flex: "1 1 auto", minWidth: 0, boxSizing: "border-box",
+            background: "rgba(255,255,255,0.04)", border: "1px solid var(--color-border)",
+            borderRadius: "10px", padding: "10px 12px", color: "var(--text-primary)",
+            fontSize: "13px", fontFamily: "inherit", outline: "none",
+          }}
+        />
+        <button
+          onClick={() => handleYoutube(youtubeUrl)}
+          disabled={busy || !youtubeUrl.trim()}
+          style={{
+            background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--color-border)",
+            borderRadius: "var(--radius-btn)", padding: "10px 16px", fontSize: "14px", fontWeight: 500,
+            cursor: (busy || !youtubeUrl.trim()) ? "default" : "pointer", fontFamily: "inherit",
+            opacity: (busy || !youtubeUrl.trim()) ? 0.6 : 1, flexShrink: 0,
+          }}
+        >
+          Add
         </button>
       </div>
 
