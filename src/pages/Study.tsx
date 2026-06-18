@@ -12,18 +12,34 @@ const SYSTEM =
   "You are a study assistant. When generating flashcards, format EVERY card as exactly: Q: [question] | A: [answer] — one per line, no extra text. For study guides, use clear headings and concise bullet points.";
 
 function parseFlashcards(text) {
-  return text
-    .split("\n")
-    .filter((line) => line.includes("Q:") && line.includes(" | ") && line.includes("A:"))
-    .map((line, i) => {
+  const cards = [];
+  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+
+  // Primary format: "Q: question | A: answer" on one line
+  const pipeLines = lines.filter(l => l.includes("Q:") && l.includes(" | ") && l.includes("A:"));
+  if (pipeLines.length > 0) {
+    pipeLines.forEach((line, i) => {
       const [qPart, aPart] = line.split(" | ");
-      return {
-        id:       i,
-        question: (qPart || "").replace(/^Q:\s*/i, "").trim(),
-        answer:   (aPart || "").replace(/^A:\s*/i, "").trim(),
-      };
-    })
-    .filter((c) => c.question && c.answer);
+      const question = (qPart || "").replace(/^(?:\d+[\.\)]\s*)?(?:\*+)?Q:\s*(?:\*+)?/i, "").trim();
+      const answer   = (aPart || "").replace(/^(?:\d+[\.\)]\s*)?(?:\*+)?A:\s*(?:\*+)?/i, "").trim();
+      if (question && answer) cards.push({ id: i, question, answer });
+    });
+    return cards;
+  }
+
+  // Fallback: "Q: question" on one line, "A: answer" on the next
+  for (let i = 0; i < lines.length - 1; i++) {
+    const qMatch = lines[i].match(/^(?:\d+[\.\)]\s*)?(?:\*+)?Q:\s*(?:\*+)?(.+)/i);
+    if (qMatch) {
+      const aMatch = lines[i + 1].match(/^(?:\*+)?A:\s*(?:\*+)?(.+)/i);
+      if (aMatch) {
+        cards.push({ id: cards.length, question: qMatch[1].trim(), answer: aMatch[1].trim() });
+        i++;
+      }
+    }
+  }
+
+  return cards;
 }
 
 // ── Fullscreen study session ──────────────────────────────────────────────────
@@ -599,16 +615,20 @@ export default function Study() {
         setGuide("");
         return;
       }
-      // Not in memory — try DB directly
+      // Not in memory — try DB via server route (bypasses RLS)
       setLoading(true);
-      const { data } = await supabase
-        .from("flashcards")
-        .select("cards")
-        .eq("user_id", userId)
-        .eq("course_id", dbId)
-        .maybeSingle();
-      if (data?.cards?.length > 0) setFlashcards(data.cards);
-      else setToast("No saved flashcards yet — tap Add New Flashcards to create some.");
+      try {
+        const loadRes = await fetch("/api/flashcards", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ action: "load", userId, courseId: dbId }),
+        });
+        const loadData = await loadRes.json();
+        if (loadData?.cards?.length > 0) setFlashcards(loadData.cards);
+        else setToast("No saved flashcards yet — tap Add New Flashcards to create some.");
+      } catch {
+        setToast("No saved flashcards yet — tap Add New Flashcards to create some.");
+      }
       setLoading(false);
     } else {
       // Study guide — load from canvas_data blob
@@ -743,61 +763,73 @@ export default function Study() {
     setFlashcards([]);
     setGuide("");
 
-    const dbId = getCourseDbId();
-    const courseContext = await buildCourseContext(dbId);
-    const contextBlock = courseContext
-      ? `\n\nHere is real content from the student's course to base your response on:\n${courseContext}`
-      : "";
-
-    const cardCount = Math.min(Math.max(liveCourses.length > 0 ? 10 : 8, 8), 12);
-
-    const prompt =
-      mode === "flashcards"
-        ? `Create exactly ${cardCount} study flashcards for ${course}.${contextBlock}\n\nFormat each card as: Q: [question] | A: [answer] — one per line. Focus on the actual topics listed above. Prioritize concepts from the most recent modules and anything hinted at in announcements. No numbering, no extra text.`
-        : `You are a finals detective. Your job is to figure out exactly what will be on the final exam for ${course} and build a targeted study plan.${contextBlock}\n\nStep 1 — REVERSE ENGINEER THE FINAL: Based on the syllabus, recent modules (especially the last ones), professor announcements, and any file/page titles, identify the 5-7 most likely exam topics. Think like a professor: what did they spend the most time on? What did they announce recently?\n\nStep 2 — BUILD THE STUDY PLAN: For each likely exam topic, write: the concept, why it matters, and 2-3 things to know cold.\n\nStep 3 — PRIORITY ORDER: rank topics by how likely they are to appear.\n\nBe specific to this course's actual content. Do not give generic study advice.`;
-
-    const result = await groq([{ role: "user", content: prompt }], SYSTEM);
-
-    if (mode === "flashcards") {
-      const cards = parseFlashcards(result);
-      setFlashcards(cards);
-      // Save to Supabase
+    try {
       const dbId = getCourseDbId();
-      if (!dbId) {
-        setToast("⚠️ Couldn't link to course — flashcards shown but not saved. Try re-syncing Canvas.");
-      } else if (cards.length > 0) {
-        const { error: saveErr } = await supabase.from("flashcards").upsert(
-          { user_id: userId, course_id: dbId, cards, generated_at: new Date().toISOString() },
-          { onConflict: "user_id,course_id" }
-        );
-        if (saveErr) {
-          console.error("[Study] flashcard save failed:", saveErr.message);
-          setToast("⚠️ Flashcards generated but couldn't save: " + saveErr.message);
+      const courseContext = await buildCourseContext(dbId);
+      const contextBlock = courseContext
+        ? `\n\nHere is real content from the student's course to base your response on:\n${courseContext}`
+        : "";
+
+      const cardCount = Math.min(Math.max(liveCourses.length > 0 ? 10 : 8, 8), 12);
+
+      const prompt =
+        mode === "flashcards"
+          ? `Create exactly ${cardCount} study flashcards for ${course}.${contextBlock}\n\nFormat each card as: Q: [question] | A: [answer] — one per line. Focus on the actual topics listed above. Prioritize concepts from the most recent modules and anything hinted at in announcements. No numbering, no extra text.`
+          : `You are a finals detective. Your job is to figure out exactly what will be on the final exam for ${course} and build a targeted study plan.${contextBlock}\n\nStep 1 — REVERSE ENGINEER THE FINAL: Based on the syllabus, recent modules (especially the last ones), professor announcements, and any file/page titles, identify the 5-7 most likely exam topics. Think like a professor: what did they spend the most time on? What did they announce recently?\n\nStep 2 — BUILD THE STUDY PLAN: For each likely exam topic, write: the concept, why it matters, and 2-3 things to know cold.\n\nStep 3 — PRIORITY ORDER: rank topics by how likely they are to appear.\n\nBe specific to this course's actual content. Do not give generic study advice.`;
+
+      const result = await groq(
+        [{ role: "user", content: prompt }],
+        SYSTEM,
+        mode === "guide" ? 2048 : 1024
+      );
+
+      if (mode === "flashcards") {
+        const cards = parseFlashcards(result);
+        if (cards.length === 0) {
+          setToast("⚠️ Couldn't parse any flashcards — try generating again.");
         } else {
-          setToast("✓ Flashcards saved!");
-          awardTokens("flashcards_generated", { courseId: String(dbId) }).catch(() => {});
+          setFlashcards(cards);
+          if (!dbId) {
+            setToast("⚠️ Couldn't link to course — flashcards shown but not saved. Try re-syncing Canvas.");
+          } else {
+            const saveRes = await fetch("/api/flashcards", {
+              method:  "POST",
+              headers: { "Content-Type": "application/json" },
+              body:    JSON.stringify({ action: "save", userId, courseId: dbId, cards }),
+            });
+            if (!saveRes.ok) {
+              const saveErr = await saveRes.json().catch(() => ({}));
+              console.error("[Study] flashcard save failed:", saveErr.error);
+              setToast("⚠️ Flashcards generated but couldn't save: " + (saveErr.error ?? "unknown error"));
+            } else {
+              setToast("✓ Flashcards saved!");
+              awardTokens("flashcards_generated", { courseId: String(dbId) }).catch(() => {});
+            }
+          }
         }
-      }
-    } else {
-      setGuide(result);
-      // Save study guide to canvas_data blob
-      const dbId = getCourseDbId();
-      if (!dbId) {
-        setToast("⚠️ Couldn't link to course — guide shown but not saved. Try re-syncing Canvas.");
       } else {
-        const { error: saveErr } = await supabase.from("canvas_data").upsert(
-          { user_id: userId, data_type: `study_guide_${dbId}`, payload: { text: result }, synced_at: new Date().toISOString() },
-          { onConflict: "user_id,data_type" }
-        );
-        if (saveErr) {
-          console.error("[Study] guide save failed:", saveErr.message);
-          setToast("⚠️ Guide generated but couldn't save: " + saveErr.message);
+        setGuide(result);
+        if (!dbId) {
+          setToast("⚠️ Couldn't link to course — guide shown but not saved. Try re-syncing Canvas.");
         } else {
-          setToast("✓ Study guide saved!");
+          const { error: saveErr } = await supabase.from("canvas_data").upsert(
+            { user_id: userId, data_type: `study_guide_${dbId}`, payload: { text: result }, synced_at: new Date().toISOString() },
+            { onConflict: "user_id,data_type" }
+          );
+          if (saveErr) {
+            console.error("[Study] guide save failed:", saveErr.message);
+            setToast("⚠️ Guide generated but couldn't save: " + saveErr.message);
+          } else {
+            setToast("✓ Study guide saved!");
+          }
         }
       }
+    } catch (err) {
+      console.error("[Study] generate error:", err.message);
+      setToast("⚠️ Generation failed — " + (err.message ?? "unexpected error"));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   if (inSession && flashcards.length > 0) {
@@ -883,7 +915,7 @@ export default function Study() {
           alignItems: "center",
           gap: "8px",
         }}>
-          <span style={{ color: "rgba(255,200,80,0.8)", fontSize: "14px" }}>⚠</span>
+          {toast.startsWith("⚠️") && <span style={{ color: "rgba(255,200,80,0.8)", fontSize: "14px" }}>⚠</span>}
           {toast}
         </div>
       )}
