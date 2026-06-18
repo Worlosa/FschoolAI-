@@ -75,18 +75,28 @@ async function generateAndSaveFlashcards(userId, courseDbId, courseName, assignm
     const data = await res.json();
     const text = data.content ?? '';
 
-    const cards = text
-      .split('\n')
-      .filter(line => line.includes('Q:') && line.includes(' | ') && line.includes('A:'))
-      .map((line, i) => {
+    const allLines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const cards = [];
+    const pipeLines = allLines.filter(l => l.includes('Q:') && l.includes(' | ') && l.includes('A:'));
+    if (pipeLines.length > 0) {
+      pipeLines.forEach((line, i) => {
         const [qPart, aPart] = line.split(' | ');
-        return {
-          id:       i,
-          question: (qPart || '').replace(/^Q:\s*/i, '').trim(),
-          answer:   (aPart || '').replace(/^A:\s*/i, '').trim(),
-        };
-      })
-      .filter(c => c.question && c.answer);
+        const question = (qPart || '').replace(/^(?:\d+[\.\)]\s*)?(?:\*+)?Q:\s*(?:\*+)?/i, '').trim();
+        const answer   = (aPart || '').replace(/^(?:\d+[\.\)]\s*)?(?:\*+)?A:\s*(?:\*+)?/i, '').trim();
+        if (question && answer) cards.push({ id: i, question, answer });
+      });
+    } else {
+      for (let i = 0; i < allLines.length - 1; i++) {
+        const qMatch = allLines[i].match(/^(?:\d+[\.\)]\s*)?(?:\*+)?Q:\s*(?:\*+)?(.+)/i);
+        if (qMatch) {
+          const aMatch = allLines[i + 1].match(/^(?:\*+)?A:\s*(?:\*+)?(.+)/i);
+          if (aMatch) {
+            cards.push({ id: cards.length, question: qMatch[1].trim(), answer: aMatch[1].trim() });
+            i++;
+          }
+        }
+      }
+    }
 
     if (!cards.length) return null;
 

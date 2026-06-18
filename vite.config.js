@@ -59,6 +59,7 @@ import { resolve }      from "path";
 import tutorContextHandler from "./api/tutor-context.js";
 import extractHandler from "./api/extract.js";
 import fileUrlHandler from "./api/file-url.js";
+import flashcardsHandler from "./api/flashcards.js";
 
 function loadEnvKey(key) {
   // Read .env.local first (Vite's convention, where users put local secrets), then
@@ -445,6 +446,32 @@ const tokenEngineProxyPlugin = {
   },
 };
 
+// Flashcards proxy — runs the real api/flashcards.js handler under the dev server
+// so save/load uses the service key (bypasses RLS) with `npm run dev`.
+const flashcardsProxyPlugin = {
+  name: "flashcards-proxy",
+  configureServer(server) {
+    server.middlewares.use("/api/flashcards", async (req, res) => {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      if (req.method === "OPTIONS") { res.statusCode = 200; res.end(); return; }
+      process.env.SUPABASE_URL         = loadEnvKey("SUPABASE_URL");
+      process.env.SUPABASE_SERVICE_KEY = loadEnvKey("SUPABASE_SERVICE_KEY");
+      let body = "";
+      req.on("data", c => { body += c; });
+      req.on("end", async () => {
+        try { req.body = body ? JSON.parse(body) : {}; } catch { req.body = {}; }
+        res.status = (code) => { res.statusCode = code; return res; };
+        res.json   = (obj)  => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(obj)); };
+        try { await flashcardsHandler(req, res); }
+        catch (err) {
+          res.statusCode = 502; res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ error: err.message }));
+        }
+      });
+    });
+  },
+};
+
 // Nudge proxy — runs the real api/nudge.ts handler under the dev server so the
 // rate-limited "come study" friend nudge (nudge-row insert + Resend email
 // fallback) works with `npm run dev`. Same module-load env caveat as above →
@@ -479,6 +506,6 @@ const nudgeProxyPlugin = {
 };
 
 export default defineConfig({
-  plugins: [react(), canvasProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin, fileUrlProxyPlugin, authMigrateProxyPlugin, ragProxyPlugin, tokenEngineProxyPlugin, nudgeProxyPlugin],
+  plugins: [react(), canvasProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin, fileUrlProxyPlugin, authMigrateProxyPlugin, ragProxyPlugin, tokenEngineProxyPlugin, nudgeProxyPlugin, flashcardsProxyPlugin],
   server:  { port: 5173, host: "0.0.0.0", allowedHosts: true },
 });
