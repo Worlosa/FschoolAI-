@@ -17,6 +17,7 @@ import { claude }      from "../api/claude";
 import { useApp }      from "../context/AppContext";
 import { supabase }    from "../api/supabase";
 import { awardTokens } from "../api/tokens";
+import { sanitizeApiMessages } from "../lib/chatMessages";
 import ArtifactPanel   from "./ArtifactPanel";
 
 // ── Claude proxy helper (tutor brain — better quality than Groq for conversation) ──
@@ -318,7 +319,12 @@ function buildChatSystem(courseOptions, userData, assignments, flashcardMap, syl
     ? `Last session: ${lastSession}`
     : "";
 
-  return `You are a sharp, direct academic AI tutor. You know this student — their patterns, their work habits, their actual courses. Answer in 1-3 sentences unless the student asks for more detail.
+  return `You are a sharp, direct academic AI tutor. You know this student — their patterns, work habits, courses, and any study materials they've uploaded. Answer in 1-3 sentences unless the student asks for more detail.
+
+USING THE STUDENT'S MATERIALS:
+- If a "SOURCE MATERIAL" section appears later in this prompt, those are passages from the student's OWN uploaded documents. Treat them as authoritative, answer directly from them, and cite inline as [1], [2], etc.
+- NEVER claim you have "nothing indexed" or that you can't see their materials when a SOURCE MATERIAL section is present.
+- Canvas is only ONE optional way to add materials — the student can also upload files directly, and many will. Do NOT push them to sync Canvas and never imply it's required. Only bring up Canvas if they explicitly ask about live grades/assignments you don't currently have.
 
 STUDENT DATA:
 ${userContext || "No user data yet"}
@@ -364,7 +370,7 @@ CRITICAL — quiz content rules:
 - Questions MUST come from the student's actual courses, assignments, syllabus, and modules listed in your context above. NEVER generic trivia (no "capital of France", no general knowledge).
 - If the student names a course, quiz only on that course's material.
 - If no course is specified, quiz on the course with the nearest upcoming deadline.
-- If you have no course content in context at all, do NOT generate a quiz. Instead reply: "I need your Canvas synced to quiz you on real material — head to the Canvas page to connect."
+- If you have no course content AND no uploaded SOURCE MATERIAL in context at all, don't generate generic trivia — ask them to upload notes or a PDF (or optionally sync Canvas) first.
 
 VOICE CONTROL: When the student asks you to change how you sound or perform a voice action, include ONE hidden tag at the very end of your reply (stripped before display):
   [VOICE:<exactName>]  when they ask for a different voice — pick the BEST match from available voices below by scoring accent, gender, age, descriptive labels. Confirm in speech which voice and why.
@@ -2153,6 +2159,31 @@ export default function NeuralRing() {
       // ── Dynamic context fetch (chatbot agent upgrade) ─────────────────────
       // Fires in parallel — if it resolves before Claude, gets injected into prompt.
       // The merged /api/tutor-context now also classifies file_lookup and surfaces
+      // synced extension files, so the tutor can answer about them on this path.
+      // Static student context is preloaded on mount + cached (see preloadedContext).
+      // RAG source material is query-specific, so it's fetched per message here.
+      let ragContext = null;
+      abortCtrlRef.current = new AbortController();
+      const ragFetch = fetch("/api/rag?action=query", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, query: userMsg.content }),
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+          const passages = d?.passages ?? [];
+          console.log("[rag] retrieved", passages.length, "passage(s) for grounding");
+          if (passages.length) {
+            ragContext = passages.map((p, i) =>
+              `[${i + 1}] ${p.title}${p.heading ? " — " + p.heading : ""}${p.loc ? " (" + p.loc + ")" : ""}\n${p.text}`
+            ).join("\n\n");
+          }
+        })
+        .catch(() => {});
+
+      // Wait briefly so retrieval can ground the reply, but never block the chat for long.
+      await Promise.race([ragFetch, new Promise(r => setTimeout(r, 3000))]);
+
       console.log("[vdiag] system-prompt gate | voiceModeRef.current:", voiceModeRef.current, "→ using:", voiceModeRef.current ? "buildVoiceSystem" : "buildChatSystem");
       const system = voiceModeRef.current
         ? buildVoiceSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, availableVoices, leaderboardRank)
@@ -2160,30 +2191,28 @@ export default function NeuralRing() {
 
       abortCtrlRef.current = new AbortController();
 
-      // Use preloaded context (fetched on mount) with Anthropic prompt caching.
-      // Sending system as an array with cache_control tells Anthropic to cache
-      // the context block across messages — no per-message Supabase fetch needed.
-      const finalSystem = preloadedContext
-        ? [
-            { type: "text", text: system },
-            { type: "text", text: `LIVE CONTEXT (pre-loaded):\n${preloadedContext}`, cache_control: { type: "ephemeral" } },
-          ]
-        : system;
+      // Base context = student context preloaded on mount + cached via Anthropic
+      // prompt caching (PR #12). RAG source material is query-specific, so it goes in
+      // its own block (kept out of the cached prefix, which must stay stable).
+      const ragBlock = ragContext
+        ? `SOURCE MATERIAL — passages from the student's own uploaded documents. When you use one, ground your answer in it and cite it inline as [n].\n\n${ragContext}`
+        : "";
+      let finalSystem;
+      if (preloadedContext) {
+        finalSystem = [
+          { type: "text", text: system },
+          { type: "text", text: `LIVE CONTEXT (pre-loaded):\n${preloadedContext}`, cache_control: { type: "ephemeral" } },
+        ];
+        if (ragBlock) finalSystem.push({ type: "text", text: ragBlock });
+      } else {
+        finalSystem = ragBlock ? `${system}\n\n${ragBlock}` : system;
+      }
 
       // Use Claude for tutor brain; fall back to Groq if key missing
       // Strip UI-only props (hasArtifact) so they don't reach the Anthropic/Groq API
-      // Sanitize history before sending: drop empty/whitespace messages (failed
-      // turns can leave empty assistant rows) and merge consecutive same-role
-      // turns, so the conversation is always valid for the Anthropic API.
-      const apiMessages = [...messages, userMsg]
-        .map(({ role, content }) => ({ role, content: typeof content === "string" ? content : "" }))
-        .filter(m => m.content.trim().length > 0)
-        .reduce((acc, m) => {
-          const last = acc[acc.length - 1];
-          if (last && last.role === m.role) last.content += "\n\n" + m.content;
-          else acc.push({ ...m });
-          return acc;
-        }, []);
+      // Sanitize history before sending (drop empties + merge consecutive same-role
+      // turns) so the conversation is always valid for the Anthropic API.
+      const apiMessages = sanitizeApiMessages([...messages, userMsg]);
       // Inject barge-in interrupted context so Claude can merge vs switch intent
       const interruptText = interruptedTextRef.current;
       interruptedTextRef.current = null;
