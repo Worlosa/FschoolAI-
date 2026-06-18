@@ -3,8 +3,9 @@
 // /api/rag?action=ingest, which sections + chunks + embeds them. Once indexed,
 // the tutor (NeuralRing) can answer grounded in the content with [n] citations.
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { useApp } from "../context/AppContext";
+import { supabase } from "../api/supabase";
 
 const ACCEPT = ".pdf,.txt,.md,.markdown,.html";
 
@@ -26,8 +27,32 @@ export default function DocUpload() {
   const [showPaste, setShowPaste] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const [pasteTitle, setPasteTitle] = useState("");
+  const [docs, setDocs] = useState([]); // already-indexed documents for this user
 
   const busy = status === "reading" || status === "extracting" || status === "indexing";
+
+  // Load the user's indexed documents; re-runs when an upload finishes (status → done).
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from("rag_documents")
+          .select("id, title, kind, created_at")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false })
+          .limit(50);
+        if (!cancelled) setDocs(data ?? []);
+      } catch { /* table may not exist yet */ }
+    })();
+    return () => { cancelled = true; };
+  }, [userId, status]);
+
+  async function deleteDoc(id) {
+    setDocs(prev => prev.filter(d => d.id !== id)); // optimistic
+    try { await supabase.from("rag_documents").delete().eq("id", id); } catch { /* non-fatal */ }
+  }
 
   async function ingest({ text = null, pages = null, title, kind }: any) {
     if (!userId) { setStatus("error"); setMessage("Not signed in."); return; }
@@ -188,6 +213,35 @@ export default function DocUpload() {
         <p style={{ color: statusColor, fontSize: "12px", marginTop: "12px", lineHeight: 1.5 }}>
           {message}
         </p>
+      )}
+
+      {/* Indexed documents — these are searchable by the tutor (separate from
+          portal-synced files below). */}
+      {docs.length > 0 && (
+        <div style={{ marginTop: "14px", borderTop: "1px solid var(--color-border)", paddingTop: "12px" }}>
+          <p style={{ color: "var(--text-dim)", fontSize: "11px", letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: "8px" }}>
+            Indexed materials ({docs.length})
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            {docs.map(d => (
+              <div key={d.id} style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <span style={{ flex: 1, minWidth: 0, color: "var(--text-secondary)", fontSize: "13px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {d.title}
+                </span>
+                <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "0.5px", textTransform: "uppercase", color: "var(--text-dim)", flexShrink: 0 }}>
+                  {d.kind}
+                </span>
+                <button
+                  onClick={() => deleteDoc(d.id)}
+                  title="Remove from index"
+                  style={{ background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", fontSize: "17px", lineHeight: 1, padding: "0 2px", flexShrink: 0 }}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );

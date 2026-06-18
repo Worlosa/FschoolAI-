@@ -319,7 +319,12 @@ function buildChatSystem(courseOptions, userData, assignments, flashcardMap, syl
     ? `Last session: ${lastSession}`
     : "";
 
-  return `You are a sharp, direct academic AI tutor. You know this student — their patterns, their work habits, their actual courses. Answer in 1-3 sentences unless the student asks for more detail.
+  return `You are a sharp, direct academic AI tutor. You know this student — their patterns, work habits, courses, and any study materials they've uploaded. Answer in 1-3 sentences unless the student asks for more detail.
+
+USING THE STUDENT'S MATERIALS:
+- If a "SOURCE MATERIAL" section appears later in this prompt, those are passages from the student's OWN uploaded documents. Treat them as authoritative, answer directly from them, and cite inline as [1], [2], etc.
+- NEVER claim you have "nothing indexed" or that you can't see their materials when a SOURCE MATERIAL section is present.
+- Canvas is only ONE optional way to add materials — the student can also upload files directly, and many will. Do NOT push them to sync Canvas and never imply it's required. Only bring up Canvas if they explicitly ask about live grades/assignments you don't currently have.
 
 STUDENT DATA:
 ${userContext || "No user data yet"}
@@ -365,7 +370,7 @@ CRITICAL — quiz content rules:
 - Questions MUST come from the student's actual courses, assignments, syllabus, and modules listed in your context above. NEVER generic trivia (no "capital of France", no general knowledge).
 - If the student names a course, quiz only on that course's material.
 - If no course is specified, quiz on the course with the nearest upcoming deadline.
-- If you have no course content in context at all, do NOT generate a quiz. Instead reply: "I need your Canvas synced to quiz you on real material — head to the Canvas page to connect."
+- If you have no course content AND no uploaded SOURCE MATERIAL in context at all, don't generate generic trivia — ask them to upload notes or a PDF (or optionally sync Canvas) first.
 
 VOICE CONTROL: When the student asks you to change how you sound or perform a voice action, include ONE hidden tag at the very end of your reply (stripped before display):
   [VOICE:<exactName>]  when they ask for a different voice — pick the BEST match from available voices below by scoring accent, gender, age, descriptive labels. Confirm in speech which voice and why.
@@ -2155,6 +2160,7 @@ export default function NeuralRing() {
         .then(r => r.ok ? r.json() : null)
         .then(d => {
           const passages = d?.passages ?? [];
+          console.log("[rag] retrieved", passages.length, "passage(s) for grounding");
           if (passages.length) {
             ragContext = passages.map((p, i) =>
               `[${i + 1}] ${p.title}${p.heading ? " — " + p.heading : ""}${p.loc ? " (" + p.loc + ")" : ""}\n${p.text}`
