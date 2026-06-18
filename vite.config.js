@@ -117,6 +117,7 @@ const groqProxyPlugin = {
 };
 
 // Claude proxy plugin — forwards /api/claude POST to Anthropic from dev server.
+// Supports both streaming (stream:true for AI buddy) and non-streaming responses.
 const claudeProxyPlugin = {
   name: "claude-proxy",
   configureServer(server) {
@@ -132,11 +133,43 @@ const claudeProxyPlugin = {
           res.end(JSON.stringify({ error: "ANTHROPIC_API_KEY not set in .env" })); return;
         }
         try {
-          const { messages, system, max_tokens = 1024, tools } = JSON.parse(body);
+          const { messages, system, max_tokens = 1024, tools, stream } = JSON.parse(body);
+          const model = loadEnvKey("ANTHROPIC_MODEL") || "claude-haiku-4-5-20251001";
+          const upstreamBody = { model, max_tokens, ...(system ? { system } : {}), ...(Array.isArray(tools) && tools.length ? { tools } : {}), messages };
+
+          // ── Streaming path (AI buddy uses stream:true) ──────────────────────
+          if (stream) {
+            upstreamBody.stream = true;
+            const upstream = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: { "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+              body: JSON.stringify(upstreamBody),
+            });
+            if (!upstream.ok) {
+              const errText = await upstream.text();
+              res.statusCode = 502; res.setHeader("Content-Type", "application/json");
+              res.end(JSON.stringify({ error: `Anthropic ${upstream.status}`, detail: errText.slice(0, 200) })); return;
+            }
+            res.setHeader("Content-Type", "text/event-stream");
+            res.setHeader("Cache-Control", "no-cache");
+            res.setHeader("Connection", "keep-alive");
+            res.setHeader("X-Accel-Buffering", "no");
+            const reader = upstream.body.getReader();
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                res.write(value);
+              }
+            } finally { res.end(); }
+            return;
+          }
+
+          // ── Non-streaming path ──────────────────────────────────────────────
           const upstream = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: { "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-            body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens, ...(system ? { system } : {}), ...(Array.isArray(tools) && tools.length ? { tools } : {}), messages }),
+            body: JSON.stringify(upstreamBody),
           });
           const data = await upstream.json();
           res.statusCode = upstream.ok ? 200 : upstream.status;

@@ -173,6 +173,7 @@ function Lobby({ onJoin, totalOnline, roomCounts, pendingInvites = [], onDismiss
   const [codeInput,    setCodeInput]    = useState("");
   const [codeError,    setCodeError]    = useState("");
   const [codeLookingUp, setCodeLookingUp] = useState(false);
+  const [activeFilter, setActiveFilter] = useState("all");
   const lobbyChannelRef = useRef(null);
   const onJoinRef       = useRef(onJoin);
   useEffect(() => { onJoinRef.current = onJoin; }, [onJoin]);
@@ -332,34 +333,89 @@ function Lobby({ onJoin, totalOnline, roomCounts, pendingInvites = [], onDismiss
 
   const S = styles;
 
+  const FILTERS      = ["all", "public", "private", "friends"];
+  const FILTER_LABELS: Record<string, string> = { all: "All", public: "Public", private: "Private", friends: "Friends" };
+
+  const filteredRooms = rooms.filter(room => {
+    if (activeFilter === "public")  return room.room_type === "public";
+    if (activeFilter === "private") return room.room_type === "invite";
+    if (activeFilter === "friends") return false;
+    return true;
+  });
+
+  const emptyMsg = ({
+    all:     { title: "No active rooms", sub: "Create one and start studying together!" },
+    public:  { title: "No public rooms", sub: "Create a public room — anyone can join." },
+    private: { title: "No private rooms", sub: "Create an invite-only room for your group." },
+    friends: { title: "No friend rooms yet", sub: "Invite friends from Identity, then start a room together." },
+  } as Record<string, { title: string; sub: string }>)[activeFilter];
+
   return (
     <div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"28px" }}>
+      {/* ── Header ─────────────────────────────────────────────── */}
+      <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:"12px", marginBottom:"22px" }}>
         <div>
           <p style={S.sectionLabel}>Study Rooms</p>
           <h1 style={S.pageTitle}>Study Together</h1>
-          {totalOnline > 0 ? (
-            <p style={{ fontSize:"13px", color:"var(--color-accent)", marginTop:"5px", display:"flex", alignItems:"center", gap:"6px" }}>
-              <span style={{ width:7, height:7, borderRadius:"50%", background:"var(--color-accent)", display:"inline-block" }}/>
-              {totalOnline} {totalOnline === 1 ? "student" : "students"} studying now
-            </p>
-          ) : (
-            <p style={{ fontSize:"13px", color:"var(--text-secondary)", marginTop:"5px" }}>
-              Join a room, stay focused, study together.
-            </p>
+          {totalOnline > 0 && (
+            <div style={{
+              display:"inline-flex", alignItems:"center", gap:"6px", marginTop:"8px",
+              background:"rgba(196,154,60,0.08)", border:"1px solid rgba(196,154,60,0.2)",
+              borderRadius:"20px", padding:"4px 10px 4px 8px",
+            }}>
+              <span style={{ width:7, height:7, borderRadius:"50%", background:"var(--color-accent)", flexShrink:0,
+                display:"inline-block", boxShadow:"0 0 0 2px rgba(196,154,60,0.2)" }} />
+              <span style={{ fontSize:"13px", fontWeight:"700", color:"var(--color-accent)" }}>
+                {totalOnline} {totalOnline === 1 ? "student" : "students"} studying now
+              </span>
+            </div>
           )}
         </div>
-        <button onClick={() => setShowCreate(true)} style={S.primaryBtn}>
+        <button onClick={() => setShowCreate(true)} style={{ ...S.primaryBtn, whiteSpace:"nowrap", flexShrink:0 }}>
           + Create Room
         </button>
       </div>
 
+      {/* ── Join with code ─────────────────────────────────────── */}
+      <div style={{
+        display:"flex", gap:"8px", alignItems:"center", marginBottom:"6px",
+        background:"rgba(255,255,255,0.025)", border:"1px solid rgba(255,255,255,0.07)",
+        borderRadius:"12px", padding:"9px 12px", transition:"border-color 0.15s",
+      }}
+        onFocusCapture={e => ((e.currentTarget as HTMLDivElement).style.borderColor = "rgba(196,154,60,0.25)")}
+        onBlurCapture={e  => ((e.currentTarget as HTMLDivElement).style.borderColor = "rgba(255,255,255,0.07)")}
+      >
+        <input
+          value={codeInput}
+          onChange={e => { setCodeInput(e.target.value.toUpperCase().slice(0, 6)); setCodeError(""); }}
+          onKeyDown={e => e.key === "Enter" && handleJoinByCode()}
+          placeholder="Enter room code…"
+          maxLength={6}
+          style={{
+            flex:1, background:"transparent", border:"none",
+            color:"var(--text-primary)", fontSize:"13px",
+            outline:"none", fontFamily:"monospace", letterSpacing:"3px",
+          }}
+        />
+        <button
+          onClick={handleJoinByCode}
+          disabled={codeInput.length < 6 || codeLookingUp}
+          style={{ ...S.accentBtn, padding:"6px 14px", fontSize:"12px", opacity: codeInput.length < 6 ? 0.35 : 1, flexShrink:0 }}
+        >
+          {codeLookingUp ? "…" : "Join →"}
+        </button>
+      </div>
+      {codeError && (
+        <p style={{ fontSize:"12px", color:"rgba(255,100,90,0.8)", marginBottom:"10px", paddingLeft:"4px" }}>{codeError}</p>
+      )}
+
+      {/* ── Pending invites ────────────────────────────────────── */}
       {pendingInvites.length > 0 && (
-        <div style={{ marginBottom:"16px", display:"flex", flexDirection:"column", gap:"8px" }}>
+        <div style={{ display:"flex", flexDirection:"column", gap:"8px", margin:"14px 0" }}>
           {pendingInvites.map(inv => (
             <div key={inv.id} style={{
-              background:"rgba(196,154,60,0.08)", border:"1px solid rgba(196,154,60,0.25)",
-              borderRadius:"12px", padding:"12px 16px",
+              background:"rgba(196,154,60,0.06)", border:"1px solid rgba(196,154,60,0.2)",
+              borderRadius:"12px", padding:"11px 16px",
               display:"flex", alignItems:"center", justifyContent:"space-between", gap:"12px",
             }}>
               <p style={{ fontSize:"13px", color:"var(--text-secondary)", flex:1, minWidth:0 }}>
@@ -374,56 +430,58 @@ function Lobby({ onJoin, totalOnline, roomCounts, pendingInvites = [], onDismiss
         </div>
       )}
 
-      {loading ? (
-        <p style={{ color:"var(--text-dim)", fontSize:"14px" }}>Loading rooms…</p>
-      ) : rooms.length === 0 ? (
-        <div style={S.emptyState}>
-          <p style={{ color:"var(--text-secondary)", fontSize:"15px", fontWeight:"500", marginBottom:"6px" }}>No active rooms</p>
-          <p style={{ color:"var(--text-dim)", fontSize:"13px" }}>Create one and invite friends to study together.</p>
-        </div>
-      ) : (
-        <div style={{ display:"flex", flexDirection:"column", gap:"10px" }}>
-          {rooms.map(room => (
-            <RoomCard
-              key={room.id}
-              room={room}
-              liveCount={roomCounts[room.id] || 0}
-              joining={joiningId === room.id}
-              pendingStatus={pendingReqs[room.id]}
-              onJoin={() => handleJoin(room)}
-            />
+      {/* ── Filter tabs + refresh ───────────────────────────────── */}
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", margin:"18px 0 14px" }}>
+        <div style={{ display:"flex", gap:"2px", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:"20px", padding:"3px" }}>
+          {FILTERS.map(f => (
+            <button
+              key={f}
+              onClick={() => setActiveFilter(f)}
+              style={{
+                padding:"5px 14px", borderRadius:"16px",
+                border: activeFilter === f ? "1px solid rgba(196,154,60,0.28)" : "1px solid transparent",
+                fontSize:"12px", fontWeight: activeFilter === f ? "600" : "500",
+                cursor:"pointer", fontFamily:"inherit",
+                background: activeFilter === f ? "rgba(196,154,60,0.15)" : "transparent",
+                color: activeFilter === f ? "var(--color-accent)" : "var(--text-secondary)",
+                transition:"all 0.15s",
+              }}
+            >
+              {FILTER_LABELS[f]}
+            </button>
           ))}
         </div>
-      )}
-
-      <div style={{ display:"flex", alignItems:"center", gap:"8px", marginTop:"16px", marginBottom:"4px" }}>
-        <button onClick={fetchRooms} style={{ ...S.ghostBtn, marginTop:0 }}>↻ Refresh</button>
-        <div style={{ display:"flex", gap:"6px", flex:1 }}>
-          <input
-            value={codeInput}
-            onChange={e => { setCodeInput(e.target.value.toUpperCase().slice(0, 6)); setCodeError(""); }}
-            onKeyDown={e => e.key === "Enter" && handleJoinByCode()}
-            placeholder="Room code (e.g. FS7K2P)"
-            maxLength={6}
-            style={{
-              flex:1, background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.09)",
-              borderRadius:"8px", padding:"7px 12px", color:"var(--text-primary)", fontSize:"13px",
-              outline:"none", fontFamily:"monospace", letterSpacing:"2px", transition:"border-color 0.15s",
-            }}
-            onFocus={e => (e.target.style.borderColor="rgba(255,255,255,0.22)")}
-            onBlur={e  => (e.target.style.borderColor="rgba(255,255,255,0.09)")}
-          />
-          <button
-            onClick={handleJoinByCode}
-            disabled={codeInput.length < 6 || codeLookingUp}
-            style={{ ...S.accentBtn, padding:"7px 14px", fontSize:"12px", opacity: codeInput.length < 6 ? 0.4 : 1 }}
-          >
-            {codeLookingUp ? "…" : "Join"}
-          </button>
-        </div>
+        <button onClick={fetchRooms} style={{ ...S.ghostBtn, marginTop:0, padding:"5px 10px", fontSize:"13px" }}>↻</button>
       </div>
-      {codeError && (
-        <p style={{ fontSize:"12px", color:"rgba(255,100,90,0.8)", marginTop:"4px" }}>{codeError}</p>
+
+      {/* ── Room grid ───────────────────────────────────────────── */}
+      {loading ? (
+        <p style={{ color:"var(--text-dim)", fontSize:"14px", textAlign:"center", padding:"40px 0" }}>Loading rooms…</p>
+      ) : filteredRooms.length === 0 ? (
+        <div style={{ ...S.emptyState, padding:"40px 24px" }}>
+          <p style={{ color:"var(--text-secondary)", fontSize:"15px", fontWeight:"600", marginBottom:"6px" }}>{emptyMsg.title}</p>
+          <p style={{ color:"var(--text-dim)", fontSize:"13px" }}>{emptyMsg.sub}</p>
+        </div>
+      ) : (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(260px, 1fr))", gap:"14px" }}>
+          {filteredRooms.map(room => {
+            const courseMatch = courses?.find(c => Number(c.dbId) === room.course_id);
+            const courseLabel = courseMatch
+              ? (courseMatch.courseCode ? `${courseMatch.courseCode} — ${courseMatch.name}` : courseMatch.name)
+              : null;
+            return (
+              <RoomCard
+                key={room.id}
+                room={room}
+                liveCount={roomCounts[room.id] || 0}
+                joining={joiningId === room.id}
+                pendingStatus={pendingReqs[room.id]}
+                courseLabel={courseLabel}
+                onJoin={() => handleJoin(room)}
+              />
+            );
+          })}
+        </div>
       )}
 
       {showCreate && (
@@ -438,40 +496,102 @@ function Lobby({ onJoin, totalOnline, roomCounts, pendingInvites = [], onDismiss
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RoomCard
+// RoomCard — tile layout for the lobby grid
 // ─────────────────────────────────────────────────────────────────────────────
-function RoomCard({ room, liveCount, joining, pendingStatus, onJoin }) {
-  const S = styles;
+function RoomCard({ room, liveCount, joining, pendingStatus, courseLabel, onJoin }: {
+  room: any; liveCount: number; joining: boolean; pendingStatus: string | undefined;
+  courseLabel: string | null; onJoin: () => void;
+}) {
+  const isPrivate = room.room_type === "invite";
   const btnLabel =
-    pendingStatus === "accepted"  ? "Accepted! Joining…" :
+    pendingStatus === "accepted"  ? "Joining…" :
     pendingStatus === "joined"    ? "Re-enter" :
-    pendingStatus === "requested" ? "Waiting for host…" :
+    pendingStatus === "requested" ? "Waiting…" :
     joining                       ? "Joining…" :
-    room.room_type === "invite"   ? "Request to join" : "Join";
+    isPrivate                     ? "Request" : "Join →";
   const btnDisabled = joining || pendingStatus === "requested" || pendingStatus === "accepted";
+
   return (
-    <div style={S.card}>
-      <div style={{ flex:1, minWidth:0 }}>
-        <p style={{ color:"var(--text-primary)", fontSize:"15px", fontWeight:"600" }}>{room.name}</p>
-        <div style={{ display:"flex", alignItems:"center", gap:"10px", marginTop:"4px" }}>
-          <span style={{ fontSize:"11px", color:"var(--text-dim)" }}>
-            {room.room_type === "invite" ? "🔒 Invite only" : "🌐 Public"}
-          </span>
-          {liveCount > 0 && (
-            <span style={{ fontSize:"11px", color:"var(--color-accent)", display:"flex", alignItems:"center", gap:"4px" }}>
-              <span style={{ width:5, height:5, borderRadius:"50%", background:"var(--color-accent)", display:"inline-block" }}/>
-              {liveCount} studying
-            </span>
-          )}
-        </div>
+    <div
+      style={{
+        background: "var(--color-surface)",
+        border: "1px solid var(--color-border)",
+        borderRadius: "14px",
+        padding: "20px",
+        display: "flex", flexDirection: "column", gap: "0",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+        transition: "border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease",
+      }}
+      onMouseEnter={e => {
+        (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(255,255,255,0.13)";
+        (e.currentTarget as HTMLDivElement).style.boxShadow   = "0 4px 16px rgba(0,0,0,0.18)";
+        (e.currentTarget as HTMLDivElement).style.transform   = "translateY(-1px)";
+      }}
+      onMouseLeave={e => {
+        (e.currentTarget as HTMLDivElement).style.borderColor = "var(--color-border)";
+        (e.currentTarget as HTMLDivElement).style.boxShadow   = "0 1px 3px rgba(0,0,0,0.1)";
+        (e.currentTarget as HTMLDivElement).style.transform   = "translateY(0)";
+      }}
+    >
+      {/* Room name + type badge */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px", marginBottom: "8px" }}>
+        <p style={{
+          fontSize: "15px", fontWeight: "600", fontFamily: "'Fraunces', serif",
+          color: "var(--text-primary)", lineHeight: "1.3",
+          flex: 1, minWidth: 0, wordBreak: "break-word", margin: 0,
+        }}>
+          {room.name}
+        </p>
+        <span style={{
+          fontSize: "10px", fontWeight: "700", letterSpacing: "0.6px",
+          textTransform: "uppercase",
+          padding: "3px 8px", borderRadius: "5px", flexShrink: 0, whiteSpace: "nowrap",
+          background: isPrivate ? "rgba(196,100,100,0.08)" : "rgba(127,174,110,0.08)",
+          color: isPrivate ? "rgba(210,110,110,0.85)" : "rgba(110,185,120,0.85)",
+          border: `1px solid ${isPrivate ? "rgba(196,100,100,0.15)" : "rgba(127,174,110,0.15)"}`,
+        }}>
+          {isPrivate ? "Private" : "Public"}
+        </span>
       </div>
-      <button
-        onClick={onJoin}
-        disabled={btnDisabled}
-        style={{ ...S.accentBtn, opacity: btnDisabled ? 0.5 : 1, cursor: btnDisabled ? "default" : "pointer", fontSize:"12px", padding:"7px 14px" }}
-      >
-        {btnLabel}
-      </button>
+
+      {/* Course label */}
+      {courseLabel && (
+        <p style={{ fontSize: "12px", color: "var(--text-dim)", margin: "0 0 12px", lineHeight: "1.4" }}>
+          {courseLabel}
+        </p>
+      )}
+
+      {/* Divider */}
+      <div style={{ height: "1px", background: "rgba(255,255,255,0.05)", margin: courseLabel ? "0 0 12px" : "8px 0 12px" }} />
+
+      {/* Live count + action */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+        {liveCount > 0 ? (
+          <span style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "var(--color-accent)" }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--color-accent)", display: "inline-block", flexShrink: 0 }}/>
+            {liveCount} focusing
+          </span>
+        ) : (
+          <span style={{ fontSize: "12px", color: "var(--text-dim)" }}>No one yet</span>
+        )}
+        <button
+          onClick={onJoin}
+          disabled={btnDisabled}
+          style={{
+            padding: "7px 16px", borderRadius: "8px",
+            fontSize: "12px", fontWeight: "600",
+            cursor: btnDisabled ? "default" : "pointer",
+            fontFamily: "inherit", flexShrink: 0,
+            background: btnDisabled ? "rgba(255,255,255,0.04)" : "rgba(196,154,60,0.1)",
+            color: btnDisabled ? "var(--text-dim)" : "var(--color-accent)",
+            border: `1px solid ${btnDisabled ? "rgba(255,255,255,0.07)" : "rgba(196,154,60,0.25)"}`,
+            opacity: pendingStatus === "requested" ? 0.6 : 1,
+            transition: "opacity 0.15s",
+          }}
+        >
+          {btnLabel}
+        </button>
+      </div>
     </div>
   );
 }
@@ -1663,7 +1783,7 @@ function MemberCard({ member, isMe }) {
 // ─────────────────────────────────────────────────────────────────────────────
 const styles: Record<string, React.CSSProperties> = {
   sectionLabel:   { fontSize:"11px", color:"var(--text-dim)", letterSpacing:"2px", textTransform:"uppercase", marginBottom:"6px" },
-  pageTitle:      { fontSize:"26px", fontWeight:"600", color:"var(--text-primary)", letterSpacing:"-0.3px" },
+  pageTitle:      { fontSize:"26px", fontWeight:"600", color:"var(--text-primary)", letterSpacing:"-0.3px", fontFamily:"'Fraunces', serif" },
   card:           { background:"var(--color-surface)", border:"1px solid var(--color-border)", borderRadius:"var(--radius-card)", boxShadow:"var(--depth-line)", padding:"16px 18px", display:"flex", alignItems:"center", gap:"14px" },
   emptyState:     { background:"var(--color-surface)", border:"1px solid var(--color-border)", borderRadius:"var(--radius-card)", padding:"32px 24px", textAlign:"center" },
   input:          { display:"block", width:"100%", background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:"10px", padding:"11px 14px", color:"var(--text-primary)", fontSize:"14px", outline:"none", fontFamily:"inherit", boxSizing:"border-box", marginTop:"6px", marginBottom:"14px", transition:"border-color 0.15s" },
