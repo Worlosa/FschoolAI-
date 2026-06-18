@@ -5,6 +5,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useApp } from "../context/AppContext";
 import { supabase } from "../api/supabase";
+import { awardTokens } from "../api/tokens";
+import { sendNudge } from "../api/nudge";
+import StudyOrb from "../components/StudyOrb";
 
 // ── Room code generator ───────────────────────────────────────────────────────
 // Unambiguous chars (no 0/O, 1/I/L). 6 chars = 32^6 = ~1B combinations.
@@ -147,13 +150,14 @@ export default function StudyRooms() {
   }, []);
 
   if (view === "room" && activeRoom) {
-    return <RoomView room={activeRoom} onLeave={handleLeave} roomCounts={roomCounts} />;
+    return <RoomView room={activeRoom} onLeave={handleLeave} roomCounts={roomCounts} onlineIds={Object.keys(globalState)} />;
   }
   return (
     <Lobby
       onJoin={handleJoin}
       totalOnline={totalOnline}
       roomCounts={roomCounts}
+      globalState={globalState}
       pendingInvites={pendingInvites}
       onDismissInvite={dismissInviteRoot}
     />
@@ -163,7 +167,7 @@ export default function StudyRooms() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Lobby
 // ─────────────────────────────────────────────────────────────────────────────
-function Lobby({ onJoin, totalOnline, roomCounts, pendingInvites = [], onDismissInvite }) {
+function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvites = [], onDismissInvite }) {
   const { userId, userData, courses } = useApp();
   const [rooms,       setRooms]       = useState([]);
   const [loading,     setLoading]     = useState(true);
@@ -173,6 +177,8 @@ function Lobby({ onJoin, totalOnline, roomCounts, pendingInvites = [], onDismiss
   const [codeInput,    setCodeInput]    = useState("");
   const [codeError,    setCodeError]    = useState("");
   const [codeLookingUp, setCodeLookingUp] = useState(false);
+  const [friends,      setFriends]      = useState([]);
+  const [nudged,       setNudged]       = useState({});  // friendId → "sending"|"sent"|"limited"
   const lobbyChannelRef = useRef(null);
   const onJoinRef       = useRef(onJoin);
   useEffect(() => { onJoinRef.current = onJoin; }, [onJoin]);
@@ -185,6 +191,38 @@ function Lobby({ onJoin, totalOnline, roomCounts, pendingInvites = [], onDismiss
       if (lobbyChannelRef.current) supabase.removeChannel(lobbyChannelRef.current);
     };
   }, []); // eslint-disable-line
+
+  // Friends-studying strip: load the user's friends; presence comes from globalState.
+  useEffect(() => {
+    getFriendsForInvite(userId).then(setFriends).catch(() => {});
+  }, [userId]);
+
+  // Map each friend → the room they're studying in right now (if any).
+  const friendRoomMap = {};
+  for (const f of friends) {
+    const roomId = Array.isArray(globalState[f.id]) ? globalState[f.id][0]?.roomId : null;
+    if (roomId) friendRoomMap[f.id] = roomId;
+  }
+  const studyingFriends = friends.filter(f => friendRoomMap[f.id]);
+  const offlineFriends  = friends.filter(f => !friendRoomMap[f.id]);
+
+  async function joinFriendRoom(roomId) {
+    let room = rooms.find(r => r.id === roomId);
+    if (!room) {
+      const { data } = await supabase.from("study_rooms").select().eq("id", roomId).maybeSingle();
+      room = data;
+    }
+    if (room) onJoin(room);
+  }
+
+  async function nudgeFriend(friend) {
+    setNudged(n => ({ ...n, [friend.id]: "sending" }));
+    const result = await sendNudge({
+      fromUserId: userId, toUserId: friend.id, roomId: null,
+      fromName: userData?.name ?? "Someone", roomName: null, recipientOnline: false,
+    });
+    setNudged(n => ({ ...n, [friend.id]: result?.sent === false && result.reason === "rate_limited" ? "limited" : "sent" }));
+  }
 
   async function fetchRooms() {
     setLoading(true);
@@ -374,6 +412,44 @@ function Lobby({ onJoin, totalOnline, roomCounts, pendingInvites = [], onDismiss
         </div>
       )}
 
+      {/* Friends strip — who's studying now (Join), plus nudge the rest (Come study) */}
+      {friends.length > 0 && (
+        <div style={{ marginBottom:"22px" }}>
+          <p style={{ ...S.sectionLabel, marginBottom:"10px" }}>Friends</p>
+          <div style={{ display:"flex", flexDirection:"column", gap:"8px" }}>
+            {studyingFriends.map(f => (
+              <div key={f.id} style={{ display:"flex", alignItems:"center", gap:"10px", background:"var(--color-surface)", border:"1px solid var(--color-border)", borderRadius:"12px", padding:"10px 14px" }}>
+                <span style={{ width:8, height:8, borderRadius:"50%", background:"var(--color-accent)", flexShrink:0 }} />
+                <div style={{ flex:1, minWidth:0 }}>
+                  <p style={{ fontSize:"13px", fontWeight:"500", color:"var(--text-primary)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.name}</p>
+                  <p style={{ fontSize:"11px", color:"var(--color-accent)" }}>studying now</p>
+                </div>
+                <button onClick={() => joinFriendRoom(friendRoomMap[f.id])} style={{ ...S.accentBtn, padding:"6px 14px", fontSize:"12px" }}>Join</button>
+              </div>
+            ))}
+            {offlineFriends.map(f => {
+              const st = nudged[f.id];
+              return (
+                <div key={f.id} style={{ display:"flex", alignItems:"center", gap:"10px", background:"var(--color-surface)", border:"1px solid var(--color-border)", borderRadius:"12px", padding:"10px 14px" }}>
+                  <span style={{ width:8, height:8, borderRadius:"50%", background:"rgba(255,255,255,0.15)", flexShrink:0 }} />
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <p style={{ fontSize:"13px", fontWeight:"500", color:"var(--text-secondary)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.name}</p>
+                    <p style={{ fontSize:"11px", color:"var(--text-dim)" }}>offline</p>
+                  </div>
+                  <button
+                    onClick={() => { if (!st) nudgeFriend(f); }}
+                    disabled={!!st}
+                    style={{ ...S.ghostBtn, marginTop:0, padding:"6px 12px", fontSize:"12px", opacity: st ? 0.5 : 1, cursor: st ? "default" : "pointer" }}
+                  >
+                    {st === "sent" ? "Nudged ✓" : st === "limited" ? "Limit reached" : st === "sending" ? "…" : "Nudge"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <p style={{ color:"var(--text-dim)", fontSize:"14px" }}>Loading rooms…</p>
       ) : rooms.length === 0 ? (
@@ -549,7 +625,7 @@ function CreateRoomModal({ courses, onCreate, onClose }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // RoomView — Phase 2A: + Pomodoro, Goal prompt, Session summary
 // ─────────────────────────────────────────────────────────────────────────────
-function RoomView({ room, onLeave, roomCounts }) {
+function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const { userId, userData } = useApp();
   const [members,            setMembers]            = useState([]);
   const [workingOn,          setWorkingOn]          = useState("");
@@ -684,6 +760,10 @@ function RoomView({ room, onLeave, roomCounts }) {
       .insert({ room_id: room.id, user_id: userId, joined_at: new Date().toISOString() })
       .select("id").single();
     sessionIdRef.current = data?.id ?? null;
+    // +2 for joining a study room (server caps at 3/day, deduped per session)
+    if (sessionIdRef.current) {
+      awardTokens("study_room_join", { sessionId: sessionIdRef.current, roomId: room.id }).catch(() => {});
+    }
     supabase.from("study_rooms")
       .update({ last_active: new Date().toISOString() }).eq("id", room.id).then(() => {});
   }
@@ -790,6 +870,7 @@ function RoomView({ room, onLeave, roomCounts }) {
       reqChRef.current = null;
     }
     if (sessionIdRef.current) {
+      const sid = sessionIdRef.current;
       const durSecs = Math.round((Date.now() - joinedAtRef.current) / 1000);
       supabase.from("room_sessions").update({
         left_at:       new Date().toISOString(),
@@ -797,7 +878,10 @@ function RoomView({ room, onLeave, roomCounts }) {
         working_on:    workingOnRef.current || null,
         goal_text:     goalTextRef.current || workingOnRef.current || null,
         goal_met:      goalMet,
-      }).eq("id", sessionIdRef.current).then(() => {});
+      }).eq("id", sid).then(() => {
+        // +5 per completed 15-min block — server recomputes duration from joined_at
+        awardTokens("study_session_15min", { sessionId: sid }).catch(() => {});
+      });
     }
     supabase.from("room_members").delete()
       .eq("room_id", room.id).eq("user_id", userId).then(() => {});
@@ -1008,6 +1092,12 @@ function RoomView({ room, onLeave, roomCounts }) {
         </div>
       </div>
 
+      {/* Living focus orb — members orbit the core, intensifies during a sprint */}
+      <StudyOrb
+        active={!!pomo && pomo.phase === "focus" && !pomo.paused}
+        members={members}
+      />
+
       {/* Pomodoro Timer — centerpiece */}
       <PomodoroPanel
         pomo={pomo}
@@ -1118,7 +1208,7 @@ function RoomView({ room, onLeave, roomCounts }) {
       )}
 
       {showInvite && (
-        <InviteModal room={room} userId={userId} userData={userData} onClose={() => setShowInvite(false)} />
+        <InviteModal room={room} userId={userId} userData={userData} onlineIds={onlineIds} onClose={() => setShowInvite(false)} />
       )}
 
       {/* Goal prompt on enter */}
@@ -1293,6 +1383,9 @@ function SessionSummaryModal({ durationSecs, goal, onConfirm, onBack }) {
   const mins    = Math.floor((durationSecs % 3600) / 60);
   const secs    = durationSecs % 60;
   const timeStr = hours > 0 ? `${hours}h ${mins}m` : mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+  // Mirror the server award formula (api/token-engine.ts): +2 for joining, +5 per
+  // completed 15-min block. Display only — the server is authoritative.
+  const tokensEarned = 2 + Math.floor(durationSecs / (15 * 60)) * 5;
   const S = styles;
   return (
     <div style={S.modalOverlay}>
@@ -1316,9 +1409,13 @@ function SessionSummaryModal({ durationSecs, goal, onConfirm, onBack }) {
           background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.07)",
           borderRadius:"10px", padding:"14px 16px", margin:"16px 0", textAlign:"left",
         }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: goal ? "10px" : 0 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"10px" }}>
             <span style={{ fontSize:"12px", color:"var(--text-dim)" }}>Time focused</span>
             <span style={{ fontSize:"14px", fontWeight:"700", color:"var(--color-accent)" }}>{timeStr}</span>
+          </div>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: goal ? "10px" : 0 }}>
+            <span style={{ fontSize:"12px", color:"var(--text-dim)" }}>Tokens earned</span>
+            <span style={{ fontSize:"14px", fontWeight:"700", color:"var(--color-accent)" }}>🪙 {tokensEarned}</span>
           </div>
           {goal && (
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:"12px" }}>
@@ -1521,7 +1618,7 @@ function RequestCard({ request, onAccept, onDecline }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // InviteModal
 // ─────────────────────────────────────────────────────────────────────────────
-function InviteModal({ room, userId, userData, onClose }) {
+function InviteModal({ room, userId, userData, onlineIds = [], onClose }) {
   const [friends, setFriends] = useState(null);
   const [invited, setInvited] = useState({});
   const S = styles;
@@ -1532,13 +1629,27 @@ function InviteModal({ room, userId, userData, onClose }) {
 
   async function handleInvite(friend) {
     setInvited(i => ({ ...i, [friend.id]: "sending" }));
-    await supabase.from("nudges").insert({
-      from_user_id: userId, to_user_id: friend.id, room_id: room.id, kind: "invite",
-    });
     await supabase.from("room_members").upsert(
       { room_id: room.id, user_id: friend.id, role: "member", status: "invited" },
       { onConflict: "room_id,user_id" }
     );
+
+    // Server enforces the 2/friend/24h rate limit, writes the nudge row, and
+    // emails the friend if they're offline. onlineIds = who's present in rooms now.
+    const online = onlineIds.includes(friend.id);
+    const result = await sendNudge({
+      fromUserId: userId, toUserId: friend.id, roomId: room.id,
+      fromName: userData?.name ?? "Someone", roomName: room.name,
+      recipientOnline: online,
+    });
+
+    if (result?.sent === false && result.reason === "rate_limited") {
+      setInvited(i => ({ ...i, [friend.id]: "limited" }));
+      return;
+    }
+
+    // Instant in-app ping for an online friend (also the local-dev path when the
+    // serverless endpoint isn't running — best-effort, never throws).
     supabase.channel(`user:${friend.id}`).send({
       type: "broadcast", event: "nudge",
       payload: {
@@ -1587,7 +1698,7 @@ function InviteModal({ room, userId, userData, onClose }) {
                     disabled={!!status}
                     style={{ ...S.accentBtn, padding:"6px 14px", fontSize:"12px", opacity: status ? 0.5 : 1, cursor: status ? "default" : "pointer" }}
                   >
-                    {status === "sent" ? "Invited ✓" : status === "sending" ? "…" : "Invite"}
+                    {status === "sent" ? "Invited ✓" : status === "limited" ? "Limit reached" : status === "sending" ? "…" : "Invite"}
                   </button>
                 </div>
               );

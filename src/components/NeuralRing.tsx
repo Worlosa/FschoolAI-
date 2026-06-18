@@ -1005,11 +1005,12 @@ export default function NeuralRing() {
     : [];
 
   // ── Tutor impressions + living mind — loaded once on mount ─────────────────
-  const [impressions,  setImpressions]  = useState([]);
-  const abortCtrlRef   = useRef(null);   // cancel in-flight fetch
-  const audioSourceRef = useRef(null);   // cancel in-flight audio
-  const [lastSession,  setLastSession]  = useState(null);
-  const [livingMind,   setLivingMind]   = useState(null);
+  const [impressions,      setImpressions]      = useState([]);
+  const abortCtrlRef       = useRef(null);   // cancel in-flight fetch
+  const audioSourceRef     = useRef(null);   // cancel in-flight audio
+  const [lastSession,      setLastSession]      = useState(null);
+  const [livingMind,       setLivingMind]       = useState(null);
+  const [preloadedContext, setPreloadedContext] = useState<string | null>(null);
 
 
   // ── Session tracking — for session-close payload + self-write trigger ───────
@@ -1218,6 +1219,31 @@ export default function NeuralRing() {
           .eq("user_id", userId)
           .maybeSingle();
         if (mindData?.mind_doc) setLivingMind(mindData.mind_doc);
+
+        // ── Preload academic context once on mount ──────────────────────────
+        // Use localStorage snapshot for instant load, then refresh in background.
+        const CACHE_KEY    = `fschool_ctx_${userId}`;
+        const CACHE_TS_KEY = `fschool_ctx_ts_${userId}`;
+        const cached   = localStorage.getItem(CACHE_KEY);
+        const cachedAt = Number(localStorage.getItem(CACHE_TS_KEY) ?? 0);
+        if (cached && Date.now() - cachedAt < 10 * 60 * 1000) {
+          setPreloadedContext(cached);
+        }
+        // Always refresh from server — updates snapshot if data changed
+        fetch("/api/tutor-context", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId, userMessage: "preload", brainPersonId: userData?.brain_person_id ?? null, courseIds: [] }),
+        })
+          .then(r => r.ok ? r.json() : null)
+          .then(d => {
+            if (d?.context) {
+              setPreloadedContext(d.context);
+              localStorage.setItem(CACHE_KEY, d.context);
+              localStorage.setItem(CACHE_TS_KEY, String(Date.now()));
+            }
+          })
+          .catch(() => {});
 
       } catch { /* non-fatal */ }
     }
@@ -2134,24 +2160,10 @@ export default function NeuralRing() {
       // Fires in parallel — if it resolves before Claude, gets injected into prompt.
       // The merged /api/tutor-context now also classifies file_lookup and surfaces
       // synced extension files, so the tutor can answer about them on this path.
-      let dynamicContext = null;
+      // Static student context is preloaded on mount + cached (see preloadedContext).
+      // RAG source material is query-specific, so it's fetched per message here.
       let ragContext = null;
       abortCtrlRef.current = new AbortController();
-      const contextFetch = fetch("/api/tutor-context", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId,
-          userMessage:   userMsg.content,
-          brainPersonId: userData?.brain_person_id ?? null, // enriches tutor with brain context
-        }),
-      })
-        .then(r => r.ok ? r.json() : null)
-        .then(d => { dynamicContext = d?.context ?? null; })
-        .catch(() => {});
-
-      // RAG retrieval over the student's uploaded documents (textbooks, notes, PDFs).
-      // Runs in parallel with tutor-context and grounds the answer in source material.
       const ragFetch = fetch("/api/rag?action=query", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
@@ -2169,12 +2181,8 @@ export default function NeuralRing() {
         })
         .catch(() => {});
 
-      // Wait briefly so retrieval can ground the reply, but never block the chat
-      // for long — whichever of (both fetches | 3s) finishes first wins.
-      await Promise.race([
-        Promise.allSettled([contextFetch, ragFetch]),
-        new Promise(r => setTimeout(r, 3000)),
-      ]);
+      // Wait briefly so retrieval can ground the reply, but never block the chat for long.
+      await Promise.race([ragFetch, new Promise(r => setTimeout(r, 3000))]);
 
       console.log("[vdiag] system-prompt gate | voiceModeRef.current:", voiceModeRef.current, "→ using:", voiceModeRef.current ? "buildVoiceSystem" : "buildChatSystem");
       const system = voiceModeRef.current
@@ -2182,14 +2190,23 @@ export default function NeuralRing() {
         : buildChatSystem(courseOptions, userData, assignments, flashcardMap, syllabus, impressions, lastSession, livingMind, messages.length === 0, availableVoices, courses);
 
       abortCtrlRef.current = new AbortController();
-      const signal = abortCtrlRef.current.signal;
 
-      // System prompt = base + live DB data + grounded source passages (with citations).
-      const finalSystem = [
-        system,
-        dynamicContext ? `LIVE DATA (just fetched for this query):\n${dynamicContext}` : "",
-        ragContext ? `SOURCE MATERIAL — passages from the student's own uploaded documents. When you use one, ground your answer in it and cite it inline as [n].\n\n${ragContext}` : "",
-      ].filter(Boolean).join("\n\n");
+      // Base context = student context preloaded on mount + cached via Anthropic
+      // prompt caching (PR #12). RAG source material is query-specific, so it goes in
+      // its own block (kept out of the cached prefix, which must stay stable).
+      const ragBlock = ragContext
+        ? `SOURCE MATERIAL — passages from the student's own uploaded documents. When you use one, ground your answer in it and cite it inline as [n].\n\n${ragContext}`
+        : "";
+      let finalSystem;
+      if (preloadedContext) {
+        finalSystem = [
+          { type: "text", text: system },
+          { type: "text", text: `LIVE CONTEXT (pre-loaded):\n${preloadedContext}`, cache_control: { type: "ephemeral" } },
+        ];
+        if (ragBlock) finalSystem.push({ type: "text", text: ragBlock });
+      } else {
+        finalSystem = ragBlock ? `${system}\n\n${ragBlock}` : system;
+      }
 
       // Use Claude for tutor brain; fall back to Groq if key missing
       // Strip UI-only props (hasArtifact) so they don't reach the Anthropic/Groq API
@@ -2204,6 +2221,11 @@ export default function NeuralRing() {
         apiMessages.splice(-1, 0, { role: "assistant", content: interruptText.slice(0, 300) + "…" });
       }
       let raw;
+      // Groq only accepts a plain string for system — flatten if we built an array for Claude
+      const groqSystem = Array.isArray(finalSystem)
+        ? (finalSystem as { text: string }[]).map(b => b.text).join("\n\n")
+        : finalSystem;
+
       let voiceTTSDone = null; // resolves when all sentence-chunked TTS finishes
 
       console.log("[vdiag] TTS-path gate | voiceModeRef.current:", voiceModeRef.current, "| muted:", muted, "→", (voiceModeRef.current && !muted) ? "STREAMING VOICE" : "NON-VOICE fallback");
@@ -2293,7 +2315,7 @@ export default function NeuralRing() {
             console.log("[tutor] served by: claude-sonnet-4-6 (non-streaming fallback)");
           } catch (claudeErr) {
             console.warn("[tutor] Sonnet also failed, falling back to Groq:", claudeErr.message);
-            raw = await groq(apiMessages, finalSystem);
+            raw = await groq(apiMessages, groqSystem);
             console.log("[tutor] served by: groq/llama-3.1-8b-instant (double fallback)");
           }
         }
@@ -2304,7 +2326,7 @@ export default function NeuralRing() {
           console.log("[tutor] served by: claude-sonnet-4-6");
         } catch (claudeErr) {
           console.warn("[tutor] Sonnet failed, falling back to Groq:", claudeErr.message);
-          raw = await groq(apiMessages, finalSystem);
+          raw = await groq(apiMessages, groqSystem);
           console.log("[tutor] served by: groq/llama-3.1-8b-instant (fallback)");
         }
       }
