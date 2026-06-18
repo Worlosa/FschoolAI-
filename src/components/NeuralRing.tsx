@@ -17,6 +17,7 @@ import { claude }      from "../api/claude";
 import { useApp }      from "../context/AppContext";
 import { supabase }    from "../api/supabase";
 import { awardTokens } from "../api/tokens";
+import { sanitizeApiMessages } from "../lib/chatMessages";
 import ArtifactPanel   from "./ArtifactPanel";
 
 // ── Claude proxy helper (tutor brain — better quality than Groq for conversation) ──
@@ -2186,18 +2187,9 @@ export default function NeuralRing() {
 
       // Use Claude for tutor brain; fall back to Groq if key missing
       // Strip UI-only props (hasArtifact) so they don't reach the Anthropic/Groq API
-      // Sanitize history before sending: drop empty/whitespace messages (failed
-      // turns can leave empty assistant rows) and merge consecutive same-role
-      // turns, so the conversation is always valid for the Anthropic API.
-      const apiMessages = [...messages, userMsg]
-        .map(({ role, content }) => ({ role, content: typeof content === "string" ? content : "" }))
-        .filter(m => m.content.trim().length > 0)
-        .reduce((acc, m) => {
-          const last = acc[acc.length - 1];
-          if (last && last.role === m.role) last.content += "\n\n" + m.content;
-          else acc.push({ ...m });
-          return acc;
-        }, []);
+      // Sanitize history before sending (drop empties + merge consecutive same-role
+      // turns) so the conversation is always valid for the Anthropic API.
+      const apiMessages = sanitizeApiMessages([...messages, userMsg]);
       // Inject barge-in interrupted context so Claude can merge vs switch intent
       const interruptText = interruptedTextRef.current;
       interruptedTextRef.current = null;

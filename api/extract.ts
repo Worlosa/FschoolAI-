@@ -16,7 +16,7 @@ const SAFETY_CHARS = 1_500_000; // hard ceiling (~375k tokens) to avoid OOM on p
 // paragraph breaks (large vertical gaps), and headings (markdown `#`, by font size).
 // Lines are grouped by Y position (robust across PDF generators — doesn't depend
 // on pdfjs setting hasEOL), ordered top-to-bottom, left-to-right within a line.
-function reconstructPage(items: any[]): string {
+export function reconstructPage(items: any[]): string {
   const toks = (items || [])
     .filter(it => it?.str && it.str.trim())
     .map(it => ({

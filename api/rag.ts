@@ -54,7 +54,7 @@ const HEADING_RE = [
   /^(chapter|section|unit|part|module|lecture)\s+[\w\d]/i,
   /^\d+(\.\d+){0,3}\s+\S/,                           // "1.2 Title"
 ];
-function isHeading(line) {
+export function isHeading(line) {
   const l = line.trim();
   if (!l || l.length > 90) return false;
   if (HEADING_RE.some(re => re.test(l))) return true;
@@ -69,7 +69,7 @@ function isHeading(line) {
 const SECTION_MAX = 2200; // chars — soft cap before forcing a new section
 
 /** Split raw text into [{ heading, text }] sections. */
-function sectionize(text) {
+export function sectionize(text) {
   const blocks = String(text).replace(/\r\n/g, "\n").split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
   const sections = [];
   let cur = { heading: null, text: "" };
@@ -95,7 +95,7 @@ function sectionize(text) {
 
 /** Page-aware sectionizer: splits [{page, text}] into sections tagged with the
  *  page range they span, so retrieved passages can cite real page numbers. */
-function sectionizePages(pages) {
+export function sectionizePages(pages) {
   const sections = [];
   let cur = { heading: null, text: "", locStart: null, locEnd: null };
   const push = () => {
@@ -129,7 +129,7 @@ function sectionizePages(pages) {
 const CHUNK_MAX = 900; // chars per embedded chunk
 
 /** Split section text into small chunks on paragraph/sentence boundaries. */
-function chunkText(text) {
+export function chunkText(text) {
   const paras = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
   const chunks = [];
   let buf = "";
