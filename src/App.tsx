@@ -28,6 +28,7 @@ import Toolkit     from "./pages/Toolkit";
 import Identity    from "./pages/Identity";
 import Leaderboard from "./pages/Leaderboard";
 import Files       from "./pages/Files";
+import StudyRooms  from "./pages/StudyRooms";
 
 const PAGES = {
   work:        Work,
@@ -38,6 +39,7 @@ const PAGES = {
   identity:    Identity,
   leaderboard: Leaderboard,
   files:       Files,
+  rooms:       StudyRooms,
 };
 
 const LOGGED_IN_KEY = "fschool_logged_in";
@@ -587,74 +589,96 @@ export default function App() {
           <span className="app-page-label">
             {LABEL[currentPage]}
           </span>
-          {tokenSummary && (
-            <button
-              onClick={() => navigate("leaderboard")}
-              style={{
-                display: "flex", alignItems: "center", gap: "5px",
-                background: "rgba(196,154,60,0.08)", border: "1px solid rgba(196,154,60,0.22)",
-                borderRadius: "20px", padding: "4px 10px",
-                cursor: "pointer", fontFamily: "inherit", outline: "none",
-                transition: "background 0.15s",
-              }}
-              onMouseEnter={e => e.currentTarget.style.background = "rgba(196,154,60,0.15)"}
-              onMouseLeave={e => e.currentTarget.style.background = "rgba(196,154,60,0.08)"}
-            >
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#C49A3C", display: "inline-block", flexShrink: 0 }} />
-              <span style={{ color: "#C49A3C", fontSize: "11px", fontWeight: "600", letterSpacing: "-0.1px" }}>
-                {tokenSummary.points}
-              </span>
-              <span style={{ color: "rgba(196,154,60,0.5)", fontSize: "10px" }}>·</span>
-              <span style={{ color: "rgba(255,255,255,0.35)", fontSize: "10px", letterSpacing: "0.3px" }}>
-                {tokenSummary.tier}
-              </span>
-            </button>
-          )}
-          {/* ── Notification bell ───────────────────────────────────────────── */}
-          <div style={{ position: "relative" }}>
-            <motion.button
-              onClick={() => { setShowBell(v => !v); if (!showBell) setUnreadCount(0); }}
-              animate={bellRing ? { rotate: [0, -14, 11, -8, 5, -3, 1, 0] } : { rotate: 0 }}
-              transition={{ duration: 0.52, ease: "easeOut" }}
-              style={{
-                width: 34, height: 34, borderRadius: "50%", border: "none",
-                background: showBell ? "rgba(255,255,255,0.08)" : "none",
-                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                color: unreadCount > 0 ? "var(--color-accent)" : "var(--text-dim)",
-                position: "relative", transition: "background 0.15s, color 0.15s",
-              }}
-              aria-label="Notifications"
-            >
-              {/* Bell SVG */}
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-              </svg>
-              {/* Unread badge — spring pops in, re-mounts on count change */}
-              <AnimatePresence>
-                {unreadCount > 0 && (
-                  <motion.span
-                    key={unreadCount}
-                    initial={{ scale: 0, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    exit={{ scale: 0, opacity: 0 }}
-                    transition={{ type: "spring", stiffness: 520, damping: 22 }}
+          {/* ── Header cluster: token status + notification bell ───────────── */}
+          {/* Single intentional unit — consistent height (32px), same border
+              treatment, token pill + hairline divider + bell circle. */}
+          <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+            <div style={{
+              display: "flex", alignItems: "center",
+              height: "32px",
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.09)",
+              borderRadius: "16px",
+              overflow: "visible",  // badge overflows the pill boundary
+            }}>
+              {/* Token status — tappable, navigates to leaderboard */}
+              {tokenSummary && (
+                <>
+                  <button
+                    onClick={() => navigate("leaderboard")}
                     style={{
-                      position: "absolute", top: "4px", right: "4px",
-                      minWidth: "16px", height: "16px",
-                      background: "#C49A3C", color: "#111",
-                      borderRadius: "8px", fontSize: "9px", fontWeight: "700",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      padding: "0 3px", lineHeight: 1,
-                      boxShadow: "0 0 0 2px var(--color-bg)",
+                      display: "flex", alignItems: "center", gap: "5px",
+                      padding: "0 8px 0 11px", height: "100%",
+                      background: "none", border: "none",
+                      cursor: "pointer", fontFamily: "inherit", outline: "none",
+                      borderRadius: "16px 0 0 16px",
+                      transition: "opacity 0.15s",
                     }}
+                    onMouseEnter={e => (e.currentTarget.style.opacity = "0.72")}
+                    onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
                   >
-                    {unreadCount > 99 ? "99+" : unreadCount}
-                  </motion.span>
-                )}
-              </AnimatePresence>
-            </motion.button>
-            {/* Panel — AnimatePresence drives the spring exit animation */}
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#C49A3C", display: "inline-block", flexShrink: 0 }} />
+                    <span style={{ color: "#C49A3C", fontSize: "11px", fontWeight: "600", letterSpacing: "-0.1px" }}>
+                      {tokenSummary.points}
+                    </span>
+                    <span style={{ color: "rgba(196,154,60,0.45)", fontSize: "10px", margin: "0 1px" }}>·</span>
+                    <span style={{ color: "rgba(255,255,255,0.3)", fontSize: "10px", letterSpacing: "0.3px" }}>
+                      {tokenSummary.tier}
+                    </span>
+                  </button>
+                  {/* Hairline divider between token and bell */}
+                  <div style={{ width: 1, height: 16, background: "rgba(255,255,255,0.09)", flexShrink: 0 }} />
+                </>
+              )}
+
+              {/* Bell — circle sits flush inside the pill */}
+              <motion.button
+                onClick={() => { setShowBell(v => !v); if (!showBell) setUnreadCount(0); }}
+                animate={bellRing ? { rotate: [0, -14, 11, -8, 5, -3, 1, 0] } : { rotate: 0 }}
+                transition={{ duration: 0.52, ease: "easeOut" }}
+                style={{
+                  width: 32, height: 32, flexShrink: 0,
+                  borderRadius: tokenSummary ? "0 15px 15px 0" : "15px",
+                  border: "none",
+                  background: showBell ? "rgba(255,255,255,0.08)" : "transparent",
+                  cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                  color: unreadCount > 0 ? "#C49A3C" : "rgba(255,255,255,0.38)",
+                  position: "relative",
+                  transition: "background 0.15s, color 0.15s",
+                }}
+                aria-label="Notifications"
+              >
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                </svg>
+                {/* Unread badge — spring pops in, re-mounts on count change */}
+                <AnimatePresence>
+                  {unreadCount > 0 && (
+                    <motion.span
+                      key={unreadCount}
+                      initial={{ scale: 0, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      exit={{ scale: 0, opacity: 0 }}
+                      transition={{ type: "spring", stiffness: 520, damping: 22 }}
+                      style={{
+                        position: "absolute", top: "3px", right: "3px",
+                        minWidth: "15px", height: "15px",
+                        background: "#C49A3C", color: "#111",
+                        borderRadius: "8px", fontSize: "9px", fontWeight: "700",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        padding: "0 3px", lineHeight: 1,
+                        boxShadow: "0 0 0 2px var(--color-bg)",
+                      }}
+                    >
+                      {unreadCount > 99 ? "99+" : unreadCount}
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+              </motion.button>
+            </div>
+
+            {/* Panel — position:fixed, so parent stacking context doesn't matter */}
             <AnimatePresence>
               {showBell && (
                 <NotificationPanel
