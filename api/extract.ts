@@ -128,6 +128,70 @@ async function pptxToPages(bytes: Uint8Array) {
   return pages;
 }
 
+// Legacy .ppt is an OLE2 compound file (NOT a zip like .pptx), so jszip can't read it.
+// Its text lives in the "PowerPoint Document" stream as a tree of binary records;
+// the actual characters are in TextCharsAtom (0x0FA0, UTF-16LE) and TextBytesAtom
+// (0x0FA8, 1-byte/char) leaf records. We walk the record stream, bucketing text by
+// slide boundary (Slide container 0x03EE / SlidePersistAtom 0x03F3) and de-duplicating
+// runs (the outline mirrors per-slide text, so the same string appears twice).
+const RT_SLIDE         = 0x03EE; // Slide container
+const RT_SLIDEPERSIST  = 0x03F3; // SlidePersistAtom — delimits slides in the outline
+const RT_TEXTCHARS     = 0x0FA0; // TextCharsAtom — UTF-16LE
+const RT_TEXTBYTES     = 0x0FA8; // TextBytesAtom — 1 byte/char (cp1252/latin1)
+
+export function extractPptText(stream: Uint8Array): { page: number; text: string }[] {
+  const buf = Buffer.from(stream);
+  const seen = new Set<string>();
+  const buckets: string[][] = [[]]; // buckets[0] = text before the first slide boundary
+  const clean = (s: string) => s
+    .replace(/\x00/g, "")
+    .replace(/[\x0B\x0D]/g, "\n")          // vertical-tab / CR → line break
+    .replace(/[\x00-\x08\x0C\x0E-\x1F]/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  let p = 0;
+  while (p + 8 <= buf.length) {
+    const verInstance = buf.readUInt16LE(p);
+    const recType     = buf.readUInt16LE(p + 2);
+    const recLen      = buf.readUInt32LE(p + 4);
+    const isContainer = (verInstance & 0x000F) === 0x000F;
+    p += 8;
+
+    if (recType === RT_SLIDE || recType === RT_SLIDEPERSIST) {
+      buckets.push([]);                       // start a new slide
+      if (recType === RT_SLIDEPERSIST) p += recLen; // it's an atom → skip its body
+      continue;                               // Slide is a container → descend (don't skip)
+    }
+    if (isContainer) continue;                // descend into children (inline)
+
+    if (recType === RT_TEXTCHARS || recType === RT_TEXTBYTES) {
+      const raw = buf.subarray(p, Math.min(p + recLen, buf.length));
+      const t = clean(raw.toString(recType === RT_TEXTCHARS ? "utf16le" : "latin1"));
+      if (t && !seen.has(t)) { seen.add(t); buckets[buckets.length - 1].push(t); }
+    }
+    p += recLen;
+  }
+
+  const pages: { page: number; text: string }[] = [];
+  for (const runs of buckets) {
+    const text = runs.join("\n").trim();
+    if (text) { const n = pages.length + 1; pages.push({ page: n, text: `# Slide ${n}\n\n${text}` }); }
+  }
+  return pages;
+}
+
+async function pptToPages(bytes: Uint8Array) {
+  const mod: any = await import("cfb");
+  const CFB = mod.default ?? mod;
+  let container: any;
+  try { container = CFB.read(bytes, { type: "buffer" }); }
+  catch { throw new Error("Could not read .ppt (not a valid PowerPoint file) — try re-saving as .pptx"); }
+  const entry = CFB.find(container, "PowerPoint Document") || CFB.find(container, "/PowerPoint Document");
+  if (!entry?.content) throw new Error("No PowerPoint Document stream in .ppt — try re-saving as .pptx");
+  return extractPptText(entry.content);
+}
+
 // Image → OCR via OpenAI vision (gpt-4o-mini). Returns the extracted text.
 async function imageOcrToPages(base64: string, mime: string) {
   const key = process.env.OPENAI_API_KEY;
@@ -311,6 +375,8 @@ export default async function handler(req, res) {
       pages = await docxToPages(bytes);
     } else if (/presentationml|\.pptx\b/.test(ext)) {
       pages = await pptxToPages(bytes);
+    } else if (/ms-powerpoint|\.ppt\b/.test(ext)) {
+      pages = await pptToPages(bytes); // legacy binary PowerPoint (OLE2)
     } else if (isImage) {
       pages = await imageOcrToPages(base64, file_type);
     } else if (isMedia) {

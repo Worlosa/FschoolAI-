@@ -8,7 +8,7 @@ import { useRef, useState, useEffect } from "react";
 import { useApp } from "../context/AppContext";
 import { supabase } from "../api/supabase";
 
-const ACCEPT = ".pdf,.txt,.md,.markdown,.html,.docx,.pptx,.png,.jpg,.jpeg,.webp,.gif,.mp3,.wav,.m4a,.mp4,.mov,.webm";
+const ACCEPT = ".pdf,.txt,.md,.markdown,.html,.docx,.pptx,.ppt,.png,.jpg,.jpeg,.webp,.gif,.mp3,.wav,.m4a,.mp4,.mov,.webm";
 
 // Map a file's MIME/name to the RAG `kind` tag.
 function kindForFile(file) {
@@ -16,6 +16,7 @@ function kindForFile(file) {
   if (/pdf/.test(s)) return "pdf";
   if (/wordprocessingml|\.docx\b/.test(s)) return "docx";
   if (/presentationml|\.pptx\b/.test(s)) return "pptx";
+  if (/ms-powerpoint|\.ppt\b/.test(s)) return "ppt"; // legacy binary PowerPoint
   if (/image\/|\.(png|jpe?g|webp|gif|bmp|tiff?)\b/.test(s)) return "image";
   if (/audio\/|\.(mp3|wav|m4a|aac|ogg|flac)\b/.test(s)) return "audio";
   if (/video\/|\.(mp4|mov|webm|mpeg)\b/.test(s)) return "video";
