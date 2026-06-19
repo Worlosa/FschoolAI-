@@ -274,7 +274,9 @@ export default function App() {
   const { onTouchStart, onTouchEnd } = useSwipe(swipeNavigate);
 
   // ── Auth ───────────────────────────────────────────────────────────────────
-  const handleEnter = useCallback(async (creds = {}) => {
+  const handleEnter = useCallback(async (creds: {
+    mode?: string; email?: string; password?: string; name?: string;
+  } = {}) => {
     if (creds.mode === "login") {
       const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(creds.password));
       const password_hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
@@ -351,7 +353,10 @@ export default function App() {
   }) => {
     if (preferredName) localStorage.setItem("fschool_name", preferredName);
     try {
-      const patch = { id: userId };
+      const patch: {
+        id: string; name?: string; school?: string;
+        school_city?: string; school_country?: string; school_continent?: string;
+      } = { id: userId };
       if (preferredName)   patch.name            = preferredName;
       if (schoolName)      patch.school          = schoolName;
       if (schoolCity)      patch.school_city     = schoolCity;
