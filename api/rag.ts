@@ -159,7 +159,8 @@ export function chunkText(text) {
 }
 
 // ── Ingest ────────────────────────────────────────────────────────────────────
-async function ingest(body) {
+// Exported so server-side callers (e.g. api/transcribe.ts) can ingest text directly.
+export async function ingest(body) {
   const { userId, courseId = null, title = "Untitled", kind = "text", sourceUrl = null, text, pages } = body ?? {};
   if (!userId) return { status: 400, json: { error: "userId required" } };
 
@@ -220,7 +221,7 @@ async function ingest(body) {
 // Embeds the next batch of not-yet-embedded chunks for a document. The client calls
 // this repeatedly until { done: true }, so total embedding work is spread across many
 // short requests instead of one that would time out on a large document.
-async function embedBatch(body) {
+export async function embedBatch(body) {
   const { userId, documentId, batchSize = EMBED_BATCH } = body ?? {};
   if (!userId || !documentId) return { status: 400, json: { error: "userId and documentId required" } };
   const limit = Math.min(Math.max(Number(batchSize) || EMBED_BATCH, 1), 128);

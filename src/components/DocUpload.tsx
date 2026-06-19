@@ -112,6 +112,11 @@ export default function DocUpload() {
   async function handleFile(file) {
     if (!file) return;
     const kind = kindForFile(file);
+    // Large audio/video can't go base64 through /api/extract (Vercel's ~4.5MB body
+    // limit) → upload straight to Storage + async transcription instead.
+    if ((kind === "audio" || kind === "video") && file.size > 4 * 1024 * 1024) {
+      return handleLargeMedia(file, kind);
+    }
     setStatus("reading"); setMessage(`Reading ${file.name}…`);
     try {
       const base64 = await readAsBase64(file);
@@ -131,6 +136,49 @@ export default function DocUpload() {
     } catch (err) {
       setStatus("error");
       setMessage(err?.message || "Couldn't read that file.");
+    }
+  }
+
+  // Large media: direct-to-Storage upload, then provider transcription (polled),
+  // then RAG ingest — all server-side after the upload, so no body-size limit.
+  async function handleLargeMedia(file, kind) {
+    if (!userId) { setStatus("error"); setMessage("Not signed in."); return; }
+    try {
+      setStatus("reading"); setMessage("Uploading…");
+      const sres = await fetch("/api/transcribe?action=sign", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, filename: file.name }),
+      });
+      const sdata = await sres.json().catch(() => ({}));
+      if (!sres.ok || !sdata.path || !sdata.token) throw new Error(sdata.error || "Couldn't start the upload.");
+
+      const up = await supabase.storage.from("media-uploads").uploadToSignedUrl(sdata.path, sdata.token, file);
+      if (up.error) throw new Error(`Upload failed: ${up.error.message}`);
+
+      setStatus("extracting"); setMessage("Transcribing… (this can take a few minutes for long recordings)");
+      const stres = await fetch("/api/transcribe?action=start", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, storagePath: sdata.path, title: file.name, courseId: courseId || null, kind }),
+      });
+      const stdata = await stres.json().catch(() => ({}));
+      if (!stres.ok || !stdata.jobId) throw new Error(stdata.error || "Couldn't start transcription.");
+
+      // Poll until the provider finishes and the transcript is indexed.
+      for (let guard = 0; guard < 100000; guard++) {
+        await new Promise(r => setTimeout(r, 4000));
+        const pres = await fetch("/api/transcribe?action=status", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobId: stdata.jobId }),
+        });
+        const pdata = await pres.json().catch(() => ({}));
+        const st = pdata?.job?.status;
+        if (st === "indexing") setMessage("Transcribed — indexing…");
+        if (st === "done")  { setStatus("done"); setMessage(`Indexed “${file.name}” from its transcript. Ask the tutor about it.`); return; }
+        if (st === "error") throw new Error(pdata?.job?.error || "Transcription failed.");
+      }
+    } catch (err) {
+      setStatus("error");
+      setMessage(err?.message || "Couldn't transcribe that file.");
     }
   }
 
