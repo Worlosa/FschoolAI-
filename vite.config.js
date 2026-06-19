@@ -304,6 +304,7 @@ const extractProxyPlugin = {
     server.middlewares.use("/api/extract", async (req, res) => {
       res.setHeader("Access-Control-Allow-Origin", "*");
       if (req.method === "OPTIONS") { res.statusCode = 200; res.end(); return; }
+      process.env.OPENAI_API_KEY = loadEnvKey("OPENAI_API_KEY"); // image OCR + media transcription
       let body = "";
       req.on("data", c => { body += c; });
       req.on("end", async () => {
@@ -412,6 +413,39 @@ const ragProxyPlugin = {
   },
 };
 
+// Transcribe proxy — runs the real api/transcribe.ts handler (large media → Storage
+// → ElevenLabs Scribe → RAG) under the dev server. Same module-load env caveat → inject
+// env first, dynamic import. Reads ?action=sign|start|status.
+const transcribeProxyPlugin = {
+  name: "transcribe-proxy",
+  configureServer(server) {
+    server.middlewares.use("/api/transcribe", async (req, res) => {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      if (req.method === "OPTIONS") { res.statusCode = 200; res.end(); return; }
+      process.env.SUPABASE_URL         = loadEnvKey("SUPABASE_URL");
+      process.env.SUPABASE_SERVICE_KEY = loadEnvKey("SUPABASE_SERVICE_KEY");
+      process.env.OPENAI_API_KEY       = loadEnvKey("OPENAI_API_KEY");
+      process.env.ELEVENLABS_API_KEY   = loadEnvKey("ELEVENLABS_API_KEY");
+      const url = new URL(req.url, "http://localhost");
+      req.query = Object.fromEntries(url.searchParams.entries());
+      let body = "";
+      req.on("data", c => { body += c; });
+      req.on("end", async () => {
+        try { req.body = body ? JSON.parse(body) : {}; } catch { req.body = {}; }
+        res.status = (code) => { res.statusCode = code; return res; };
+        res.json   = (obj)  => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(obj)); };
+        try {
+          const { default: handler } = await import("./api/transcribe.js");
+          await handler(req, res);
+        } catch (err) {
+          res.statusCode = 502; res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ error: err.message }));
+        }
+      });
+    });
+  },
+};
+
 // Token-engine proxy — runs the real api/token-engine.ts handler under the dev
 // server so Study Rooms token awards + the header points summary work with
 // `npm run dev`, not just on Vercel. Builds its Supabase client at MODULE LOAD
@@ -506,6 +540,6 @@ const nudgeProxyPlugin = {
 };
 
 export default defineConfig({
-  plugins: [react(), canvasProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin, fileUrlProxyPlugin, authMigrateProxyPlugin, ragProxyPlugin, tokenEngineProxyPlugin, nudgeProxyPlugin, flashcardsProxyPlugin],
+  plugins: [react(), canvasProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin, fileUrlProxyPlugin, authMigrateProxyPlugin, ragProxyPlugin, tokenEngineProxyPlugin, nudgeProxyPlugin, flashcardsProxyPlugin, transcribeProxyPlugin],
   server:  { port: 5173, host: "0.0.0.0", allowedHosts: true },
 });

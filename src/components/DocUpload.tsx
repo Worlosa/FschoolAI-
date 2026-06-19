@@ -1,13 +1,26 @@
 // DocUpload.tsx — Upload a document (PDF / text) or paste text to index it for RAG.
-// PDFs/text are extracted server-side via /api/extract, then sent to
-// /api/rag?action=ingest, which sections + chunks + embeds them. Once indexed,
-// the tutor (NeuralRing) can answer grounded in the content with [n] citations.
+// PDFs/text are extracted server-side via /api/extract, then /api/rag?action=ingest
+// sections + chunks + stores them; embeddings are filled in via repeated
+// /api/rag?action=embed calls (bounded batches → large docs don't time out). Once
+// indexed, the tutor (NeuralRing) answers grounded in the content with [n] citations.
 
 import { useRef, useState, useEffect } from "react";
 import { useApp } from "../context/AppContext";
 import { supabase } from "../api/supabase";
 
-const ACCEPT = ".pdf,.txt,.md,.markdown,.html";
+const ACCEPT = ".pdf,.txt,.md,.markdown,.html,.docx,.pptx,.png,.jpg,.jpeg,.webp,.gif,.mp3,.wav,.m4a,.mp4,.mov,.webm";
+
+// Map a file's MIME/name to the RAG `kind` tag.
+function kindForFile(file) {
+  const s = `${file.type} ${file.name}`.toLowerCase();
+  if (/pdf/.test(s)) return "pdf";
+  if (/wordprocessingml|\.docx\b/.test(s)) return "docx";
+  if (/presentationml|\.pptx\b/.test(s)) return "pptx";
+  if (/image\/|\.(png|jpe?g|webp|gif|bmp|tiff?)\b/.test(s)) return "image";
+  if (/audio\/|\.(mp3|wav|m4a|aac|ogg|flac)\b/.test(s)) return "audio";
+  if (/video\/|\.(mp4|mov|webm|mpeg)\b/.test(s)) return "video";
+  return "text";
+}
 
 function readAsBase64(file) {
   return new Promise((resolve, reject) => {
@@ -27,6 +40,7 @@ export default function DocUpload() {
   const [showPaste, setShowPaste] = useState(false);
   const [pasteText, setPasteText] = useState("");
   const [pasteTitle, setPasteTitle] = useState("");
+  const [youtubeUrl, setYoutubeUrl] = useState("");
   const [docs, setDocs] = useState([]); // already-indexed documents for this user
 
   const busy = status === "reading" || status === "extracting" || status === "indexing";
@@ -58,8 +72,9 @@ export default function DocUpload() {
     if (!userId) { setStatus("error"); setMessage("Not signed in."); return; }
     const hasContent = (pages && pages.some(p => p?.text?.trim())) || (text && text.trim());
     if (!hasContent) { setStatus("error"); setMessage("Nothing to index — no text found."); return; }
-    setStatus("indexing"); setMessage("Indexing…");
+    setStatus("indexing"); setMessage("Preparing…");
     try {
+      // 1. Parse + store chunks WITHOUT embeddings — fast, never times out.
       const res = await fetch("/api/rag?action=ingest", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
@@ -67,9 +82,27 @@ export default function DocUpload() {
         body:    JSON.stringify({ userId, courseId: courseId || null, title, kind, pages, text }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || data.error) throw new Error(data.error || `ingest ${res.status}`);
+      if (!res.ok || data.error || !data.documentId) throw new Error(data.error || `ingest ${res.status}`);
+      const total = data.chunks ?? 0;
+
+      // 2. Embed in bounded batches so a large doc can't blow the serverless time
+      //    limit — loop until the server reports it's drained the queue.
+      let embedded = 0;
+      for (let guard = 0; guard < 100000; guard++) {
+        const er = await fetch("/api/rag?action=embed", {
+          method:  "POST",
+          headers: { "Content-Type": "application/json" },
+          body:    JSON.stringify({ userId, documentId: data.documentId }),
+        });
+        const ed = await er.json().catch(() => ({}));
+        if (!er.ok || ed.error) throw new Error(ed.error || `embed ${er.status}`);
+        embedded += ed.embedded ?? 0;
+        if (total) setMessage(`Indexing… ${Math.min(embedded, total)}/${total} chunks`);
+        if (ed.done) break;
+      }
+
       setStatus("done");
-      setMessage(`Indexed “${title}” — ${data.sections} section${data.sections !== 1 ? "s" : ""}, ${data.chunks} chunk${data.chunks !== 1 ? "s" : ""}. Ask the tutor about it.`);
+      setMessage(`Indexed “${title}” — ${data.sections} section${data.sections !== 1 ? "s" : ""}, ${total} chunk${total !== 1 ? "s" : ""}. Ask the tutor about it.`);
     } catch (err) {
       setStatus("error");
       setMessage(err?.message || "Indexing failed.");
@@ -78,10 +111,19 @@ export default function DocUpload() {
 
   async function handleFile(file) {
     if (!file) return;
+    const kind = kindForFile(file);
+    // Large audio/video can't go base64 through /api/extract (Vercel's ~4.5MB body
+    // limit) → upload straight to Storage + async transcription instead.
+    if ((kind === "audio" || kind === "video") && file.size > 4 * 1024 * 1024) {
+      return handleLargeMedia(file, kind);
+    }
     setStatus("reading"); setMessage(`Reading ${file.name}…`);
     try {
       const base64 = await readAsBase64(file);
-      setStatus("extracting"); setMessage("Extracting text…");
+      setStatus("extracting");
+      setMessage(kind === "image" ? "Reading image (OCR)…"
+               : kind === "audio" || kind === "video" ? "Transcribing… (this can take a moment)"
+               : "Extracting text…");
       const res = await fetch("/api/extract", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
@@ -89,12 +131,78 @@ export default function DocUpload() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.text) throw new Error(data.error || "Couldn't extract text from that file.");
-      const kind = /pdf/i.test(file.type || file.name) ? "pdf" : "text";
       if (data.truncated) setMessage("Large file — indexing the first portion…");
       await ingest({ text: data.text, pages: data.pages, title: file.name, kind });
     } catch (err) {
       setStatus("error");
       setMessage(err?.message || "Couldn't read that file.");
+    }
+  }
+
+  // Large media: direct-to-Storage upload, then provider transcription (polled),
+  // then RAG ingest — all server-side after the upload, so no body-size limit.
+  async function handleLargeMedia(file, kind) {
+    if (!userId) { setStatus("error"); setMessage("Not signed in."); return; }
+    try {
+      setStatus("reading"); setMessage("Uploading…");
+      const sres = await fetch("/api/transcribe?action=sign", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, filename: file.name }),
+      });
+      const sdata = await sres.json().catch(() => ({}));
+      if (!sres.ok || !sdata.path || !sdata.token) throw new Error(sdata.error || "Couldn't start the upload.");
+
+      const up = await supabase.storage.from("media-uploads").uploadToSignedUrl(sdata.path, sdata.token, file);
+      if (up.error) throw new Error(`Upload failed: ${up.error.message}`);
+
+      setStatus("extracting"); setMessage("Transcribing… (this can take a few minutes for long recordings)");
+      const stres = await fetch("/api/transcribe?action=start", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, storagePath: sdata.path, title: file.name, courseId: courseId || null, kind }),
+      });
+      const stdata = await stres.json().catch(() => ({}));
+      if (!stres.ok || !stdata.jobId) throw new Error(stdata.error || "Couldn't start transcription.");
+
+      // ElevenLabs Scribe is synchronous — `start` returns the final state directly.
+      if (stdata.status === "done")  { setStatus("done"); setMessage(`Indexed “${file.name}” from its transcript. Ask the tutor about it.`); return; }
+      if (stdata.status === "error") throw new Error(stdata.error || "Transcription failed.");
+
+      // Fallback poll (only reached if a future async provider leaves it pending).
+      for (let guard = 0; guard < 100000; guard++) {
+        await new Promise(r => setTimeout(r, 4000));
+        const pres = await fetch("/api/transcribe?action=status", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobId: stdata.jobId }),
+        });
+        const pdata = await pres.json().catch(() => ({}));
+        const st = pdata?.job?.status;
+        if (st === "indexing") setMessage("Transcribed — indexing…");
+        if (st === "done")  { setStatus("done"); setMessage(`Indexed “${file.name}” from its transcript. Ask the tutor about it.`); return; }
+        if (st === "error") throw new Error(pdata?.job?.error || "Transcription failed.");
+      }
+    } catch (err) {
+      setStatus("error");
+      setMessage(err?.message || "Couldn't transcribe that file.");
+    }
+  }
+
+  async function handleYoutube(rawUrl) {
+    const url = (rawUrl || "").trim();
+    if (!url) return;
+    setStatus("extracting"); setMessage("Fetching YouTube transcript…");
+    try {
+      const res = await fetch("/api/extract", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ youtubeUrl: url }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.text) throw new Error(data.error || "Couldn't fetch a transcript for that video.");
+      await ingest({ text: data.text, pages: data.pages, title: `YouTube — ${url}`, kind: "youtube" });
+      setYoutubeUrl("");
+    } catch (err) {
+      setStatus("error");
+      setMessage(err?.message || "Couldn't fetch that transcript.");
     }
   }
 
@@ -113,7 +221,7 @@ export default function DocUpload() {
         <div style={{ minWidth: 0 }}>
           <p style={{ color: "var(--text-primary)", fontSize: "14px", fontWeight: 600 }}>Add study material</p>
           <p style={{ color: "var(--text-dim)", fontSize: "12px", marginTop: "2px" }}>
-            Upload a PDF or notes — the tutor answers grounded in it.
+            PDF, Word, slides, image, audio/video — or a YouTube link. The tutor answers grounded in it.
           </p>
         </div>
       </div>
@@ -131,9 +239,9 @@ export default function DocUpload() {
             fontSize: "13px", fontFamily: "inherit", outline: "none",
           }}
         >
-          <option value="">No specific course</option>
+          <option value="" style={{ background: "#15171c", color: "#F5F5F5" }}>No specific course</option>
           {courses.map((c, i) => (
-            <option key={c.dbId ?? c.id ?? i} value={c.dbId ?? c.id ?? ""}>
+            <option key={c.dbId ?? c.id ?? i} value={c.dbId ?? c.id ?? ""} style={{ background: "#15171c", color: "#F5F5F5" }}>
               {c.courseCode || c.name || `Course ${i + 1}`}
             </option>
           ))}
@@ -154,7 +262,7 @@ export default function DocUpload() {
             cursor: busy ? "default" : "pointer", fontFamily: "inherit", opacity: busy ? 0.6 : 1,
           }}
         >
-          {busy ? "Working…" : "Upload PDF / file"}
+          {busy ? "Working…" : "Upload file"}
         </button>
         <button
           onClick={() => setShowPaste(v => !v)}
@@ -166,6 +274,35 @@ export default function DocUpload() {
           }}
         >
           Paste text
+        </button>
+      </div>
+
+      {/* YouTube link → transcript */}
+      <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
+        <input
+          value={youtubeUrl}
+          onChange={e => setYoutubeUrl(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") handleYoutube(youtubeUrl); }}
+          disabled={busy}
+          placeholder="Paste a YouTube link…"
+          style={{
+            flex: "1 1 auto", minWidth: 0, boxSizing: "border-box",
+            background: "rgba(255,255,255,0.04)", border: "1px solid var(--color-border)",
+            borderRadius: "10px", padding: "10px 12px", color: "var(--text-primary)",
+            fontSize: "13px", fontFamily: "inherit", outline: "none",
+          }}
+        />
+        <button
+          onClick={() => handleYoutube(youtubeUrl)}
+          disabled={busy || !youtubeUrl.trim()}
+          style={{
+            background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--color-border)",
+            borderRadius: "var(--radius-btn)", padding: "10px 16px", fontSize: "14px", fontWeight: 500,
+            cursor: (busy || !youtubeUrl.trim()) ? "default" : "pointer", fontFamily: "inherit",
+            opacity: (busy || !youtubeUrl.trim()) ? 0.6 : 1, flexShrink: 0,
+          }}
+        >
+          Add
         </button>
       </div>
 

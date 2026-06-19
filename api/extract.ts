@@ -97,6 +97,176 @@ async function pdfToPages(bytes: Uint8Array): Promise<{ pages: { page: number; t
   return { pages, pageCount, truncated: pageCount > limit };
 }
 
+function decodeXml(s: string): string {
+  return s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+          .replace(/&#39;|&apos;/g, "'").replace(/&amp;/g, "&");
+}
+
+// DOCX → text (mammoth yields clean paragraph text; keep paragraph breaks).
+async function docxToPages(bytes: Uint8Array) {
+  const mammoth: any = await import("mammoth");
+  const { value } = await mammoth.extractRawText({ buffer: Buffer.from(bytes) });
+  const text = String(value || "").replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return text ? [{ page: 1, text }] : [];
+}
+
+// PPTX → one "page" per slide; slide text lives in <a:t> runs inside <a:p> paragraphs.
+async function pptxToPages(bytes: Uint8Array) {
+  const JSZip: any = (await import("jszip")).default;
+  const zip = await JSZip.loadAsync(bytes);
+  const slideNames = Object.keys(zip.files)
+    .filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n))
+    .sort((a, b) => (parseInt(a.match(/(\d+)/)![1], 10) - parseInt(b.match(/(\d+)/)![1], 10)));
+  const pages: { page: number; text: string }[] = [];
+  for (let i = 0; i < slideNames.length; i++) {
+    const xml: string = await zip.files[slideNames[i]].async("string");
+    const paras = [...xml.matchAll(/<a:p>([\s\S]*?)<\/a:p>/g)]
+      .map(pm => [...pm[1].matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)].map(m => decodeXml(m[1])).join("").trim())
+      .filter(Boolean);
+    if (paras.length) pages.push({ page: i + 1, text: `# Slide ${i + 1}\n\n${paras.join("\n")}` });
+  }
+  return pages;
+}
+
+// Image → OCR via OpenAI vision (gpt-4o-mini). Returns the extracted text.
+async function imageOcrToPages(base64: string, mime: string) {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) throw new Error("OPENAI_API_KEY not configured (needed for image OCR)");
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method:  "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      max_tokens: 4096,
+      messages: [{ role: "user", content: [
+        { type: "text", text: "Extract ALL text from this image verbatim, preserving line breaks and reading order. Output only the extracted text — no commentary." },
+        { type: "image_url", image_url: { url: `data:${mime || "image/png"};base64,${base64}` } },
+      ] }],
+    }),
+  });
+  if (!res.ok) throw new Error(`OpenAI vision ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const json = await res.json();
+  const text = String(json.choices?.[0]?.message?.content || "").trim();
+  return text ? [{ page: 1, text }] : [];
+}
+
+// Audio/Video → transcript via OpenAI Whisper. Note: the request body must fit
+// Vercel's ~4.5MB limit (base64), so this currently handles small clips; large
+// media needs a Storage-based upload flow (follow-up).
+async function transcribeToPages(bytes: Uint8Array, name: string, mime: string) {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) throw new Error("OPENAI_API_KEY not configured (needed for transcription)");
+  const form = new FormData();
+  form.append("file", new Blob([bytes as any], { type: mime || "application/octet-stream" }), name || "media");
+  form.append("model", "whisper-1");
+  const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST", headers: { Authorization: `Bearer ${key}` }, body: form,
+  });
+  if (!res.ok) throw new Error(`OpenAI transcription ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const json = await res.json();
+  const text = String(json.text || "").trim();
+  return text ? [{ page: 1, text }] : [];
+}
+
+function youtubeId(url: string): string | null {
+  const m = String(url).match(/(?:v=|youtu\.be\/|\/embed\/|\/shorts\/)([A-Za-z0-9_-]{11})/);
+  if (m) return m[1];
+  return /^[A-Za-z0-9_-]{11}$/.test(String(url).trim()) ? String(url).trim() : null;
+}
+
+// YouTube → transcript via the InnerTube ANDROID player. The caption URLs on the
+// public watch page are now "pot"-gated (they return 200 with an EMPTY body without
+// a proof-of-origin token). The ANDROID InnerTube client returns caption URLs that
+// aren't gated, so we go through it. Fails gracefully (no captions / blocked).
+const YT_INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"; // public web key (fallback)
+const YT_ANDROID_VER = "20.10.38";
+
+async function youtubeToPages(url: string) {
+  const id = youtubeId(url);
+  if (!id) throw new Error("Couldn't parse a YouTube video id from that link.");
+  const base = { "User-Agent": "Mozilla/5.0", "Accept-Language": "en-US,en" };
+
+  // Pull the current InnerTube key from the watch page (falls back to the web key).
+  let key = YT_INNERTUBE_KEY;
+  try {
+    const page = await (await fetch(`https://www.youtube.com/watch?v=${id}&hl=en`, { headers: base })).text();
+    key = (page.match(/"INNERTUBE_API_KEY":"([^"]+)"/) || [])[1] || key;
+  } catch { /* use fallback key */ }
+
+  const pr = await fetch(`https://www.youtube.com/youtubei/v1/player?key=${key}`, {
+    method:  "POST",
+    headers: {
+      ...base, "Content-Type": "application/json",
+      "X-YouTube-Client-Name": "3", "X-YouTube-Client-Version": YT_ANDROID_VER,
+      "User-Agent": `com.google.android.youtube/${YT_ANDROID_VER} (Linux; U; Android 14) gzip`,
+    },
+    body: JSON.stringify({
+      context: { client: { clientName: "ANDROID", clientVersion: YT_ANDROID_VER, androidSdkVersion: 34, hl: "en" } },
+      videoId: id,
+    }),
+  });
+  const pj: any = await pr.json().catch(() => ({}));
+  const tracks: any[] = pj?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+  if (!tracks.length) throw new Error("No captions are available for this video.");
+
+  // Prefer English, and prefer human captions over auto-generated (asr) when both exist.
+  const en = tracks.filter(t => (t.languageCode || "").startsWith("en"));
+  const pool = en.length ? en : tracks;
+  const track = pool.find(t => t.kind !== "asr") || pool[0];
+  if (!track?.baseUrl) throw new Error("No caption track found.");
+
+  // The ANDROID caption URL bakes in &fmt=srv3 (XML). SET fmt=json3 (replacing srv3)
+  // for clean JSON; fall back to parsing srv3 <p>/<s> cues if json3 isn't returned.
+  let text = "";
+  try {
+    const u = new URL(track.baseUrl); u.searchParams.set("fmt", "json3");
+    const j: any = await (await fetch(u.toString(), { headers: base })).json();
+    text = (j.events ?? [])
+      .flatMap((e: any) => (e.segs ?? []).map((s: any) => s.utf8 ?? ""))
+      .join("").replace(/\s+/g, " ").trim();
+  } catch { /* fall back to srv3 XML */ }
+
+  if (!text) {
+    const xml = await (await fetch(track.baseUrl, { headers: base })).text();
+    text = [...xml.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/g)]
+      .map(mm => decodeXml(mm[1].replace(/<[^>]+>/g, ""))) // strip <s> tokens, keep their text + spacing
+      .join(" ").replace(/\s+/g, " ").trim();
+  }
+
+  if (!text) throw new Error("The transcript came back empty.");
+  return [{ page: 1, text }];
+}
+
+// Scanned PDF (no text layer) → OCR via OpenAI's PDF vision (Responses API
+// `input_file`). The model reads the PDF directly — no client-side rasterization
+// or canvas dependency. Bounded by OpenAI's PDF limits + our request-body size.
+async function pdfOcrViaOpenAI(base64: string) {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) throw new Error("OPENAI_API_KEY not configured (needed to OCR scanned PDFs)");
+  const res = await fetch("https://api.openai.com/v1/responses", {
+    method:  "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      input: [{ role: "user", content: [
+        { type: "input_text", text: "This is a scanned document. Extract ALL text from it verbatim, preserving reading order and structure. Output only the extracted text." },
+        { type: "input_file", filename: "document.pdf", file_data: `data:application/pdf;base64,${base64}` },
+      ] }],
+    }),
+  });
+  if (!res.ok) throw new Error(`OpenAI PDF OCR ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const json = await res.json();
+  let text = String(json.output_text || "");
+  if (!text) {
+    text = (json.output ?? [])
+      .flatMap((o: any) => o.content ?? [])
+      .map((c: any) => c?.text || "")
+      .join("\n");
+  }
+  text = text.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return text ? [{ page: 1, text }] : [];
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -104,34 +274,57 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { base64, file_type, name } = req.body ?? {};
-  if (!base64) return res.status(400).json({ error: "base64 required" });
+  const { base64, file_type, name, youtubeUrl } = req.body ?? {};
+
+  // YouTube — URL-based, no file bytes.
+  if (youtubeUrl) {
+    try {
+      const pages = await youtubeToPages(youtubeUrl);
+      const combined = pages.map(p => p.text).join("\n\n");
+      return res.status(200).json({ text: combined, pages, chars: combined.length, pageCount: pages.length, truncated: false });
+    } catch (err) {
+      return res.status(200).json({ text: "", pages: [], error: err.message });
+    }
+  }
+
+  if (!base64) return res.status(400).json({ error: "base64 or youtubeUrl required" });
 
   let bytes;
   try { bytes = new Uint8Array(Buffer.from(base64, "base64")); }
   catch { return res.status(400).json({ error: "invalid base64" }); }
 
   const ext = String(file_type || name || "").toLowerCase();
+  const isImage = /image\/|\.(png|jpe?g|webp|gif|bmp|tiff?)\b/.test(ext);
+  const isMedia = /audio\/|video\/|\.(mp3|wav|m4a|aac|ogg|flac|mp4|mov|webm|mpeg|mpga)\b/.test(ext);
   try {
     let pages: { page: number; text: string }[];
-    let pageCount: number;
     let truncated = false;
 
     if (ext.includes("pdf")) {
       const r = await pdfToPages(bytes);
-      pages = r.pages; pageCount = r.pageCount; truncated = r.truncated;
+      pages = r.pages; truncated = r.truncated;
+      // Scanned PDFs have no text layer → pdfjs returns ~nothing. Auto-OCR the PDF
+      // via OpenAI vision (no manual image conversion needed).
+      const chars = pages.reduce((n, p) => n + p.text.length, 0);
+      if (chars < 40) pages = await pdfOcrViaOpenAI(base64);
+    } else if (/wordprocessingml|\.docx\b/.test(ext)) {
+      pages = await docxToPages(bytes);
+    } else if (/presentationml|\.pptx\b/.test(ext)) {
+      pages = await pptxToPages(bytes);
+    } else if (isImage) {
+      pages = await imageOcrToPages(base64, file_type);
+    } else if (isMedia) {
+      pages = await transcribeToPages(bytes, name, file_type);
     } else {
       // Plain text / html / md — strip tags, decode utf-8, keep line structure.
       let text = Buffer.from(bytes).toString("utf8").replace(/<[^>]+>/g, " ");
       if (text.length > SAFETY_CHARS) { text = text.slice(0, SAFETY_CHARS); truncated = true; }
-      // Normalize newlines but DO NOT collapse them — structure matters for chunking.
       text = text.replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
       pages = text ? [{ page: 1, text }] : [];
-      pageCount = 1;
     }
 
     const combined = pages.map(p => p.text).join("\n\n");
-    return res.status(200).json({ text: combined, pages, chars: combined.length, pageCount, truncated });
+    return res.status(200).json({ text: combined, pages, chars: combined.length, pageCount: pages.length, truncated });
   } catch (err) {
     console.error("[extract] failed:", err.message);
     return res.status(200).json({ text: "", pages: [], error: err.message }); // soft-fail: caller stores no content
