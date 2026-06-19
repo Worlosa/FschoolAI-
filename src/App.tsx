@@ -9,6 +9,7 @@ import { NAV, LABEL }       from "./navigation/navConfig";
 import { useSwipe }         from "./navigation/useSwipe";
 import PageDots             from "./components/PageDots";
 import NeuralRing           from "./components/NeuralRing";
+import BottomNav            from "./components/BottomNav";
 import Landing              from "./pages/Landing";
 import Onboarding           from "./pages/Onboarding";
 import { useApp }           from "./context/AppContext";
@@ -76,6 +77,18 @@ const SHELL_STYLES = `
   .app-main {
     padding: 20px 22px 100px;
   }
+  /* Tabs mode on web (≥768px): BottomNav becomes a fixed left sidebar, so push
+     the page content over to make room (232px rail / 64px collapsed — must match
+     RAIL_W in BottomNav.tsx). Only applies in tabs mode (.nav-tabs). */
+  @media (min-width: 768px) {
+    .nav-tabs .app-page-transition {
+      margin-left: 232px;
+      transition: margin-left 0.2s var(--ease-apple);
+    }
+    .nav-tabs.nav-collapsed .app-page-transition {
+      margin-left: 64px;
+    }
+  }
 `;
 
 if (!document.getElementById("app-shell-styles")) {
@@ -90,7 +103,7 @@ export default function App() {
   if (window.location.pathname === "/card") {
     return <Card />;
   }
-  const { userId, setUserId, refreshUser, userData, saveCanvasCredentials, updateUserField, pendingNav, setPendingNav, tokenSummary } = useApp();
+  const { userId, setUserId, refreshUser, userData, saveCanvasCredentials, updateUserField, pendingNav, setPendingNav, tokenSummary, navMode } = useApp();
 
   const [isLoggedIn, setIsLoggedIn] = useState(
     () => Boolean(localStorage.getItem(LOGGED_IN_KEY))
@@ -100,6 +113,7 @@ export default function App() {
   const [onboardingInitName,  setOnboardingInitName] = useState("");
   const [currentPage,         setCurrentPage]        = useState("work");
   const [visible,             setVisible]            = useState(true);
+  const [navCollapsed,        setNavCollapsed]       = useState(false);
 
   // ── Notification bell state ────────────────────────────────────────────────
   const [unreadCount,   setUnreadCount]   = useState(0);
@@ -576,9 +590,9 @@ export default function App() {
 
   return (
     <div
-      className="app-shell"
-      onTouchStart={onTouchStart}
-      onTouchEnd={onTouchEnd}
+      className={`app-shell${navMode === "tabs" ? " nav-tabs" : ""}${navCollapsed ? " nav-collapsed" : ""}`}
+      onTouchStart={navMode === "tabs" ? undefined : onTouchStart}
+      onTouchEnd={navMode === "tabs" ? undefined : onTouchEnd}
     >
       {overlays}
       <TokenToast />
@@ -697,7 +711,7 @@ export default function App() {
               )}
             </AnimatePresence>
           </div>
-          <PageDots currentPage={currentPage} />
+          {navMode !== "tabs" && <PageDots currentPage={currentPage} />}
         </header>
 
         <main className="app-main">
@@ -706,6 +720,14 @@ export default function App() {
       </div>
 
       <NeuralRing />
+      {navMode === "tabs" && (
+        <BottomNav
+          currentPage={currentPage}
+          onNavigate={navigate}
+          collapsed={navCollapsed}
+          onToggleCollapse={() => setNavCollapsed(v => !v)}
+        />
+      )}
     </div>
   );
 }
