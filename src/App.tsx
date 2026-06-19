@@ -4,6 +4,7 @@
 // PLACE IN: /src/App.jsx (replaces existing file)
 
 import { useState, useCallback, useRef, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { NAV, LABEL }       from "./navigation/navConfig";
 import { useSwipe }         from "./navigation/useSwipe";
 import PageDots             from "./components/PageDots";
@@ -16,6 +17,8 @@ import { supabase }         from "./api/supabase";
 import { usePageTracking }  from "./hooks/usePageTracking";
 import { awardTokens }      from "./api/tokens";
 import TokenToast           from "./components/TokenToast";
+import NotificationPanel    from "./components/NotificationPanel";
+import { fetchUnreadCount, AppNotification } from "./api/notifications";
 
 import Work        from "./pages/Work";
 import Canvas      from "./pages/Canvas";
@@ -118,6 +121,45 @@ export default function App() {
       return next;
     });
   }, []);
+
+  // ── Notification bell state ────────────────────────────────────────────────
+  const [unreadCount,   setUnreadCount]   = useState(0);
+  const [showBell,      setShowBell]      = useState(false);
+  const [liveNotifs,    setLiveNotifs]    = useState<AppNotification[]>([]);
+  const [bellRing,      setBellRing]      = useState(false);
+  const prevUnreadRef = useRef(0);
+
+  // Fetch initial unread count on login
+  useEffect(() => {
+    if (!userId) return;
+    fetchUnreadCount(userId).then(c => { setUnreadCount(c); prevUnreadRef.current = c; });
+  }, [userId]);
+
+  // Subscribe to new notifications via postgres_changes (clean, no WS needed server-side)
+  useEffect(() => {
+    if (!userId) return;
+    const ch = supabase.channel(`notifs:${userId}`);
+    ch.on("postgres_changes", {
+      event: "INSERT", schema: "public", table: "notifications",
+      filter: `user_id=eq.${userId}`,
+    }, (payload) => {
+      const n = payload.new as AppNotification;
+      setLiveNotifs(prev => [n, ...prev]);
+      if (!showBell) setUnreadCount(c => c + 1); // panel is closed → increment badge
+    }).subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [userId]); // eslint-disable-line
+
+  // Bell wobble: fires once when a new notification arrives while panel is closed
+  useEffect(() => {
+    if (unreadCount > prevUnreadRef.current && !showBell) {
+      setBellRing(true);
+      const t = setTimeout(() => setBellRing(false), 600);
+      prevUnreadRef.current = unreadCount;
+      return () => clearTimeout(t);
+    }
+    prevUnreadRef.current = unreadCount;
+  }, [unreadCount, showBell]); // eslint-disable-line
 
   // ── Verify banner state ────────────────────────────────────────────────────
   const [verifyBanner, setVerifyBanner] = useState(() => {
@@ -608,6 +650,64 @@ export default function App() {
               </span>
             </button>
           )}
+          {/* ── Notification bell ───────────────────────────────────────────── */}
+          <div style={{ position: "relative" }}>
+            <motion.button
+              onClick={() => { setShowBell(v => !v); if (!showBell) setUnreadCount(0); }}
+              animate={bellRing ? { rotate: [0, -14, 11, -8, 5, -3, 1, 0] } : { rotate: 0 }}
+              transition={{ duration: 0.52, ease: "easeOut" }}
+              style={{
+                width: 34, height: 34, borderRadius: "50%", border: "none",
+                background: showBell ? "rgba(255,255,255,0.08)" : "none",
+                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                color: unreadCount > 0 ? "var(--color-accent)" : "var(--text-dim)",
+                position: "relative", transition: "background 0.15s, color 0.15s",
+              }}
+              aria-label="Notifications"
+            >
+              {/* Bell SVG */}
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+              </svg>
+              {/* Unread badge — spring pops in, re-mounts on count change */}
+              <AnimatePresence>
+                {unreadCount > 0 && (
+                  <motion.span
+                    key={unreadCount}
+                    initial={{ scale: 0, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0, opacity: 0 }}
+                    transition={{ type: "spring", stiffness: 520, damping: 22 }}
+                    style={{
+                      position: "absolute", top: "4px", right: "4px",
+                      minWidth: "16px", height: "16px",
+                      background: "#C49A3C", color: "#111",
+                      borderRadius: "8px", fontSize: "9px", fontWeight: "700",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      padding: "0 3px", lineHeight: 1,
+                      boxShadow: "0 0 0 2px var(--color-bg)",
+                    }}
+                  >
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            </motion.button>
+            {/* Panel — AnimatePresence drives the spring exit animation */}
+            <AnimatePresence>
+              {showBell && (
+                <NotificationPanel
+                  key="notif-panel"
+                  userId={userId}
+                  liveNotifs={liveNotifs}
+                  onClose={() => setShowBell(false)}
+                  onNavigate={navigate}
+                  onUnreadChange={setUnreadCount}
+                />
+              )}
+            </AnimatePresence>
+          </div>
           {navMode === "tabs" ? <span style={{ width: 24 }} /> : <PageDots currentPage={currentPage} />}
         </header>
 
