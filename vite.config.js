@@ -414,8 +414,8 @@ const ragProxyPlugin = {
 };
 
 // Transcribe proxy — runs the real api/transcribe.ts handler (large media → Storage
-// → AssemblyAI → RAG) under the dev server. Same module-load env caveat → inject env
-// first, dynamic import. Reads ?action=sign|start|status.
+// → ElevenLabs Scribe → RAG) under the dev server. Same module-load env caveat → inject
+// env first, dynamic import. Reads ?action=sign|start|status.
 const transcribeProxyPlugin = {
   name: "transcribe-proxy",
   configureServer(server) {
@@ -425,7 +425,7 @@ const transcribeProxyPlugin = {
       process.env.SUPABASE_URL         = loadEnvKey("SUPABASE_URL");
       process.env.SUPABASE_SERVICE_KEY = loadEnvKey("SUPABASE_SERVICE_KEY");
       process.env.OPENAI_API_KEY       = loadEnvKey("OPENAI_API_KEY");
-      process.env.ASSEMBLYAI_API_KEY   = loadEnvKey("ASSEMBLYAI_API_KEY");
+      process.env.ELEVENLABS_API_KEY   = loadEnvKey("ELEVENLABS_API_KEY");
       const url = new URL(req.url, "http://localhost");
       req.query = Object.fromEntries(url.searchParams.entries());
       let body = "";

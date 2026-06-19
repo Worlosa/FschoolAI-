@@ -1,8 +1,7 @@
--- Large audio/video transcription via direct-to-Storage upload + a transcription
--- provider (AssemblyAI) called with a signed URL. The browser uploads the file
--- straight to Storage (bypassing the ~4.5MB serverless body limit); the provider
--- downloads it from a signed URL and transcribes async; we poll for completion and
--- feed the transcript into the RAG pipeline.
+-- Large audio/video transcription via direct-to-Storage upload + ElevenLabs Scribe.
+-- The browser uploads the file straight to Storage (bypassing the ~4.5MB serverless
+-- body limit); the server downloads it and transcribes it via Scribe, then feeds the
+-- transcript into the RAG pipeline. media_jobs tracks status for the client.
 
 -- Job tracking (polled by the client for status).
 create table if not exists public.media_jobs (
@@ -12,8 +11,8 @@ create table if not exists public.media_jobs (
   title        text,
   kind         text,                    -- audio | video
   storage_path text,                    -- object path in the media-uploads bucket
-  provider     text default 'assemblyai',
-  provider_id  text,                    -- AssemblyAI transcript id
+  provider     text default 'elevenlabs',
+  provider_id  text,                    -- provider transcript/job id (unused for sync Scribe)
   status       text default 'pending',  -- pending|transcribing|indexing|done|error
   document_id  uuid,                     -- rag_documents.id once ingested
   error        text,

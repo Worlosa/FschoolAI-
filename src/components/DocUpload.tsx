@@ -163,7 +163,11 @@ export default function DocUpload() {
       const stdata = await stres.json().catch(() => ({}));
       if (!stres.ok || !stdata.jobId) throw new Error(stdata.error || "Couldn't start transcription.");
 
-      // Poll until the provider finishes and the transcript is indexed.
+      // ElevenLabs Scribe is synchronous — `start` returns the final state directly.
+      if (stdata.status === "done")  { setStatus("done"); setMessage(`Indexed “${file.name}” from its transcript. Ask the tutor about it.`); return; }
+      if (stdata.status === "error") throw new Error(stdata.error || "Transcription failed.");
+
+      // Fallback poll (only reached if a future async provider leaves it pending).
       for (let guard = 0; guard < 100000; guard++) {
         await new Promise(r => setTimeout(r, 4000));
         const pres = await fetch("/api/transcribe?action=status", {

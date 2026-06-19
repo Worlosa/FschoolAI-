@@ -1,25 +1,30 @@
 // api/transcribe.ts — large audio/video → transcript → RAG, via direct-to-Storage
-// upload + AssemblyAI. Action-routed (one function to respect the Vercel limit):
-//   POST /api/transcribe?action=sign    { userId, filename }            → signed upload URL
+// upload + ElevenLabs Scribe. Action-routed (one function to respect the Vercel limit):
+//   POST /api/transcribe?action=sign    { userId, filename }                  → signed upload URL
 //   POST /api/transcribe?action=start   { userId, storagePath, title,
-//                                         courseId?, kind? }            → { jobId }
-//   POST /api/transcribe?action=status  { jobId }                       → { job }
+//                                         courseId?, kind? }                  → { jobId, status }
+//   POST /api/transcribe?action=status  { jobId }                            → { job }
 //
-// We POLL the provider (no public webhook needed → works in dev and prod). The browser
-// uploads the file straight to Storage, so the file never hits the 4.5MB function body
-// limit. On completion the transcript is ingested into RAG (chunked + embedded).
+// The browser uploads the file straight to Storage (bypassing the ~4.5MB function body
+// limit). `start` then downloads it server-side and transcribes it via ElevenLabs
+// Scribe (synchronous), ingests the transcript into RAG, and returns the final status.
+// (Scribe is sync, so we don't poll — `status` is just a convenience/fallback.)
+
+export const config = { maxDuration: 300 }; // give long transcriptions room (Vercel Pro)
 
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { ingest, embedBatch } from "./rag.js";
 
 const BUCKET = "media-uploads";
+const STT_URL = "https://api.elevenlabs.io/v1/speech-to-text";
+const STT_MODEL = "scribe_v1";
+
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY,
 );
-
-const aai = () => process.env.ASSEMBLYAI_API_KEY;
+const elevenKey = () => process.env.ELEVENLABS_API_KEY;
 
 // ── sign: short-lived signed upload URL so the browser uploads directly to Storage ─
 async function sign(body) {
@@ -32,82 +37,62 @@ async function sign(body) {
   return { status: 200, json: { path: data.path, token: data.token } };
 }
 
-// ── start: submit the uploaded file to AssemblyAI via a signed READ url ─────────
+// ── start: download the upload, transcribe via Scribe, ingest into RAG ──────────
 async function start(body) {
   const { userId, storagePath, title = "Recording", courseId = null, kind = "audio" } = body ?? {};
   if (!userId || !storagePath) return { status: 400, json: { error: "userId and storagePath required" } };
-  if (!aai()) return { status: 500, json: { error: "ASSEMBLYAI_API_KEY not configured" } };
-
-  const { data: signed, error: sErr } = await supabase.storage.from(BUCKET).createSignedUrl(storagePath, 60 * 60 * 6);
-  if (sErr || !signed?.signedUrl) return { status: 500, json: { error: `signed read url: ${sErr?.message}` } };
+  if (!elevenKey()) return { status: 500, json: { error: "ELEVENLABS_API_KEY not configured" } };
 
   const jobId = randomUUID();
   await supabase.from("media_jobs").insert({
-    id: jobId, user_id: userId, course_id: courseId, title, kind, storage_path: storagePath, status: "transcribing",
+    id: jobId, user_id: userId, course_id: courseId, title, kind,
+    storage_path: storagePath, provider: "elevenlabs", status: "transcribing",
   });
 
-  const res = await fetch("https://api.assemblyai.com/v2/transcript", {
-    method:  "POST",
-    headers: { Authorization: aai(), "Content-Type": "application/json" },
-    body:    JSON.stringify({ audio_url: signed.signedUrl }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.id) {
-    await supabase.from("media_jobs").update({ status: "error", error: data?.error || `assemblyai ${res.status}` }).eq("id", jobId);
-    return { status: 502, json: { error: data?.error || "transcription submit failed" } };
+  try {
+    // Pull the uploaded file server-side (no client body limit).
+    const { data: blob, error: dlErr } = await supabase.storage.from(BUCKET).download(storagePath);
+    if (dlErr || !blob) throw new Error(`download: ${dlErr?.message || "file not found"}`);
+
+    // Transcribe with ElevenLabs Scribe (multipart upload).
+    const filename = storagePath.split("/").pop() || "audio";
+    const form = new FormData();
+    form.append("model_id", STT_MODEL);
+    form.append("file", blob, filename);
+    const tr = await fetch(STT_URL, { method: "POST", headers: { "xi-api-key": elevenKey() }, body: form });
+    if (!tr.ok) throw new Error(`ElevenLabs STT ${tr.status}: ${(await tr.text()).slice(0, 200)}`);
+    const tj = await tr.json();
+    const text = String(tj.text || "").trim();
+    if (!text) throw new Error("empty transcript");
+
+    // Ingest the transcript → chunk → embed.
+    await supabase.from("media_jobs").update({ status: "indexing" }).eq("id", jobId);
+    const ing = await ingest({ userId, courseId, title, kind, text });
+    const documentId = ing.json?.documentId;
+    if (!documentId) throw new Error(ing.json?.error || "ingest failed");
+    for (let i = 0; i < 1000; i++) {
+      const e = await embedBatch({ userId, documentId });
+      if (e.status !== 200 || e.json?.done) break;
+    }
+
+    await supabase.from("media_jobs").update({ status: "done", document_id: documentId }).eq("id", jobId);
+    return { status: 200, json: { jobId, status: "done", documentId } };
+  } catch (err) {
+    const msg = String(err?.message || err).slice(0, 300);
+    await supabase.from("media_jobs").update({ status: "error", error: msg }).eq("id", jobId);
+    return { status: 200, json: { jobId, status: "error", error: msg } };
   }
-  await supabase.from("media_jobs").update({ provider_id: data.id }).eq("id", jobId);
-  return { status: 200, json: { jobId } };
 }
 
-// ── status: poll the provider; on completion, ingest the transcript into RAG ─────
+// ── status: return the job row (Scribe is sync, so this is just a fallback) ──────
 async function status(body) {
   const { jobId } = body ?? {};
   if (!jobId) return { status: 400, json: { error: "jobId required" } };
-  const { data: job } = await supabase.from("media_jobs").select("*").eq("id", jobId).maybeSingle();
-  if (!job) return { status: 404, json: { error: "job not found" } };
-
-  // Terminal states — nothing to do.
-  if (job.status === "done" || job.status === "error" || !job.provider_id) {
-    return { status: 200, json: { job: pick(job) } };
-  }
-
-  // Check the provider.
-  const tr = await fetch(`https://api.assemblyai.com/v2/transcript/${job.provider_id}`, { headers: { Authorization: aai() } });
-  const tj = await tr.json().catch(() => ({}));
-
-  if (tj.status === "error") {
-    await supabase.from("media_jobs").update({ status: "error", error: tj.error || "transcription failed" }).eq("id", jobId);
-    return { status: 200, json: { job: { ...pick(job), status: "error", error: tj.error } } };
-  }
-  if (tj.status !== "completed") {
-    return { status: 200, json: { job: { ...pick(job), status: "transcribing" } } };
-  }
-
-  // Completed → ingest the transcript, then embed in bounded batches.
-  const text = String(tj.text || "").trim();
-  if (!text) {
-    await supabase.from("media_jobs").update({ status: "error", error: "empty transcript" }).eq("id", jobId);
-    return { status: 200, json: { job: { ...pick(job), status: "error", error: "empty transcript" } } };
-  }
-  await supabase.from("media_jobs").update({ status: "indexing" }).eq("id", jobId);
-
-  const ing = await ingest({ userId: job.user_id, courseId: job.course_id, title: job.title, kind: job.kind, text });
-  const documentId = ing.json?.documentId;
-  if (!documentId) {
-    await supabase.from("media_jobs").update({ status: "error", error: ing.json?.error || "ingest failed" }).eq("id", jobId);
-    return { status: 200, json: { job: { ...pick(job), status: "error", error: ing.json?.error } } };
-  }
-  for (let i = 0; i < 1000; i++) {
-    const e = await embedBatch({ userId: job.user_id, documentId });
-    if (e.status !== 200 || e.json?.done) break;
-  }
-  await supabase.from("media_jobs").update({ status: "done", document_id: documentId }).eq("id", jobId);
-  return { status: 200, json: { job: { ...pick(job), status: "done", document_id: documentId } } };
-}
-
-function pick(j) {
-  return { id: j.id, status: j.status, error: j.error, document_id: j.document_id, title: j.title };
+  const { data } = await supabase
+    .from("media_jobs")
+    .select("id, status, error, document_id, title")
+    .eq("id", jobId).maybeSingle();
+  return { status: 200, json: { job: data || null } };
 }
 
 export default async function handler(req, res) {
