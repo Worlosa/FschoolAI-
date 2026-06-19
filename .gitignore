@@ -9,3 +9,5 @@ dist/
 Thumbs.db
 
 .vite/
+.vercel
+.env*

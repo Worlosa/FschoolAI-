@@ -1,8 +1,12 @@
 {
+  "buildCommand": "npm run build && node scripts/inject-ops-credentials.js",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
   "crons": [
-    { "path": "/api/assignment-reminder",  "schedule": "0 8 * * *"    },
-    { "path": "/api/brain-scheduler-fast", "schedule": "*/5 * * * *"  },
-    { "path": "/api/brain-scheduler",      "schedule": "0 * * * *"    },
-    { "path": "/api/brain-intervention",   "schedule": "*/30 * * * *" }
+    { "path": "/api/assignment-reminder",   "schedule": "0 8 * * *"    },
+    { "path": "/api/brain-scheduler-fast",  "schedule": "*/5 * * * *"  },
+    { "path": "/api/brain-scheduler",       "schedule": "0 * * * *"    },
+    { "path": "/api/brain-intervention",    "schedule": "*/30 * * * *"  }
   ]
 }

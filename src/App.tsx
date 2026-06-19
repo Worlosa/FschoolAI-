@@ -8,7 +8,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { NAV, LABEL }       from "./navigation/navConfig";
 import { useSwipe }         from "./navigation/useSwipe";
 import PageDots             from "./components/PageDots";
-import BottomNav            from "./components/BottomNav";
 import NeuralRing           from "./components/NeuralRing";
 import Landing              from "./pages/Landing";
 import Onboarding           from "./pages/Onboarding";
@@ -20,15 +19,15 @@ import TokenToast           from "./components/TokenToast";
 import NotificationPanel    from "./components/NotificationPanel";
 import { fetchUnreadCount, AppNotification } from "./api/notifications";
 
+import Card        from "./pages/Card";
 import Work        from "./pages/Work";
 import Canvas      from "./pages/Canvas";
 import Assignment  from "./pages/Assignment";
 import Study       from "./pages/Study";
 import Toolkit     from "./pages/Toolkit";
-import Files       from "./pages/Files";
 import Identity    from "./pages/Identity";
 import Leaderboard from "./pages/Leaderboard";
-import StudyRooms  from "./pages/StudyRooms";
+import Files       from "./pages/Files";
 
 const PAGES = {
   work:        Work,
@@ -36,10 +35,9 @@ const PAGES = {
   assignment:  Assignment,
   study:       Study,
   toolkit:     Toolkit,
-  files:       Files,
   identity:    Identity,
   leaderboard: Leaderboard,
-  rooms:       StudyRooms,
+  files:       Files,
 };
 
 const LOGGED_IN_KEY = "fschool_logged_in";
@@ -76,31 +74,21 @@ const SHELL_STYLES = `
   .app-main {
     padding: 20px 22px 100px;
   }
-  /* Tabs nav mode — mobile: bottom bar needs clearance below content. */
-  .app-nav-tabs .app-main {
-    padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
-  }
-  /* Tabs nav mode — web (≥768px): sidebar replaces the bottom bar, so shift
-     content right to clear it (232px rail + 22px gutter) and drop the bottom pad. */
-  @media (min-width: 768px) {
-    .app-nav-tabs .app-header { padding-left: calc(var(--nav-rail, 232px) + 22px); }
-    .app-nav-tabs .app-main   { padding-left: calc(var(--nav-rail, 232px) + 22px); padding-bottom: 100px; }
-  }
 `;
 
-{
-  // Update in place so HMR / style tweaks take effect without a manual reload.
-  let tag = document.getElementById("app-shell-styles");
-  if (!tag) {
-    tag = document.createElement("style");
-    tag.id = "app-shell-styles";
-    document.head.appendChild(tag);
-  }
+if (!document.getElementById("app-shell-styles")) {
+  const tag = document.createElement("style");
+  tag.id = "app-shell-styles";
   tag.textContent = SHELL_STYLES;
+  document.head.appendChild(tag);
 }
 
 export default function App() {
-  const { userId, setUserId, refreshUser, userData, saveCanvasCredentials, updateUserField, pendingNav, setPendingNav, tokenSummary, navMode, setNavMode } = useApp();
+  // ── /card route — standalone page, no auth required ─────────────────────
+  if (window.location.pathname === "/card") {
+    return <Card />;
+  }
+  const { userId, setUserId, refreshUser, userData, saveCanvasCredentials, updateUserField, pendingNav, setPendingNav, tokenSummary } = useApp();
 
   const [isLoggedIn, setIsLoggedIn] = useState(
     () => Boolean(localStorage.getItem(LOGGED_IN_KEY))
@@ -110,17 +98,6 @@ export default function App() {
   const [onboardingInitName,  setOnboardingInitName] = useState("");
   const [currentPage,         setCurrentPage]        = useState("work");
   const [visible,             setVisible]            = useState(true);
-  // Web sidebar (tabs mode) collapse state — persisted.
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(
-    () => { try { return localStorage.getItem("fschool_sidebar_collapsed") === "1"; } catch { return false; } }
-  );
-  const toggleSidebar = useCallback(() => {
-    setSidebarCollapsed(v => {
-      const next = !v;
-      try { localStorage.setItem("fschool_sidebar_collapsed", next ? "1" : "0"); } catch { /* quota */ }
-      return next;
-    });
-  }, []);
 
   // ── Notification bell state ────────────────────────────────────────────────
   const [unreadCount,   setUnreadCount]   = useState(0);
@@ -207,8 +184,6 @@ export default function App() {
     setResetLoading(true);
     setResetError("");
     try {
-      // Legacy reset: hash the new password and write it straight to the users row,
-      // then burn the one-time token. No Supabase Auth.
       const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(resetPw));
       const password_hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
       await supabase.from("users").update({ password_hash, email_verify_token: null }).eq("id", resetMode.userId);
@@ -297,17 +272,14 @@ export default function App() {
   const { onTouchStart, onTouchEnd } = useSwipe(swipeNavigate);
 
   // ── Auth ───────────────────────────────────────────────────────────────────
-  const handleEnter = useCallback(async (creds: any = {}) => {
+  const handleEnter = useCallback(async (creds = {}) => {
     if (creds.mode === "login") {
-      // Legacy auth: SHA-256 the password client-side and match it directly against
-      // the users row (RLS off, anon key). No Supabase Auth / GoTrue / service key.
-      const email = creds.email.toLowerCase().trim();
       const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(creds.password));
       const password_hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
       const { data: user, error } = await supabase
         .from("users")
         .select("id, name, school")
-        .eq("email", email)
+        .eq("email", creds.email.toLowerCase().trim())
         .eq("password_hash", password_hash)
         .maybeSingle();
       if (error || !user) throw new Error("Incorrect email or password.");
@@ -321,46 +293,49 @@ export default function App() {
     // ── Signup ────────────────────────────────────────────────────────────────
     localStorage.setItem("fschool_name", creds.name);
 
-    const email = creds.email.toLowerCase().trim();
-
-    // Legacy signup: SHA-256 the password, then insert the users row directly. No GoTrue.
     const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(creds.password));
     const password_hash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
 
-    // Reject a duplicate email (mirrors the old signup guard).
+    const email = creds.email.toLowerCase().trim();
+
+    // Check for existing account — prevents duplicate signups
     const { data: existing } = await supabase
       .from("users")
       .select("id")
       .eq("email", email)
       .maybeSingle();
+
     if (existing) {
+      // Throw here — propagates up to Landing.jsx to show the error to the user
       throw new Error("An account with this email already exists. Please sign in instead.");
     }
 
-    // CRITICAL: every signup gets a brand-new id — never reuse the device's existing
-    // fschool_uid, or signing up on a device already logged into another account
-    // overwrites it (the old "merge" bug).
+    // CRITICAL: every signup gets a brand-new id. Never reuse the device's
+    // existing fschool_uid — otherwise signing up on a device that is already
+    // logged into another account overwrites that account (the "merge" bug).
     const newId = crypto.randomUUID();
     localStorage.setItem("fschool_uid", newId);
 
     try {
-      // insert, not upsert — a fresh signup is always a new row.
+      // insert, not upsert — a fresh signup is always a new row. If the id
+      // somehow collided it should throw loudly, never silently clobber a row.
       const { error: insertErr } = await supabase
         .from("users")
         .insert({ id: newId, name: creds.name, email, password_hash });
       if (insertErr) throw insertErr;
 
-      // Send the beta verification email — non-blocking, won't fail signup if email fails.
+      // Send verification email — non-blocking, won't fail signup if email fails
       fetch("/api/email?action=send", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ userId: newId, email, name: creds.name }),
       }).catch(() => {});
-    } catch (err: any) {
+    } catch (err) {
       console.warn("Supabase signup failed:", err.message);
     }
 
-    // Point app state at the new account so onboarding + page-tracking write to it.
+    // Point app state at the new account AFTER the row exists, so onboarding
+    // and page-tracking write to the correct user.
     setUserId(newId);
 
     setOnboardingEmail(creds.email);
@@ -368,28 +343,13 @@ export default function App() {
     setShowOnboarding(true);
   }, [setUserId]);
 
-  // Resume onboarding after a signup reload — identity is now the new user, so
-  // any writes from onboarding land on the correct (fresh) id.
-  useEffect(() => {
-    const pending = localStorage.getItem("fschool_pending_onboarding");
-    if (!pending) return;
-    localStorage.removeItem("fschool_pending_onboarding");
-    try {
-      const { email, name } = JSON.parse(pending);
-      setOnboardingEmail(email);
-      setOnboardingInitName(name);
-      setShowOnboarding(true);
-    } catch { /* ignore malformed */ }
-  }, []);
-
   // ── Onboarding complete ────────────────────────────────────────────────────
   const handleOnboardingComplete = useCallback(async ({
-    preferredName, schoolName, schoolCity, schoolCountry, schoolContinent, token, baseUrl, navMode: chosenNavMode,
+    preferredName, schoolName, schoolCity, schoolCountry, schoolContinent, token, baseUrl,
   }) => {
     if (preferredName) localStorage.setItem("fschool_name", preferredName);
-    if (chosenNavMode) setNavMode(chosenNavMode);
     try {
-      const patch: any = { id: userId };
+      const patch = { id: userId };
       if (preferredName)   patch.name            = preferredName;
       if (schoolName)      patch.school          = schoolName;
       if (schoolCity)      patch.school_city     = schoolCity;
@@ -403,7 +363,7 @@ export default function App() {
     localStorage.setItem(LOGGED_IN_KEY, "1");
     setShowOnboarding(false);
     setIsLoggedIn(true);
-  }, [userId, updateUserField, saveCanvasCredentials, setNavMode]);
+  }, [userId, updateUserField, saveCanvasCredentials]);
 
   // ── Overlays (render in BOTH logged-in and logged-out states so a reset
   // link works even when the user isn't signed in on this device) ───────────
@@ -565,7 +525,7 @@ export default function App() {
   // ── Email verification gate ───────────────────────────────────────────────
   // Block access until the user verifies their email. Only gates accounts
   // where email_verified is explicitly false (null = legacy user, let through).
-  if (false && userData && userData.email_verified === false) { // TODO: revert — dev bypass only
+  if (userData && userData.email_verified === false) {
     return (
       <>
         {overlays}
@@ -595,7 +555,7 @@ export default function App() {
             </button>
             <p style={{ marginTop:"22px", fontSize:"12px", color:"rgba(255,255,255,0.22)" }}>
               Wrong account?{" "}
-              <button onClick={async () => { try { await supabase.auth.signOut(); } catch {} localStorage.clear(); window.location.reload(); }} style={{ background:"none", border:"none", color:"rgba(255,255,255,0.32)", fontSize:"12px", cursor:"pointer", padding:0, textDecoration:"underline" }}>
+              <button onClick={() => { localStorage.clear(); window.location.reload(); }} style={{ background:"none", border:"none", color:"rgba(255,255,255,0.32)", fontSize:"12px", cursor:"pointer", padding:0, textDecoration:"underline" }}>
                 Sign out
               </button>
             </p>
@@ -609,9 +569,9 @@ export default function App() {
 
   return (
     <div
-      className={navMode === "tabs" ? "app-shell app-nav-tabs" : "app-shell"}
-      style={{ "--nav-rail": sidebarCollapsed ? "64px" : "232px" } as React.CSSProperties}
-      {...(navMode === "tabs" ? {} : { onTouchStart, onTouchEnd })}
+      className="app-shell"
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
     >
       {overlays}
       <TokenToast />
@@ -708,7 +668,7 @@ export default function App() {
               )}
             </AnimatePresence>
           </div>
-          {navMode === "tabs" ? <span style={{ width: 24 }} /> : <PageDots currentPage={currentPage} />}
+          <PageDots currentPage={currentPage} />
         </header>
 
         <main className="app-main">
@@ -717,15 +677,6 @@ export default function App() {
       </div>
 
       <NeuralRing />
-
-      {navMode === "tabs" && (
-        <BottomNav
-          currentPage={currentPage}
-          onNavigate={navigate}
-          collapsed={sidebarCollapsed}
-          onToggleCollapse={toggleSidebar}
-        />
-      )}
     </div>
   );
 }
