@@ -3,15 +3,14 @@
 // Adding a page: create pages/NewPage.jsx, import it here, add to PAGES.
 // PLACE IN: /src/App.jsx (replaces existing file)
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { NAV, LABEL }       from "./navigation/navConfig";
 import { useSwipe }         from "./navigation/useSwipe";
 import PageDots             from "./components/PageDots";
 import NeuralRing           from "./components/NeuralRing";
 import BottomNav            from "./components/BottomNav";
-import Landing              from "./pages/Landing";
-import Onboarding           from "./pages/Onboarding";
+import Landing              from "./pages/Landing"; // eager — logged-out entry, shown on first paint
 import { useApp }           from "./context/AppContext";
 import { supabase }         from "./api/supabase";
 import { usePageTracking }  from "./hooks/usePageTracking";
@@ -20,16 +19,20 @@ import TokenToast           from "./components/TokenToast";
 import NotificationPanel    from "./components/NotificationPanel";
 import { fetchUnreadCount, AppNotification } from "./api/notifications";
 
-import Card        from "./pages/Card";
-import Work        from "./pages/Work";
-import Canvas      from "./pages/Canvas";
-import Assignment  from "./pages/Assignment";
-import Study       from "./pages/Study";
-import Toolkit     from "./pages/Toolkit";
-import Identity    from "./pages/Identity";
-import Leaderboard from "./pages/Leaderboard";
-import Files       from "./pages/Files";
-import StudyRooms  from "./pages/StudyRooms";
+// Pages are code-split: each loads as its own chunk only when first navigated to, so
+// the initial bundle stays small and a page's JS isn't downloaded until it's used.
+// (Only one page is mounted at a time — PAGES[currentPage] — so nothing offscreen renders.)
+const Card        = lazy(() => import("./pages/Card"));
+const Work        = lazy(() => import("./pages/Work"));
+const Canvas      = lazy(() => import("./pages/Canvas"));
+const Assignment  = lazy(() => import("./pages/Assignment"));
+const Study       = lazy(() => import("./pages/Study"));
+const Toolkit     = lazy(() => import("./pages/Toolkit"));
+const Identity    = lazy(() => import("./pages/Identity"));
+const Leaderboard = lazy(() => import("./pages/Leaderboard"));
+const Files       = lazy(() => import("./pages/Files"));
+const StudyRooms  = lazy(() => import("./pages/StudyRooms"));
+const Onboarding  = lazy(() => import("./pages/Onboarding"));
 
 const PAGES = {
   work:        Work,
@@ -98,10 +101,24 @@ if (!document.getElementById("app-shell-styles")) {
   document.head.appendChild(tag);
 }
 
+// Shown briefly while a lazily-loaded page chunk downloads.
+function PageLoader() {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "72px 0" }}>
+      <style>{`@keyframes appSpin{to{transform:rotate(360deg)}}`}</style>
+      <span style={{
+        width: 20, height: 20, borderRadius: "50%", display: "inline-block",
+        border: "2px solid rgba(255,255,255,0.14)", borderTopColor: "rgba(255,255,255,0.55)",
+        animation: "appSpin 0.7s linear infinite",
+      }} />
+    </div>
+  );
+}
+
 export default function App() {
   // ── /card route — standalone page, no auth required ─────────────────────
   if (window.location.pathname === "/card") {
-    return <Card />;
+    return <Suspense fallback={<PageLoader />}><Card /></Suspense>;
   }
   const { userId, setUserId, refreshUser, userData, saveCanvasCredentials, updateUserField, pendingNav, setPendingNav, tokenSummary, navMode } = useApp();
 
@@ -531,11 +548,13 @@ export default function App() {
   // ── Render ─────────────────────────────────────────────────────────────────
   if (showOnboarding) {
     return (
-      <Onboarding
-        email={onboardingEmail}
-        preferredName={onboardingInitName}
-        onComplete={handleOnboardingComplete}
-      />
+      <Suspense fallback={<PageLoader />}>
+        <Onboarding
+          email={onboardingEmail}
+          preferredName={onboardingInitName}
+          onComplete={handleOnboardingComplete}
+        />
+      </Suspense>
     );
   }
 
@@ -715,7 +734,9 @@ export default function App() {
         </header>
 
         <main className="app-main">
-          {PageComponent && <PageComponent />}
+          <Suspense fallback={<PageLoader />}>
+            {PageComponent && <PageComponent />}
+          </Suspense>
         </main>
       </div>
 
