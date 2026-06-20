@@ -96,6 +96,22 @@ function finishLine(group: { y: number; size: number; items: any[] }, medianH: n
 }
 
 async function pdfToPages(bytes: Uint8Array): Promise<{ pages: { page: number; text: string }[]; pageCount: number; truncated: boolean }> {
+  // pdfjs-dist uses DOMMatrix for transform operations. It's a browser-only API;
+  // Vercel's Node.js runtime doesn't have it. Polyfill the minimum pdfjs needs
+  // for text extraction (identity matrix + 6-element array constructor).
+  if (typeof (globalThis as any).DOMMatrix === "undefined") {
+    (globalThis as any).DOMMatrix = class DOMMatrix {
+      a = 1; b = 0; c = 0; d = 1; e = 0; f = 0;
+      constructor(init?: number[] | string) {
+        if (Array.isArray(init) && init.length >= 6) {
+          [this.a, this.b, this.c, this.d, this.e, this.f] = init as number[];
+        }
+      }
+      multiply(_m: any) { return new (globalThis as any).DOMMatrix(); }
+      inverse()         { return new (globalThis as any).DOMMatrix(); }
+      transformPoint(p: any) { return { x: p?.x ?? 0, y: p?.y ?? 0 }; }
+    };
+  }
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const doc = await pdfjs.getDocument({ data: bytes, isEvalSupported: false, useSystemFonts: true } as any).promise;
   const pageCount = doc.numPages;
