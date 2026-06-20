@@ -10,6 +10,10 @@ import { supabase } from "../api/supabase";
 
 const ACCEPT = ".pdf,.txt,.md,.markdown,.html,.docx,.pptx,.ppt,.png,.jpg,.jpeg,.webp,.gif,.mp3,.wav,.m4a,.mp4,.mov,.webm";
 
+// Base64 inflates bytes ~33%, so a file over ~3MB risks Vercel's ~4.5MB request-body
+// limit when sent inline. Anything larger uploads straight to Storage instead.
+const STORAGE_THRESHOLD = 3 * 1024 * 1024;
+
 // Map a file's MIME/name to the RAG `kind` tag.
 function kindForFile(file) {
   const s = `${file.type} ${file.name}`.toLowerCase();
@@ -113,10 +117,12 @@ export default function DocUpload() {
   async function handleFile(file) {
     if (!file) return;
     const kind = kindForFile(file);
-    // Large audio/video can't go base64 through /api/extract (Vercel's ~4.5MB body
-    // limit) → upload straight to Storage + async transcription instead.
-    if ((kind === "audio" || kind === "video") && file.size > 4 * 1024 * 1024) {
-      return handleLargeMedia(file, kind);
+    // Files over the body limit upload straight to Storage and are read server-side —
+    // so size is never a limit, for any type (audio/video → transcribe, else → extract).
+    if (file.size > STORAGE_THRESHOLD) {
+      return (kind === "audio" || kind === "video")
+        ? handleLargeMedia(file, kind)
+        : handleLargeDoc(file, kind);
     }
     setStatus("reading"); setMessage(`Reading ${file.name}…`);
     try {
@@ -140,26 +146,48 @@ export default function DocUpload() {
     }
   }
 
+  // Get a signed upload URL and push the file straight to Storage, retrying on transient
+  // upload failures (network blips — likelier on large files). Re-signs each attempt (the
+  // upload token is single-use) with a short backoff, and returns the storage path.
+  async function signAndUpload(file, attempts = 3) {
+    let lastErr = "Couldn't start the upload.";
+    for (let i = 1; i <= attempts; i++) {
+      try {
+        const sres = await fetch("/api/transcribe?action=sign", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId, filename: file.name }),
+        });
+        const sdata = await sres.json().catch(() => ({}));
+        if (!sres.ok || !sdata.path || !sdata.token) {
+          lastErr = sdata.error || "Couldn't start the upload.";
+        } else {
+          const up = await supabase.storage.from("media-uploads").uploadToSignedUrl(sdata.path, sdata.token, file);
+          if (!up.error) return sdata.path;
+          lastErr = up.error.message;
+        }
+      } catch (e) {
+        lastErr = e?.message || String(e);
+      }
+      if (i < attempts) {
+        setMessage(`Upload interrupted — retrying (${i}/${attempts - 1})…`);
+        await new Promise(r => setTimeout(r, 800 * i)); // brief backoff before re-signing
+      }
+    }
+    throw new Error(`Upload failed after ${attempts} tries: ${lastErr}`);
+  }
+
   // Large media: direct-to-Storage upload, then provider transcription (polled),
   // then RAG ingest — all server-side after the upload, so no body-size limit.
   async function handleLargeMedia(file, kind) {
     if (!userId) { setStatus("error"); setMessage("Not signed in."); return; }
     try {
       setStatus("reading"); setMessage("Uploading…");
-      const sres = await fetch("/api/transcribe?action=sign", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, filename: file.name }),
-      });
-      const sdata = await sres.json().catch(() => ({}));
-      if (!sres.ok || !sdata.path || !sdata.token) throw new Error(sdata.error || "Couldn't start the upload.");
-
-      const up = await supabase.storage.from("media-uploads").uploadToSignedUrl(sdata.path, sdata.token, file);
-      if (up.error) throw new Error(`Upload failed: ${up.error.message}`);
+      const storagePath = await signAndUpload(file);
 
       setStatus("extracting"); setMessage("Transcribing… (this can take a few minutes for long recordings)");
       const stres = await fetch("/api/transcribe?action=start", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, storagePath: sdata.path, title: file.name, courseId: courseId || null, kind }),
+        body: JSON.stringify({ userId, storagePath, title: file.name, courseId: courseId || null, kind }),
       });
       const stdata = await stres.json().catch(() => ({}));
       if (!stres.ok || !stdata.jobId) throw new Error(stdata.error || "Couldn't start transcription.");
@@ -184,6 +212,29 @@ export default function DocUpload() {
     } catch (err) {
       setStatus("error");
       setMessage(err?.message || "Couldn't transcribe that file.");
+    }
+  }
+
+  // Large documents (PDF/PPT/PPTX/DOCX/etc. over the body limit): upload straight to
+  // Storage, then /api/extract reads the bytes server-side (no body-size limit), then ingest.
+  async function handleLargeDoc(file, kind) {
+    if (!userId) { setStatus("error"); setMessage("Not signed in."); return; }
+    try {
+      setStatus("reading"); setMessage(`Uploading ${file.name}…`);
+      const storagePath = await signAndUpload(file);
+
+      setStatus("extracting"); setMessage("Extracting text…");
+      const res = await fetch("/api/extract", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storagePath, file_type: file.type, name: file.name }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.text) throw new Error(data.error || "Couldn't extract text from that file.");
+      if (data.truncated) setMessage("Large file — indexing the first portion…");
+      await ingest({ text: data.text, pages: data.pages, title: file.name, kind });
+    } catch (err) {
+      setStatus("error");
+      setMessage(err?.message || "Couldn't read that file.");
     }
   }
 

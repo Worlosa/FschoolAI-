@@ -9,8 +9,22 @@
 //   - `text`  = all pages joined (back-compat: the extension stores this as content_text)
 //   - `pages` = structured per-page text (RAG ingest uses this for page locators)
 
+import { createClient } from "@supabase/supabase-js";
+
 const MAX_PAGES = 300;          // generous; most uploads are far smaller
 const SAFETY_CHARS = 1_500_000; // hard ceiling (~375k tokens) to avoid OOM on pathological files
+
+// Lazy service-role client for reading large uploads straight from Storage. Created at
+// request time (not module load) so it picks up env injected by the dev proxy. This lets
+// files that exceed Vercel's ~4.5MB request-body limit be extracted — any type, any size.
+let _supabase: any = null;
+function getSupabase() {
+  if (_supabase) return _supabase;
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY ?? process.env.SUPABASE_ANON_KEY;
+  _supabase = url && key ? createClient(url, key) : null;
+  return _supabase;
+}
 
 // Reconstruct one page's text from pdfjs text items, preserving line breaks,
 // paragraph breaks (large vertical gaps), and headings (markdown `#`, by font size).
@@ -338,7 +352,7 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { base64, file_type, name, youtubeUrl } = req.body ?? {};
+  const { base64, storagePath, bucket = "media-uploads", file_type, name, youtubeUrl } = req.body ?? {};
 
   // YouTube — URL-based, no file bytes.
   if (youtubeUrl) {
@@ -351,11 +365,27 @@ export default async function handler(req, res) {
     }
   }
 
-  if (!base64) return res.status(400).json({ error: "base64 or youtubeUrl required" });
-
-  let bytes;
-  try { bytes = new Uint8Array(Buffer.from(base64, "base64")); }
-  catch { return res.status(400).json({ error: "invalid base64" }); }
+  // Large files (e.g. .ppt/.pdf over Vercel's ~4.5MB body limit) are uploaded straight to
+  // Storage and read here server-side, so file size is never a limit — for any type.
+  let bytes: Uint8Array;
+  let b64: string = base64;
+  if (storagePath) {
+    const supabase = getSupabase();
+    if (!supabase) return res.status(500).json({ error: "Storage not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY)" });
+    try {
+      const { data: blob, error } = await supabase.storage.from(bucket).download(storagePath);
+      if (error || !blob) throw new Error(error?.message || "file not found");
+      bytes = new Uint8Array(await blob.arrayBuffer());
+      b64 = Buffer.from(bytes).toString("base64"); // OCR paths still need base64
+    } catch (e: any) {
+      return res.status(400).json({ error: `storage download: ${e.message}` });
+    }
+    supabase.storage.from(bucket).remove([storagePath]).catch(() => {}); // best-effort temp cleanup
+  } else {
+    if (!base64) return res.status(400).json({ error: "base64, storagePath, or youtubeUrl required" });
+    try { bytes = new Uint8Array(Buffer.from(base64, "base64")); }
+    catch { return res.status(400).json({ error: "invalid base64" }); }
+  }
 
   const ext = String(file_type || name || "").toLowerCase();
   const isImage = /image\/|\.(png|jpe?g|webp|gif|bmp|tiff?)\b/.test(ext);
@@ -370,7 +400,7 @@ export default async function handler(req, res) {
       // Scanned PDFs have no text layer → pdfjs returns ~nothing. Auto-OCR the PDF
       // via OpenAI vision (no manual image conversion needed).
       const chars = pages.reduce((n, p) => n + p.text.length, 0);
-      if (chars < 40) pages = await pdfOcrViaOpenAI(base64);
+      if (chars < 40) pages = await pdfOcrViaOpenAI(b64);
     } else if (/wordprocessingml|\.docx\b/.test(ext)) {
       pages = await docxToPages(bytes);
     } else if (/presentationml|\.pptx\b/.test(ext)) {
@@ -378,7 +408,7 @@ export default async function handler(req, res) {
     } else if (/ms-powerpoint|\.ppt\b/.test(ext)) {
       pages = await pptToPages(bytes); // legacy binary PowerPoint (OLE2)
     } else if (isImage) {
-      pages = await imageOcrToPages(base64, file_type);
+      pages = await imageOcrToPages(b64, file_type);
     } else if (isMedia) {
       pages = await transcribeToPages(bytes, name, file_type);
     } else {
