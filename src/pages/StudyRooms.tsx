@@ -533,33 +533,37 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
       </div>
 
       {/* ── Join with code ─────────────────────────────────────── */}
-      <div style={{
-        display:"flex", gap:"8px", alignItems:"center", marginBottom:"6px",
-        background:"rgba(255,255,255,0.025)", border:"1px solid rgba(255,255,255,0.07)",
-        borderRadius:"12px", padding:"9px 12px", transition:"border-color 0.15s",
-      }}
-        onFocusCapture={e => ((e.currentTarget as HTMLDivElement).style.borderColor = "rgba(196,154,60,0.25)")}
-        onBlurCapture={e  => ((e.currentTarget as HTMLDivElement).style.borderColor = "rgba(255,255,255,0.07)")}
-      >
-        <input
-          value={codeInput}
-          onChange={e => { setCodeInput(e.target.value.toUpperCase().slice(0, 6)); setCodeError(""); }}
-          onKeyDown={e => e.key === "Enter" && handleJoinByCode()}
-          placeholder="Enter room code…"
-          maxLength={6}
-          style={{
-            flex:1, background:"transparent", border:"none",
-            color:"var(--text-primary)", fontSize:"13px",
-            outline:"none", fontFamily:"monospace", letterSpacing:"3px",
-          }}
-        />
-        <button
-          onClick={handleJoinByCode}
-          disabled={codeInput.length < 6 || codeLookingUp}
-          style={{ ...S.accentBtn, padding:"6px 14px", fontSize:"12px", opacity: codeInput.length < 6 ? 0.35 : 1, flexShrink:0 }}
+      <div style={{ marginBottom:"6px" }}>
+        <p style={{ fontSize:"11px", color:"var(--text-dim)", letterSpacing:"1.5px", textTransform:"uppercase", marginBottom:"8px" }}>Have a room code?</p>
+        <div style={{
+          display:"flex", gap:"10px", alignItems:"center",
+          background:"rgba(196,154,60,0.04)", border:"1px solid rgba(196,154,60,0.18)",
+          borderRadius:"14px", padding:"12px 16px", transition:"border-color 0.15s, box-shadow 0.15s",
+        }}
+          onFocusCapture={e => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(196,154,60,0.45)"; (e.currentTarget as HTMLDivElement).style.boxShadow = "0 0 0 3px rgba(196,154,60,0.08)"; }}
+          onBlurCapture={e  => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(196,154,60,0.18)"; (e.currentTarget as HTMLDivElement).style.boxShadow = "none"; }}
         >
-          {codeLookingUp ? "…" : "Join →"}
-        </button>
+          <span style={{ fontSize:"18px", flexShrink:0 }}>🔑</span>
+          <input
+            value={codeInput}
+            onChange={e => { setCodeInput(e.target.value.toUpperCase().slice(0, 6)); setCodeError(""); }}
+            onKeyDown={e => e.key === "Enter" && handleJoinByCode()}
+            placeholder="A3B2C1"
+            maxLength={6}
+            style={{
+              flex:1, background:"transparent", border:"none",
+              color:"var(--text-primary)", fontSize:"18px",
+              outline:"none", fontFamily:"monospace", letterSpacing:"6px", fontWeight:"700",
+            }}
+          />
+          <button
+            onClick={handleJoinByCode}
+            disabled={codeInput.length < 6 || codeLookingUp}
+            style={{ ...S.primaryBtn, padding:"9px 20px", fontSize:"13px", opacity: codeInput.length < 6 ? 0.4 : 1, flexShrink:0 }}
+          >
+            {codeLookingUp ? "…" : "Join Room"}
+          </button>
+        </div>
       </div>
       {codeError && (
         <p style={{ fontSize:"12px", color:"rgba(255,100,90,0.8)", marginBottom:"10px", paddingLeft:"4px" }}>{codeError}</p>
@@ -605,6 +609,7 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
                 <span style={{ width:8, height:8, borderRadius:"50%", background:"var(--color-accent)", flexShrink:0 }} />
                 <div style={{ flex:1, minWidth:0 }}>
                   <p style={{ fontSize:"13px", fontWeight:"500", color:"var(--text-primary)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.name}</p>
+                  {f.email && <p style={{ fontSize:"11px", color:"var(--text-dim)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.email}</p>}
                   <p style={{ fontSize:"11px", color:"var(--color-accent)" }}>studying now</p>
                 </div>
                 <button onClick={() => joinFriendRoom(friendRoomMap[f.id])} style={{ ...S.accentBtn, padding:"6px 14px", fontSize:"12px" }}>Join</button>
@@ -612,17 +617,23 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
             ))}
             {offlineFriends.map(f => {
               const st = nudged[f.id];
+              const nudgedDone = st === "sent";
               return (
                 <div key={f.id} style={{ display:"flex", alignItems:"center", gap:"10px", background:"var(--color-surface)", border:"1px solid var(--color-border)", borderRadius:"12px", padding:"10px 14px" }}>
                   <span style={{ width:8, height:8, borderRadius:"50%", background:"rgba(255,255,255,0.15)", flexShrink:0 }} />
                   <div style={{ flex:1, minWidth:0 }}>
                     <p style={{ fontSize:"13px", fontWeight:"500", color:"var(--text-secondary)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.name}</p>
+                    {f.email && <p style={{ fontSize:"11px", color:"var(--text-dim)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{f.email}</p>}
                     <p style={{ fontSize:"11px", color:"var(--text-dim)" }}>offline</p>
                   </div>
                   <button
                     onClick={() => { if (!st) nudgeFriend(f); }}
                     disabled={!!st}
-                    style={{ ...S.ghostBtn, marginTop:0, padding:"6px 12px", fontSize:"12px", opacity: st ? 0.5 : 1, cursor: st ? "default" : "pointer" }}
+                    style={{
+                      ...S.ghostBtn, marginTop:0, padding:"6px 12px", fontSize:"12px",
+                      cursor: st ? "default" : "pointer",
+                      ...(nudgedDone ? { background:"rgba(74,222,128,0.1)", border:"1px solid rgba(74,222,128,0.3)", color:"#4ade80", opacity:1 } : { opacity: st ? 0.5 : 1 }),
+                    }}
                   >
                     {st === "sent" ? "Nudged ✓" : st === "limited" ? "Limit reached" : st === "sending" ? "…" : "Nudge"}
                   </button>
@@ -945,6 +956,9 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const [courseName,         setCourseName]         = useState("");
   // Voice chat (Daily.co placeholder)
   const [showVoice,          setShowVoice]          = useState(false);
+  // Room header overflow menu (admin actions)
+  const [showRoomMenu,       setShowRoomMenu]       = useState(false);
+  const roomMenuRef = useRef<HTMLDivElement>(null);
   // Phase 2 — Chat
   const [showChat,           setShowChat]           = useState(false);
   const [chatMessages,       setChatMessages]       = useState<ChatMessage[]>([]);
@@ -982,6 +996,18 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const buddyAbortRef       = useRef(null); // AbortController for current buddy stream
 
   const isHost = room.created_by === userId;
+
+  // Close the ⋯ room menu when clicking outside
+  useEffect(() => {
+    if (!showRoomMenu) return;
+    function handleClick(e: MouseEvent) {
+      if (roomMenuRef.current && !roomMenuRef.current.contains(e.target as Node)) {
+        setShowRoomMenu(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showRoomMenu]);
 
   // Main setup
   useEffect(() => {
@@ -1584,80 +1610,50 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
             </div>
           )}
         </div>
-        <div style={{ display:"flex", gap:"8px", flexShrink:0 }}>
-          <button
-            onClick={() => setShowBuddy(b => !b)}
-            style={{
-              ...S.ghostBtn, marginTop:0, padding:"8px 14px", fontSize:"12px",
-              background: showBuddy ? "rgba(111,179,196,0.1)" : "none",
-              borderColor: showBuddy ? "rgba(111,179,196,0.3)" : "rgba(255,255,255,0.09)",
-              color: showBuddy ? "#6fb3c4" : "var(--text-dim)",
-            }}
-          >
-            🤖 AI
-          </button>
-          <button
-            onClick={() => showChat ? setShowChat(false) : handleOpenChat()}
-            style={{
-              ...S.ghostBtn, marginTop:0, padding:"8px 14px", fontSize:"12px",
-              background: showChat ? "rgba(127,174,110,0.1)" : "none",
-              borderColor: showChat ? "rgba(127,174,110,0.3)" : "rgba(255,255,255,0.09)",
-              color: showChat ? "#7fae6e" : "var(--text-dim)",
-            }}
-          >
-            💬 Chat
-          </button>
-          <button
-            onClick={() => showBoard ? setShowBoard(false) : handleOpenBoard()}
-            style={{
-              ...S.ghostBtn, marginTop:0, padding:"8px 14px", fontSize:"12px",
-              background: showBoard ? "rgba(196,154,60,0.1)" : "none",
-              borderColor: showBoard ? "rgba(196,154,60,0.3)" : "rgba(255,255,255,0.09)",
-              color: showBoard ? "#c49a3c" : "var(--text-dim)",
-            }}
-          >
-            🖊 Board
-          </button>
-          <button
-            onClick={() => setShowVoice(v => !v)}
-            style={{
-              ...S.ghostBtn, marginTop:0, padding:"8px 14px", fontSize:"12px",
-              background: showVoice ? "rgba(96,165,250,0.1)" : "none",
-              borderColor: showVoice ? "rgba(96,165,250,0.3)" : "rgba(255,255,255,0.09)",
-              color: showVoice ? "#60a5fa" : "var(--text-dim)",
-            }}
-          >
-            🎙 Voice
-          </button>
-          <button
-            onClick={() => setShowInvite(true)}
-            style={{ ...S.ghostBtn, marginTop:0, padding:"8px 14px", fontSize:"12px" }}
-          >
-            Invite friends
-          </button>
-          {isHost && (
+        <div style={{ display:"flex", gap:"8px", flexShrink:0, alignItems:"center", flexWrap:"wrap" }}>
+          {/* Panel toggles */}
+          <button onClick={() => setShowBuddy(b => !b)} style={{ ...S.ghostBtn, marginTop:0, padding:"8px 14px", fontSize:"12px", background: showBuddy ? "rgba(111,179,196,0.1)" : "none", borderColor: showBuddy ? "rgba(111,179,196,0.3)" : "rgba(255,255,255,0.09)", color: showBuddy ? "#6fb3c4" : "var(--text-dim)" }}>🤖 AI</button>
+          <button onClick={() => showChat ? setShowChat(false) : handleOpenChat()} style={{ ...S.ghostBtn, marginTop:0, padding:"8px 14px", fontSize:"12px", background: showChat ? "rgba(127,174,110,0.1)" : "none", borderColor: showChat ? "rgba(127,174,110,0.3)" : "rgba(255,255,255,0.09)", color: showChat ? "#7fae6e" : "var(--text-dim)" }}>💬 Chat</button>
+          <button onClick={() => showBoard ? setShowBoard(false) : handleOpenBoard()} style={{ ...S.ghostBtn, marginTop:0, padding:"8px 14px", fontSize:"12px", background: showBoard ? "rgba(196,154,60,0.1)" : "none", borderColor: showBoard ? "rgba(196,154,60,0.3)" : "rgba(255,255,255,0.09)", color: showBoard ? "#c49a3c" : "var(--text-dim)" }}>🖊 Board</button>
+          <button onClick={() => setShowVoice(v => !v)} style={{ ...S.ghostBtn, marginTop:0, padding:"8px 14px", fontSize:"12px", background: showVoice ? "rgba(96,165,250,0.1)" : "none", borderColor: showVoice ? "rgba(96,165,250,0.3)" : "rgba(255,255,255,0.09)", color: showVoice ? "#60a5fa" : "var(--text-dim)" }}>🎙 Voice</button>
+          <button onClick={() => setShowInvite(true)} style={{ ...S.ghostBtn, marginTop:0, padding:"8px 14px", fontSize:"12px" }}>+ Invite</button>
+
+          {/* ⋯ overflow — admin actions + leave */}
+          <div ref={roomMenuRef} style={{ position:"relative" }}>
             <button
-              onClick={() => setShowAccess(true)}
-              style={{ ...S.ghostBtn, marginTop:0, padding:"8px 14px", fontSize:"12px" }}
-              title="Who can join this room"
+              onClick={() => setShowRoomMenu(m => !m)}
+              style={{ ...S.ghostBtn, marginTop:0, padding:"8px 12px", fontSize:"14px", letterSpacing:"1px", background: showRoomMenu ? "rgba(255,255,255,0.07)" : "none" }}
+              title="More options"
             >
-              ⚙ Access
+              ⋯
             </button>
-          )}
-          {isHost && (
-            <button
-              onClick={handleCloseRoom}
-              style={{
-                background:"rgba(255,59,48,0.07)", border:"1px solid rgba(255,59,48,0.18)",
-                borderRadius:"8px", padding:"8px 14px", color:"rgba(255,100,90,0.7)",
-                fontSize:"12px", fontWeight:"500", cursor:"pointer", fontFamily:"inherit",
-              }}
-              title="Close room for everyone"
-            >
-              Close room
-            </button>
-          )}
-          <button onClick={handleLeave} style={S.leaveBtn}>Leave</button>
+            {showRoomMenu && (
+              <div style={{
+                position:"absolute", top:"calc(100% + 6px)", right:0, zIndex:200,
+                background:"var(--color-surface)", border:"1px solid var(--color-border)",
+                borderRadius:"12px", padding:"6px", minWidth:"160px",
+                boxShadow:"0 8px 32px rgba(0,0,0,0.45)",
+              }}>
+                {isHost && (
+                  <button onClick={() => { setShowAccess(true); setShowRoomMenu(false); }} style={{ display:"block", width:"100%", textAlign:"left", background:"none", border:"none", borderRadius:"8px", padding:"9px 12px", fontSize:"13px", color:"var(--text-secondary)", cursor:"pointer", fontFamily:"inherit" }}
+                    onMouseEnter={e => (e.currentTarget.style.background="rgba(255,255,255,0.06)")}
+                    onMouseLeave={e => (e.currentTarget.style.background="none")}
+                  >⚙ Access settings</button>
+                )}
+                {isHost && (
+                  <button onClick={() => { handleCloseRoom(); setShowRoomMenu(false); }} style={{ display:"block", width:"100%", textAlign:"left", background:"none", border:"none", borderRadius:"8px", padding:"9px 12px", fontSize:"13px", color:"rgba(255,100,90,0.8)", cursor:"pointer", fontFamily:"inherit" }}
+                    onMouseEnter={e => (e.currentTarget.style.background="rgba(255,59,48,0.07)")}
+                    onMouseLeave={e => (e.currentTarget.style.background="none")}
+                  >✕ Close room</button>
+                )}
+                <div style={{ height:"1px", background:"var(--color-border)", margin:"4px 0" }} />
+                <button onClick={() => { handleLeave(); setShowRoomMenu(false); }} style={{ display:"block", width:"100%", textAlign:"left", background:"none", border:"none", borderRadius:"8px", padding:"9px 12px", fontSize:"13px", color:"rgba(255,100,90,0.8)", cursor:"pointer", fontFamily:"inherit" }}
+                  onMouseEnter={e => (e.currentTarget.style.background="rgba(255,59,48,0.07)")}
+                  onMouseLeave={e => (e.currentTarget.style.background="none")}
+                >↩ Leave room</button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -2498,8 +2494,10 @@ function MemberCard({ member, isMe }) {
         </p>
       </div>
       <div style={{ textAlign:"right", flexShrink:0 }}>
-        <p style={{ fontSize:"14px", fontWeight:"700", color:"var(--color-accent)", fontVariantNumeric:"tabular-nums" }}>{time}</p>
-        <p style={{ fontSize:"10px", color:"var(--text-dim)", marginTop:"2px" }}>focused</p>
+        <p style={{ fontSize:"14px", fontWeight:"700", color: elapsed >= 3600 ? "#f59e0b" : elapsed >= 1800 ? "#c49a3c" : "var(--color-accent)", fontVariantNumeric:"tabular-nums" }}>{time}</p>
+        <p style={{ fontSize:"10px", color:"var(--text-dim)", marginTop:"2px" }}>
+          {elapsed >= 3600 ? "🔥 focused" : elapsed >= 1800 ? "⚡ focused" : "focused"}
+        </p>
       </div>
     </div>
   );

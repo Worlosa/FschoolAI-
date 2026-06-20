@@ -80,6 +80,7 @@ export default function FriendsSection({ userId, ownName }: { userId: string; ow
   const [results,    setResults]    = useState(null);  // null = not searched yet; [] = no matches
   const [searching,  setSearching]  = useState(false);
   const [actionMsg,  setActionMsg]  = useState("");
+  const [inputFocus, setInputFocus] = useState(false);
   const [pendingIds, setPendingIds] = useState({});    // id → true (optimistic "request sent")
 
   // false = the acting fschool_uid has no public.users row (a guest session — the app
@@ -145,25 +146,39 @@ export default function FriendsSection({ userId, ownName }: { userId: string; ow
     return () => { alive = false; };
   }, [userId]);
 
-  // ── Search people by name or email ───────────────────────────────────────────
+  // ── Live search — fires 350ms after typing stops ────────────────────────────
 
-  async function handleSearch() {
+  useEffect(() => {
     const q = query.trim();
-    if (!q) { setResults(null); return; }
+    if (q.length === 0) { setResults(null); return; }
+    if (q.length < 2)   return; // wait for at least 2 chars
+    // For email, wait until there's at least 1 char after the @
+    if (q.includes("@") && q.split("@")[1].length < 1) return;
+
+    const timer = setTimeout(() => { runSearch(q); }, 350);
+    return () => clearTimeout(timer);
+  }, [query]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function runSearch(q: string) {
     setSearching(true);
-    setActionMsg("");
     try {
-      // An "@" means they typed an email → exact lookup; otherwise search by name.
       const found = q.includes("@")
         ? await findUserByEmail(q).then(u => (u ? [u] : []))
         : await searchUsersByName(q);
-      setResults(found.filter(u => u.id !== userId)); // never list yourself
+      setResults(found.filter(u => u.id !== userId));
     } catch (e) {
       console.warn("[FriendsSection] search error:", e.message);
       setResults([]);
-      setActionMsg("Search failed. Check your connection.");
     }
     setSearching(false);
+  }
+
+  // Keep Enter / button working as a manual trigger too
+  async function handleSearch() {
+    const q = query.trim();
+    if (!q) { setResults(null); return; }
+    setActionMsg("");
+    await runSearch(q);
   }
 
   // Classify a search result against the current user's graph so each row shows
@@ -280,39 +295,43 @@ export default function FriendsSection({ userId, ownName }: { userId: string; ow
         <p style={{ fontSize: "12px", color: "var(--text-secondary)", marginBottom: "10px" }}>
           Find people by name or email
         </p>
-        <div style={{ display: "flex", gap: "8px" }}>
+        {/* Search input — live results appear below as you type */}
+        <div style={{ position: "relative" }}>
+          {/* Search icon */}
+          <span style={{
+            position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)",
+            fontSize: "15px", opacity: 0.4, pointerEvents: "none",
+          }}>🔍</span>
           <input
             ref={inputRef}
             type="text"
-            placeholder="Search name or email…"
+            placeholder="Search by name or email…"
             value={query}
             onChange={e => { setQuery(e.target.value); if (actionMsg) setActionMsg(""); }}
             onKeyDown={e => e.key === "Enter" && handleSearch()}
+            onFocus={() => setInputFocus(true)}
+            onBlur={() => setInputFocus(false)}
             style={{
-              flex: 1,
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid rgba(255,255,255,0.10)",
-              borderRadius: "var(--radius-sm)", padding: "9px 12px",
-              color: "var(--text-primary)", fontSize: "13px",
+              width: "100%", boxSizing: "border-box",
+              background: "rgba(255,255,255,0.05)",
+              border: `1.5px solid ${inputFocus ? "rgba(196,154,60,0.55)" : "rgba(255,255,255,0.10)"}`,
+              borderRadius: "12px",
+              padding: "13px 44px 13px 40px",
+              color: "var(--text-primary)", fontSize: "14px",
               outline: "none", fontFamily: "inherit",
+              transition: "border-color 0.15s, background 0.15s",
             }}
           />
-          <button
-            onClick={handleSearch}
-            disabled={searching || !query.trim()}
-            style={{
-              background: "rgba(255,255,255,0.08)",
-              border: "1px solid rgba(255,255,255,0.12)",
-              borderRadius: "var(--radius-sm)", padding: "9px 14px",
-              color: "var(--text-primary)",
-              fontSize: "13px", fontWeight: 500, cursor: "pointer",
-              fontFamily: "inherit", transition: "all 0.15s",
-              opacity: searching || !query.trim() ? 0.55 : 1,
-            }}
-          >
-            {searching ? "…" : "Search"}
-          </button>
+          {/* Spinner while live-searching */}
+          {searching && (
+            <span style={{
+              position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)",
+              fontSize: "13px", color: "var(--text-dim)",
+              animation: "fsSpin 0.8s linear infinite", display: "inline-block",
+            }}>⟳</span>
+          )}
         </div>
+        <style>{`@keyframes fsSpin{to{transform:translateY(-50%) rotate(360deg)}}`}</style>
 
         {!accountReady && (
           <p style={{ fontSize: "11px", marginTop: "8px", color: "rgba(255,180,90,0.85)" }}>
