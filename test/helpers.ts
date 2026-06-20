@@ -34,13 +34,19 @@ export function makeSupabaseMock(router: (ctx: any) => any = () => ({ data: null
       return { then: (onOk: any, onErr?: any) => Promise.resolve(router(ctx)).then(onOk, onErr) };
     }),
     storage: {
-      from: vi.fn((bucket: string) => ({
-        createSignedUploadUrl: vi.fn((path: string) =>
-          Promise.resolve(router({ table: `storage:${bucket}`, op: "createSignedUploadUrl", payload: path, filters: [] }))),
-        download: vi.fn((path: string) =>
-          Promise.resolve(router({ table: `storage:${bucket}`, op: "download", payload: path, filters: [] }))),
-        uploadToSignedUrl: vi.fn(() => Promise.resolve({ data: {}, error: null })),
-      })),
+      from: vi.fn((bucket: string) => {
+        const op = (name: string, payload: any) => {
+          const ctx = { table: `storage:${bucket}`, op: name, payload, filters: [] };
+          calls.push(ctx);
+          return Promise.resolve(router(ctx) ?? { data: null, error: null });
+        };
+        return {
+          createSignedUploadUrl: vi.fn((path: string) => op("createSignedUploadUrl", path)),
+          download:              vi.fn((path: string) => op("download", path)),
+          remove:                vi.fn((paths: any)   => op("remove", paths)),
+          uploadToSignedUrl:     vi.fn(() => Promise.resolve({ data: {}, error: null })),
+        };
+      }),
     },
   };
   return { client, calls };
