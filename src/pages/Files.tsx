@@ -59,7 +59,8 @@ async function processUpload(
   const exRes = await fetch("/api/extract", {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify({ storagePath, file_type: file.type, name: file.name }),
+    // bucket: tell extract where the file lives; keepFile: don't delete it (it's permanent storage)
+    body:    JSON.stringify({ storagePath, bucket: "course-files", keepFile: true, file_type: file.type, name: file.name }),
   });
   const exData = await exRes.json().catch(() => ({}));
   if (!exRes.ok || !exData.text) throw new Error(exData.error || "Couldn't extract text from this file.");

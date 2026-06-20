@@ -352,7 +352,7 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { base64, storagePath, bucket = "media-uploads", file_type, name, youtubeUrl } = req.body ?? {};
+  const { base64, storagePath, bucket = "media-uploads", keepFile = false, file_type, name, youtubeUrl } = req.body ?? {};
 
   // YouTube — URL-based, no file bytes.
   if (youtubeUrl) {
@@ -380,7 +380,7 @@ export default async function handler(req, res) {
     } catch (e: any) {
       return res.status(400).json({ error: `storage download: ${e.message}` });
     }
-    supabase.storage.from(bucket).remove([storagePath]).catch(() => {}); // best-effort temp cleanup
+    if (!keepFile) supabase.storage.from(bucket).remove([storagePath]).catch(() => {}); // best-effort temp cleanup for media-uploads
   } else {
     if (!base64) return res.status(400).json({ error: "base64, storagePath, or youtubeUrl required" });
     try { bytes = new Uint8Array(Buffer.from(base64, "base64")); }
