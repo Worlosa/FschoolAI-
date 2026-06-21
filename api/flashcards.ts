@@ -1,4 +1,4 @@
-// api/flashcards.js — Save and load flashcards server-side using service key (bypasses RLS)
+// api/flashcards.ts — Save, load, and delete flashcards using flashcards_v2 table.
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
@@ -17,30 +17,68 @@ export default async function handler(req, res) {
     "Content-Profile": "public",
   };
 
-  const { action, userId, courseId, cards } = req.body ?? {};
+  const { action, userId, courseId, cards, cardId } = req.body ?? {};
 
   if (!action || !userId) {
     return res.status(400).json({ error: "action and userId are required" });
   }
 
-  // ── Save ──────────────────────────────────────────────────────────────────
+  // ── Append new cards ───────────────────────────────────────────────────────
   if (action === "save") {
-    if (!courseId || !cards) {
+    if (!courseId || !cards?.length) {
       return res.status(400).json({ error: "courseId and cards are required for save" });
     }
 
+    const rows = cards.map((c: { question: string; answer: string }) => ({
+      user_id:   userId,
+      course_id: courseId,
+      question:  c.question,
+      answer:    c.answer,
+    }));
+
+    const r = await fetch(`${supabaseUrl}/rest/v1/flashcards_v2`, {
+      method:  "POST",
+      headers: { ...sbHeaders, "Prefer": "return=minimal" },
+      body:    JSON.stringify(rows),
+    });
+
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      return res.status(r.status).json({ error: err.message ?? `Supabase ${r.status}` });
+    }
+
+    return res.status(200).json({ ok: true });
+  }
+
+  // ── Load cards (newest first) ──────────────────────────────────────────────
+  if (action === "load") {
+    if (!courseId) {
+      return res.status(400).json({ error: "courseId is required for load" });
+    }
+
     const r = await fetch(
-      `${supabaseUrl}/rest/v1/flashcards?on_conflict=user_id,course_id`,
-      {
-        method:  "POST",
-        headers: { ...sbHeaders, "Prefer": "resolution=merge-duplicates,return=minimal" },
-        body:    JSON.stringify({
-          user_id:      userId,
-          course_id:    courseId,
-          cards,
-          generated_at: new Date().toISOString(),
-        }),
-      }
+      `${supabaseUrl}/rest/v1/flashcards_v2?user_id=eq.${userId}&course_id=eq.${courseId}&order=created_at.desc&select=id,question,answer,created_at`,
+      { headers: { ...sbHeaders, "Prefer": "return=representation" } }
+    );
+
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      return res.status(r.status).json({ error: err.message ?? `Supabase ${r.status}` });
+    }
+
+    const rows = await r.json();
+    return res.status(200).json({ cards: rows ?? [] });
+  }
+
+  // ── Delete a single card ───────────────────────────────────────────────────
+  if (action === "delete") {
+    if (!cardId) {
+      return res.status(400).json({ error: "cardId is required for delete" });
+    }
+
+    const r = await fetch(
+      `${supabaseUrl}/rest/v1/flashcards_v2?id=eq.${cardId}&user_id=eq.${userId}`,
+      { method: "DELETE", headers: sbHeaders }
     );
 
     if (!r.ok) {
@@ -51,25 +89,5 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true });
   }
 
-  // ── Load ──────────────────────────────────────────────────────────────────
-  if (action === "load") {
-    if (!courseId) {
-      return res.status(400).json({ error: "courseId is required for load" });
-    }
-
-    const r = await fetch(
-      `${supabaseUrl}/rest/v1/flashcards?user_id=eq.${userId}&course_id=eq.${courseId}&select=cards&limit=1`,
-      { headers: { ...sbHeaders, "Prefer": "return=representation" } }
-    );
-
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({}));
-      return res.status(r.status).json({ error: err.message ?? `Supabase ${r.status}` });
-    }
-
-    const rows = await r.json();
-    return res.status(200).json({ cards: rows?.[0]?.cards ?? null });
-  }
-
-  return res.status(400).json({ error: "Unknown action. Use save or load." });
+  return res.status(400).json({ error: "Unknown action. Use save, load, or delete." });
 }

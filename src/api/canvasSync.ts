@@ -461,7 +461,7 @@ export async function loadCanvasData(userId) {
     supabase.from('assignments').select('*, courses(id, canvas_course_id, course_code, name)').eq('user_id', userId),
     // Single query for all blob types — avoids 5 separate requests and 400s on missing rows
     supabase.from('canvas_data').select('data_type, payload').eq('user_id', userId),
-    supabase.from('flashcards').select('course_id, cards, generated_at').eq('user_id', userId),
+    supabase.from('flashcards_v2').select('course_id, id, question, answer, created_at').eq('user_id', userId).order('created_at', { ascending: false }),
     loadFiles(),
   ]);
 
@@ -551,10 +551,13 @@ export async function loadCanvasData(userId) {
     status:         f.status,
   }));
 
-  // Build flashcard map: course_id → cards[]
+  // Build flashcard map from v2 individual rows: course_id → { cards[], generatedAt }
   const flashcardMap = {};
   (fcResult.data || []).forEach(row => {
-    flashcardMap[row.course_id] = { cards: row.cards, generatedAt: row.generated_at };
+    if (!flashcardMap[row.course_id]) {
+      flashcardMap[row.course_id] = { cards: [], generatedAt: row.created_at };
+    }
+    flashcardMap[row.course_id].cards.push({ id: row.id, question: row.question, answer: row.answer });
   });
 
   // ── Merge browser-extension data (non-Canvas users) ──────────────────────────
