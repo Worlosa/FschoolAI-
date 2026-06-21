@@ -832,10 +832,11 @@ export default function Study() {
       }
 
       // Try RAG query first — returns best-matched full sections from ingested PDFs/slides.
-      // Falls back to direct DB queries if RAG has no content yet for this course.
+      // If RAG has no content yet, auto-backfill from files.content_text then retry.
+      // Falls back to direct DB queries if neither produces results.
       let contextBlock = "";
       try {
-        const ragRes = await fetch("/api/rag?action=query", {
+        const runRagQuery = () => fetch("/api/rag?action=query", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -846,6 +847,31 @@ export default function Study() {
           }),
         }).then(r => r.json()).catch(() => ({ passages: [] }));
 
+        let ragRes = await runRagQuery();
+
+        // No RAG content yet — backfill from files.content_text then retry once
+        if (!ragRes.passages?.length && dbId) {
+          const { data: fileRows } = await supabase
+            .from("files")
+            .select("name, content_text")
+            .eq("user_id", userId)
+            .eq("course_id", dbId)
+            .not("content_text", "is", null)
+            .limit(10);
+
+          if (fileRows?.length) {
+            // Ingest each file's existing text into RAG
+            for (const f of fileRows) {
+              await fetch("/api/rag?action=ingest", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ userId, courseId: dbId, title: f.name, kind: "document", text: f.content_text }),
+              }).catch(() => {});
+            }
+            ragRes = await runRagQuery();
+          }
+        }
+
         if (ragRes.passages?.length > 0) {
           const ragContext = ragRes.passages.map((p: { title: string; heading?: string; text: string }) => {
             const label = p.heading ? `[${p.title} — ${p.heading}]` : `[${p.title}]`;
@@ -853,7 +879,7 @@ export default function Study() {
           }).join("\n\n");
           contextBlock = `\n\nHere is relevant content retrieved from the student's course materials:\n${ragContext}`;
         }
-      } catch { /* RAG query failed — fall through to buildCourseContext */ }
+      } catch { /* RAG failed — fall through to buildCourseContext */ }
 
       if (!contextBlock) {
         const courseContext = await buildCourseContext(dbId);
