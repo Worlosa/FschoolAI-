@@ -767,7 +767,7 @@ function SpaceDetail({
     return (
       <DocReader
         file={openFile as any}
-        onClose={() => setOpenFile(null)}
+        onBack={() => setOpenFile(null)}
         onNavigate={onNavigate}
       />
     );
