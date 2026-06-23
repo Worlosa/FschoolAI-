@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.1",
+    "framer-motion": "^11.0.0",
     "html2canvas": "^1.4.1",
     "pdfjs-dist": "^5.7.284",
     "react": "^18.3.1",
