@@ -22,7 +22,7 @@ import type { Point, Stroke, PenStyle } from "../api/whiteboard";
 export const BOARD_W = 1000;
 export const BOARD_H = 600;
 
-export type Tool = "pen" | "stroke-erase" | "area-erase" | "laser";
+export type Tool = "pen" | "stroke-erase" | "area-erase" | "laser" | "text";
 
 // ── Palettes ──────────────────────────────────────────────────────────────────
 export const BACKGROUNDS = [
@@ -121,6 +121,17 @@ function drawStroke(ctx: CanvasRenderingContext2D, s: { mode: "pen" | "erase"; s
       break;
     }
 
+    case "text": {
+      const pt = pts[0] as any;
+      if (!pt?.t) break;
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = s.color;
+      ctx.font = `bold ${s.width}px sans-serif`;
+      ctx.textBaseline = "middle";
+      ctx.fillText(pt.t, pt.x, pt.y);
+      break;
+    }
+
     case "normal":
     default:
       ctx.globalAlpha = 1;
@@ -205,6 +216,7 @@ export default function Whiteboard({
   const drawingRef = useRef(false);
   const currentRef = useRef<Point[]>([]);
   const [localLaser, setLocalLaser] = useState<{ x: number; y: number } | null>(null);
+  const [textInput, setTextInput] = useState<{ x: number; y: number } | null>(null);
   const erasedThisDragRef = useRef<Set<string>>(new Set());
   // Snapshot of the canvas at the start of each stroke. Restored on every
   // pointermove before drawing the in-progress stroke so committed strokes
@@ -239,7 +251,7 @@ export default function Whiteboard({
     }
 
     // The local in-progress stroke, drawn last so it sits on top.
-    if (drawingRef.current && currentRef.current.length && toolRef.current !== "stroke-erase" && toolRef.current !== "laser") {
+    if (drawingRef.current && currentRef.current.length && toolRef.current !== "stroke-erase" && toolRef.current !== "laser" && toolRef.current !== "text") {
       drawStroke(ctx, {
         mode: toolRef.current === "area-erase" ? "erase" : "pen",
         style: styleRef.current,
@@ -294,8 +306,12 @@ export default function Whiteboard({
   function onPointerDown(e: React.PointerEvent) {
     e.preventDefault();
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    drawingRef.current = true;
     const pt = toBoard(e);
+    if (toolRef.current === "text") {
+      setTextInput({ x: pt.x, y: pt.y });
+      return;
+    }
+    drawingRef.current = true;
     if (toolRef.current === "laser") {
       setLocalLaser(pt);
       onLaserMove?.({ x: pt.x, y: pt.y });
@@ -395,8 +411,21 @@ export default function Whiteboard({
   });
 
   const isPen = tool === "pen";
-  const cursor = tool === "stroke-erase" ? "pointer" : tool === "laser" ? "none" : "crosshair";
+  const isText = tool === "text";
+  const cursor = tool === "stroke-erase" ? "pointer" : tool === "laser" ? "none" : tool === "text" ? "text" : "crosshair";
   const isCustomColor = !PEN_COLORS.includes(color);
+
+  function handleTextCommit(text: string) {
+    if (!text.trim() || !textInput) { setTextInput(null); return; }
+    onStrokeComplete({
+      mode: "pen",
+      style: "text",
+      color,
+      width: penWidth * 3 + 6,
+      points: [{ x: textInput.x, y: textInput.y, t: text.trim() }],
+    });
+    setTextInput(null);
+  }
 
   function handleExport() {
     const canvas = canvasRef.current;
@@ -432,6 +461,7 @@ export default function Whiteboard({
         <button style={chip(tool === "stroke-erase")} onClick={() => onToolChange("stroke-erase")} title="Tap a line to delete the whole stroke">🧽 Stroke erase</button>
         <button style={chip(tool === "area-erase")} onClick={() => onToolChange("area-erase")} title="Drag to rub out an area">⭕ Area erase</button>
         <button style={chip(tool === "laser")} onClick={() => onToolChange("laser")} title="Laser pointer — point without drawing">🔴 Laser</button>
+        <button style={chip(tool === "text")} onClick={() => onToolChange("text")} title="Text — click to place text">📝 Text</button>
 
         <span style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.1)", margin: "0 2px" }} />
 
@@ -524,6 +554,41 @@ export default function Whiteboard({
         </div>
       )}
 
+      {/* Text tool options */}
+      {isText && (
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "10px 16px", borderBottom: "1px solid rgba(196,154,60,0.08)" }}>
+          <span style={{ fontSize: "11px", color: "var(--text-dim)" }}>Size</span>
+          {PEN_WIDTHS.map((w, i) => (
+            <button key={w} onClick={() => onPenWidthChange(w)} title={`Size ${i + 1}`}
+              style={{ ...chip(penWidth === w), minWidth: "30px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <span style={{ fontSize: `${10 + i * 3}px`, lineHeight: 1, color: penWidth === w ? "#c49a3c" : "var(--text-dim)" }}>A</span>
+            </button>
+          ))}
+          <span style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.1)", margin: "0 2px" }} />
+          {PEN_COLORS.map(c => (
+            <button key={c} onClick={() => onColorChange(c)} title={c}
+              style={{
+                width: "20px", height: "20px", borderRadius: "50%", cursor: "pointer", padding: 0, background: c,
+                border: color === c ? "2px solid #fff" : "2px solid rgba(255,255,255,0.15)",
+                outline: color === c ? "1px solid rgba(196,154,60,0.6)" : "none",
+              }}
+            />
+          ))}
+          <label title="Custom color" style={{ position: "relative", width: "20px", height: "20px", cursor: "pointer", flexShrink: 0 }}>
+            <input type="color" value={isCustomColor ? color : "#000000"} onChange={e => onColorChange(e.target.value)}
+              style={{ position: "absolute", inset: 0, opacity: 0, width: "100%", height: "100%", cursor: "pointer" }} />
+            <div style={{
+              width: "20px", height: "20px", borderRadius: "50%",
+              background: "conic-gradient(red, yellow, lime, cyan, blue, magenta, red)",
+              border: isCustomColor ? "2px solid #fff" : "2px solid rgba(255,255,255,0.15)",
+              outline: isCustomColor ? "1px solid rgba(196,154,60,0.6)" : "none",
+              pointerEvents: "none",
+            }} />
+          </label>
+          <span style={{ fontSize: "11px", color: "var(--text-dim)", marginLeft: "4px" }}>Click canvas to place text · Enter to commit · Esc to cancel</span>
+        </div>
+      )}
+
       {/* Area-eraser options */}
       {tool === "area-erase" && (
         <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "10px 16px", borderBottom: "1px solid rgba(196,154,60,0.08)" }}>
@@ -555,6 +620,42 @@ export default function Whiteboard({
               touchAction: "none", cursor, display: "block",
             }}
           />
+          {/* Text input overlay */}
+          {textInput && (
+            <input
+              key={`${textInput.x},${textInput.y}`}
+              autoFocus
+              type="text"
+              placeholder="Type text…"
+              style={{
+                position: "absolute",
+                left: `${(textInput.x / BOARD_W) * 100}%`,
+                top: `${(textInput.y / BOARD_H) * 100}%`,
+                transform: "translateY(-50%)",
+                zIndex: 10,
+                background: "rgba(0,0,0,0.75)",
+                color,
+                border: `1px solid ${color}`,
+                borderRadius: "4px",
+                padding: "3px 8px",
+                fontSize: "14px",
+                fontFamily: "sans-serif",
+                outline: "none",
+                minWidth: "80px",
+                maxWidth: "280px",
+              }}
+              onKeyDown={e => {
+                e.stopPropagation();
+                if (e.key === "Enter") { handleTextCommit(e.currentTarget.value); e.preventDefault(); }
+                if (e.key === "Escape") { setTextInput(null); e.preventDefault(); }
+              }}
+              onBlur={e => {
+                if (e.currentTarget.value.trim()) handleTextCommit(e.currentTarget.value);
+                else setTextInput(null);
+              }}
+            />
+          )}
+
           {/* Peer cursors + laser overlay */}
           <div style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden", borderRadius: "10px" }}>
             {/* Peer live cursors */}

@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@daily-co/daily-js": "^0.91.0",
     "@supabase/supabase-js": "^2.106.1",
     "cfb": "^1.2.2",
     "framer-motion": "^12.40.0",

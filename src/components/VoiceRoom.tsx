@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import DailyIframe from "@daily-co/daily-js";
 
 type Status = "loading" | "ready" | "unavailable" | "error";
 
@@ -36,6 +37,9 @@ export default function VoiceRoom({ roomId, userName, onClose }: {
   );
   const isMobile = window.innerWidth < 600;
 
+  const [pttActive, setPttActive] = useState(false);
+  const callFrameRef = useRef<any>(null);
+
   const dragging   = useRef(false);
   const dragOffset = useRef({ x: 0, y: 0 });
   const popupRef   = useRef<HTMLDivElement>(null);
@@ -58,7 +62,7 @@ export default function VoiceRoom({ roomId, userName, onClose }: {
         if (!res.ok)            { setStatus("error"); return; }
         const data = await res.json();
         if (!alive) return;
-        if (data?.url) { setUrl(data.url); setStatus("ready"); }
+        if (data?.url) { setUrl(data.url); /* status stays "loading" until frame.join() resolves */ }
         else           { setStatus("error"); }
       } catch (err: any) {
         if (err?.name === "AbortError" || !alive) return;
@@ -67,6 +71,51 @@ export default function VoiceRoom({ roomId, userName, onClose }: {
     })();
     return () => { alive = false; ctrl.abort(); };
   }, [roomId]);
+
+  // Correct Daily.co SDK pattern: wrap an empty iframe (no src), then call join() which
+  // navigates the iframe to the room URL AND puts the SDK into "joined" state so that
+  // setLocalAudio() actually works. Setting src directly in JSX bypasses the SDK join
+  // flow, so setLocalAudio() would silently do nothing.
+  //
+  // We do NOT await the join() promise for status — the Daily prebuilt UI shows a
+  // pre-join screen first ("Are you ready to join?") and the promise only resolves
+  // after the user clicks through it. We clear the overlay immediately so the user
+  // can see and interact with the Daily.co UI.
+  useEffect(() => {
+    if (!url || !iframeRef.current) return;
+    const frame = DailyIframe.wrap(iframeRef.current);
+    frame.join({ url, startVideoOff: true, startAudioOff: true }).catch(() => {});
+    callFrameRef.current = frame;
+    setStatus("ready");
+    return () => {
+      callFrameRef.current = null;
+      frame.leave().catch(() => {}).finally(() => { try { frame.destroy(); } catch {} });
+    };
+  }, [url]);
+
+  // Push-to-talk: hold spacebar to unmute, release to mute.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.code !== "Space" || e.repeat) return;
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if ((e.target as HTMLElement).isContentEditable) return;
+      e.preventDefault();
+      callFrameRef.current?.setLocalAudio(true);
+      setPttActive(true);
+    }
+    function onKeyUp(e: KeyboardEvent) {
+      if (e.code !== "Space") return;
+      callFrameRef.current?.setLocalAudio(false);
+      setPttActive(false);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup",   onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup",   onKeyUp);
+    };
+  }, []);
 
   useEffect(() => {
     function onResize() {
@@ -159,9 +208,45 @@ export default function VoiceRoom({ roomId, userName, onClose }: {
           cursor:         isMobile ? "default" : (dragging.current ? "grabbing" : "grab"),
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", pointerEvents: "none" }}>
-          <span style={{ fontSize: "14px" }}>🎙</span>
-          <span style={{ fontSize: "13px", fontWeight: 600, color: ACCENT }}>Voice Chat</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <span style={{ fontSize: "14px", pointerEvents: "none" }}>🎙</span>
+          <span style={{ fontSize: "13px", fontWeight: 600, color: ACCENT, pointerEvents: "none" }}>Voice Chat</span>
+          {status === "ready" && (
+            <button
+              onPointerDown={e => {
+                e.preventDefault();
+                e.stopPropagation(); // prevent header drag handler from firing
+                e.currentTarget.setPointerCapture(e.pointerId); // pointerup always fires here even if mouse drifts off
+                callFrameRef.current?.setLocalAudio(true);
+                setPttActive(true);
+              }}
+              onPointerUp={() => {
+                callFrameRef.current?.setLocalAudio(false);
+                setPttActive(false);
+              }}
+              onPointerCancel={() => {
+                callFrameRef.current?.setLocalAudio(false);
+                setPttActive(false);
+              }}
+              title="Hold to talk"
+              style={{
+                background: pttActive ? "rgba(239,68,68,0.18)" : "rgba(255,255,255,0.06)",
+                border: `1px solid ${pttActive ? "rgba(239,68,68,0.5)" : "rgba(255,255,255,0.12)"}`,
+                borderRadius: "6px",
+                color: pttActive ? "#f87171" : "var(--text-dim)",
+                fontSize: "11px",
+                fontWeight: 600,
+                padding: "2px 8px",
+                cursor: "pointer",
+                userSelect: "none",
+                transition: "all 0.08s",
+                fontFamily: "inherit",
+                lineHeight: "20px",
+              }}
+            >
+              {pttActive ? "🔴 LIVE" : "🎙 Hold to talk"}
+            </button>
+          )}
         </div>
         <div
           style={{ display: "flex", alignItems: "center", gap: "4px" }}
@@ -211,20 +296,37 @@ export default function VoiceRoom({ roomId, userName, onClose }: {
 
       {/* Body */}
       <div style={{ height: (!isMobile && minimized) ? 0 : "auto", overflow: "hidden" }}>
-        {status === "loading" && (
-          <div style={{ padding: "36px 16px", textAlign: "center" }}>
-            <p style={{ fontSize: "13px", color: "var(--text-dim)" }}>Connecting to voice…</p>
-          </div>
-        )}
 
-        {status === "ready" && url && (
-          <iframe
-            ref={iframeRef}
-            title="Voice chat"
-            src={url}
-            allow="microphone *; camera *; autoplay *; display-capture *; speaker *; fullscreen *"
-            style={{ width: "100%", height: isMobile ? "50vh" : "460px", border: "none", display: "block" }}
-          />
+        {/* iframe is mounted for both loading + ready so iframeRef is set when the
+            wrap+join effect fires. A loading overlay covers it until join() resolves. */}
+        {(status === "loading" || status === "ready") && (
+          <div style={{ position: "relative" }}>
+            <iframe
+              ref={iframeRef}
+              title="Voice chat"
+              allow="microphone *; camera *; autoplay *; display-capture *; speaker *; fullscreen *"
+              style={{ width: "100%", height: isMobile ? "50vh" : "460px", border: "none", display: "block" }}
+            />
+            {status === "loading" && (
+              <div style={{
+                position: "absolute", inset: 0,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: "rgba(10,10,14,0.97)",
+              }}>
+                <p style={{ fontSize: "13px", color: "var(--text-dim)" }}>Connecting to voice…</p>
+              </div>
+            )}
+            {pttActive && (
+              <div style={{
+                position: "absolute", bottom: "14px", left: "50%", transform: "translateX(-50%)",
+                background: "rgba(239,68,68,0.92)", color: "#fff", fontSize: "13px", fontWeight: 700,
+                padding: "7px 18px", borderRadius: "20px", zIndex: 10, pointerEvents: "none",
+                boxShadow: "0 0 16px rgba(239,68,68,0.5)", letterSpacing: "0.04em",
+              }}>
+                🎙 LIVE
+              </div>
+            )}
+          </div>
         )}
 
         {status === "unavailable" && (
