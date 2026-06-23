@@ -173,7 +173,9 @@ function hitStroke(p: Point, s: Stroke, tol: number): boolean {
 export default function Whiteboard({
   strokes, liveStrokes, tool, style, color, penWidth, eraserSize, bg,
   onToolChange, onStyleChange, onColorChange, onPenWidthChange, onEraserSizeChange, onBgChange,
-  onStrokeComplete, onEraseStroke, onLiveStroke, onClear, onClose,
+  onStrokeComplete, onEraseStroke, onLiveStroke, onClear,
+  canUndo, canRedo, onUndo, onRedo,
+  onClose,
 }: {
   strokes: Stroke[];
   liveStrokes?: Record<string, { mode: "pen" | "erase"; style: PenStyle; color: string; width: number; points: Point[] }>;
@@ -188,6 +190,10 @@ export default function Whiteboard({
   onEraseStroke: (strokeId: string) => void;
   onLiveStroke?: (s: { mode: "pen" | "erase"; style: PenStyle; color: string; width: number; points: Point[] } | null) => void;
   onClear: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
   onClose: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -386,6 +392,21 @@ export default function Whiteboard({
         <button style={chip(tool === "pen")} onClick={() => onToolChange("pen")}>✏️ Pen</button>
         <button style={chip(tool === "stroke-erase")} onClick={() => onToolChange("stroke-erase")} title="Tap a line to delete the whole stroke">🧽 Stroke erase</button>
         <button style={chip(tool === "area-erase")} onClick={() => onToolChange("area-erase")} title="Drag to rub out an area">⭕ Area erase</button>
+
+        <span style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.1)", margin: "0 2px" }} />
+
+        <button
+          style={{ ...chip(false), opacity: canUndo ? 1 : 0.35, cursor: canUndo ? "pointer" : "not-allowed" }}
+          onClick={() => canUndo && onUndo?.()}
+          title="Undo (Ctrl+Z)"
+          disabled={!canUndo}
+        >↩ Undo</button>
+        <button
+          style={{ ...chip(false), opacity: canRedo ? 1 : 0.35, cursor: canRedo ? "pointer" : "not-allowed" }}
+          onClick={() => canRedo && onRedo?.()}
+          title="Redo (Ctrl+Shift+Z)"
+          disabled={!canRedo}
+        >↪ Redo</button>
 
         <span style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.1)", margin: "0 2px" }} />
 

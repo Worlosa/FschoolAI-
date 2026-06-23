@@ -979,6 +979,11 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const [wbEraserSize,       setWbEraserSize]       = useState(ERASER_SIZES[1]);
   const [wbBg,               setWbBg]               = useState(DEFAULT_BG);
   const [liveStrokes,        setLiveStrokes]        = useState<Record<string, { mode: "pen" | "erase"; style: PenStyle; color: string; width: number; points: Point[] }>>({});
+  // Undo/redo — track strokes drawn by the local user only.
+  const wbUndoStack = useRef<Stroke[]>([]);
+  const wbRedoStack = useRef<Stroke[]>([]);
+  const [canUndo,            setCanUndo]            = useState(false);
+  const [canRedo,            setCanRedo]            = useState(false);
   const lastLiveSentRef = useRef(0);
   const yjsDocRef       = useRef<Y.Doc | null>(null);
   const yjsProviderRef  = useRef<SupabaseBroadcastProvider | null>(null);
@@ -1533,6 +1538,22 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     return () => window.removeEventListener('popstate', onPop);
   }, [showBoard]);
 
+  // Ctrl/Cmd+Z → undo, Ctrl/Cmd+Shift+Z or Ctrl+Y → redo (whiteboard only).
+  const undoHandlerRef = useRef(handleUndoStroke);
+  const redoHandlerRef = useRef(handleRedoStroke);
+  undoHandlerRef.current = handleUndoStroke;
+  redoHandlerRef.current = handleRedoStroke;
+  useEffect(() => {
+    if (!showBoard) return;
+    function onKey(e: KeyboardEvent) {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); undoHandlerRef.current(); }
+      if ((e.key === 'z' && e.shiftKey) || e.key === 'y') { e.preventDefault(); redoHandlerRef.current(); }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showBoard]);
+
   function handleStrokeComplete(stroke: { mode: "pen" | "erase"; style: PenStyle; color: string; width: number; points: Point[] }) {
     const newStroke = {
       id: (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2) + Date.now().toString(36)),
@@ -1544,7 +1565,11 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     };
     setStrokes(prev => [...prev, newStroke]);
     yjsStrokesRef.current?.push([newStroke]);
-    // Yjs observer also fires setStrokes (idempotent). Provider broadcasts delta to peers.
+    // Track for undo; new stroke invalidates the redo history.
+    wbUndoStack.current.push(newStroke);
+    wbRedoStack.current = [];
+    setCanUndo(true);
+    setCanRedo(false);
   }
 
   function handleEraseStroke(strokeId: string) {
@@ -1553,6 +1578,24 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     const idx = (arr.toArray() as any[]).findIndex(s => s.id === strokeId);
     if (idx !== -1) arr.delete(idx, 1);
     // Yjs observer fires → setStrokes() → canvas re-renders and peers sync.
+  }
+
+  function handleUndoStroke() {
+    const stroke = wbUndoStack.current.pop();
+    if (!stroke) return;
+    wbRedoStack.current.push(stroke);
+    setCanUndo(wbUndoStack.current.length > 0);
+    setCanRedo(true);
+    handleEraseStroke(stroke.id);
+  }
+
+  function handleRedoStroke() {
+    const stroke = wbRedoStack.current.pop();
+    if (!stroke) return;
+    wbUndoStack.current.push(stroke);
+    setCanUndo(true);
+    setCanRedo(wbRedoStack.current.length > 0);
+    yjsStrokesRef.current?.push([stroke]);
   }
 
   function handleBgChange(bg: string) {
@@ -1574,7 +1617,10 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     if (arr && arr.length > 0) arr.doc?.transact(() => { arr.delete(0, arr.length); });
     yjsMetaRef.current?.set("bg", DEFAULT_BG);
     setLiveStrokes({});
-    // Yjs observers fire on all peers → canvas clears everywhere.
+    wbUndoStack.current = [];
+    wbRedoStack.current = [];
+    setCanUndo(false);
+    setCanRedo(false);
   }
 
   async function sendChatMessage() {
@@ -1825,6 +1871,10 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           onEraseStroke={handleEraseStroke}
           onLiveStroke={handleLiveStroke}
           onClear={handleClearBoard}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onUndo={handleUndoStroke}
+          onRedo={handleRedoStroke}
           onClose={() => setShowBoard(false)}
         />
       )}

@@ -45,7 +45,7 @@ export default async function handler(req, res) {
         privacy: "public",
         properties: {
           start_video_off:    true,
-          start_audio_off:    false,
+          start_audio_off:    true,
           enable_screenshare: false,
           enable_chat:        false,
           enable_people_ui:   true,
@@ -77,9 +77,10 @@ export default async function handler(req, res) {
           headers: auth,
           body: JSON.stringify({
             properties: {
-              room_name:  name,
-              user_name:  safeName,
-              is_owner:   false,
+              room_name:       name,
+              user_name:       safeName,
+              is_owner:        false,
+              start_audio_off: true,
               exp,
             },
           }),
