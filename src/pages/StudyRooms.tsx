@@ -1643,9 +1643,9 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
             </button>
             {showRoomMenu && (
               <div style={{
-                position:"absolute", top:0, left:"calc(100% + 6px)", zIndex:200,
+                position:"absolute", top:"calc(100% + 6px)", right:0, zIndex:200,
                 background:"var(--color-surface)", border:"1px solid var(--color-border)",
-                borderRadius:"12px", padding:"6px", minWidth:"160px",
+                borderRadius:"12px", padding:"6px", minWidth:"140px", maxWidth:"calc(100vw - 24px)",
                 boxShadow:"0 8px 32px rgba(0,0,0,0.45)",
               }}>
                 {isHost && (
