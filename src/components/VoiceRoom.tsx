@@ -23,10 +23,11 @@ function clamp(left: number, top: number, popW: number, popH: number) {
   };
 }
 
-export default function VoiceRoom({ roomId, userName, onClose }: {
+export default function VoiceRoom({ roomId, userName, onClose, onSpeakingChange }: {
   roomId: string;
   userName?: string;
   onClose: () => void;
+  onSpeakingChange?: (name: string | null) => void;
 }) {
   const [status, setStatus]       = useState<Status>("loading");
   const [url, setUrl]             = useState<string | null>(null);
@@ -85,9 +86,16 @@ export default function VoiceRoom({ roomId, userName, onClose }: {
     if (!url || !iframeRef.current) return;
     const frame = DailyIframe.wrap(iframeRef.current);
     frame.join({ url, startVideoOff: true, startAudioOff: true }).catch(() => {});
+    frame.on("active-speaker-change", (e: any) => {
+      const peerId = e?.activeSpeaker?.peerId;
+      if (!peerId) { onSpeakingChange?.(null); return; }
+      const speaker = frame.participants()[peerId];
+      onSpeakingChange?.(speaker?.user_name ?? null);
+    });
     callFrameRef.current = frame;
     setStatus("ready");
     return () => {
+      onSpeakingChange?.(null);
       callFrameRef.current = null;
       frame.leave().catch(() => {}).finally(() => { try { frame.destroy(); } catch {} });
     };

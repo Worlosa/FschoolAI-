@@ -965,8 +965,9 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
   const [buddyQAs,           setBuddyQAs]           = useState([]);
   const [buddyStreaming,     setBuddyStreaming]     = useState(false);
   const [courseName,         setCourseName]         = useState("");
-  // Voice chat (Daily.co placeholder)
+  // Voice chat (Daily.co)
   const [showVoice,          setShowVoice]          = useState(false);
+  const [activeSpeakerName,  setActiveSpeakerName]  = useState<string | null>(null);
   // Room header overflow menu (admin actions)
   const [showRoomMenu,       setShowRoomMenu]       = useState(false);
   const roomMenuRef = useRef<HTMLDivElement>(null);
@@ -1775,6 +1776,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
       <StudyOrb
         active={!!pomo && pomo.phase === "focus" && !pomo.paused}
         members={members}
+        speakingNames={activeSpeakerName ? [activeSpeakerName] : []}
       />
 
       {/* Pomodoro Timer — centerpiece */}
@@ -1870,7 +1872,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
       ) : (
         <div style={{ display:"flex", flexDirection:"column", gap:"10px" }}>
           {members.map(m => (
-            <MemberCard key={m.userId} member={m} isMe={m.userId === userId} />
+            <MemberCard key={m.userId} member={m} isMe={m.userId === userId} isSpeaking={activeSpeakerName === m.name} />
           ))}
         </div>
       )}
@@ -1888,7 +1890,12 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
 
       {/* Voice chat panel — Daily.co placeholder, audio-first */}
       {showVoice && (
-        <VoiceRoom roomId={room.id} userName={userData?.name ?? ""} onClose={() => setShowVoice(false)} />
+        <VoiceRoom
+          roomId={room.id}
+          userName={userData?.name ?? ""}
+          onClose={() => { setShowVoice(false); setActiveSpeakerName(null); }}
+          onSpeakingChange={setActiveSpeakerName}
+        />
       )}
 
       {/* Chat panel — persisted, WhatsApp-style */}
@@ -2567,7 +2574,7 @@ function ChatPanel({ messages, myUserId, input, sending, onInputChange, onSend, 
 // ─────────────────────────────────────────────────────────────────────────────
 // MemberCard
 // ─────────────────────────────────────────────────────────────────────────────
-function MemberCard({ member, isMe }) {
+function MemberCard({ member, isMe, isSpeaking = false }) {
   const elapsed = Math.max(0, Math.floor((Date.now() - member.joinedAt) / 1000));
   const h = Math.floor(elapsed / 3600);
   const m = Math.floor((elapsed % 3600) / 60);
@@ -2594,9 +2601,12 @@ function MemberCard({ member, isMe }) {
     }}>
       <div style={{
         width:40, height:40, borderRadius:"50%", flexShrink:0,
-        background:col.bg, color:col.fg, fontWeight:"700", fontSize:"15px",
+        background:col.bg, color: isSpeaking ? "#4ade80" : col.fg, fontWeight:"700", fontSize:"15px",
         display:"flex", alignItems:"center", justifyContent:"center",
-        border:`1.5px solid ${col.fg}30`, position:"relative",
+        border: isSpeaking ? "1.5px solid rgba(74,222,128,0.8)" : `1.5px solid ${col.fg}30`,
+        boxShadow: isSpeaking ? "0 0 0 3px rgba(74,222,128,0.2)" : "none",
+        position:"relative",
+        transition: "border-color 0.2s, box-shadow 0.2s",
       }}>
         {member.initial}
         <div style={{ position:"absolute", bottom:0, right:0, width:10, height:10, borderRadius:"50%", background:"#7fae6e", border:"2px solid var(--color-surface)" }}/>
@@ -2605,6 +2615,17 @@ function MemberCard({ member, isMe }) {
         <div style={{ display:"flex", alignItems:"center", gap:"8px" }}>
           <span style={{ fontWeight:"600", fontSize:"14px", color:"var(--text-primary)" }}>{member.name}</span>
           {isMe && <span style={{ fontSize:"10px", color:"var(--text-dim)", background:"rgba(255,255,255,0.06)", borderRadius:"8px", padding:"2px 7px" }}>you</span>}
+          {isSpeaking && (
+            <span style={{ display:"inline-flex", alignItems:"flex-end", gap:"2px", height:"14px", marginLeft:"2px" }}>
+              <style>{`@keyframes mc-bar{from{transform:scaleY(0.25)}to{transform:scaleY(1)}}`}</style>
+              {[0, 0.18, 0.09].map((delay, i) => (
+                <span key={i} style={{
+                  display:"block", width:"3px", height:"12px", background:"#4ade80", borderRadius:"2px",
+                  transformOrigin:"bottom", animation:`mc-bar 0.55s ease-in-out ${delay}s infinite alternate`,
+                }} />
+              ))}
+            </span>
+          )}
         </div>
         <p style={{
           fontSize:"12px", marginTop:"3px",
