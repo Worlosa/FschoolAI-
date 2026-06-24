@@ -1,6 +1,6 @@
 # FschoolAI — Product Requirements Document (PRD)
-**Version:** 1.2  
-**Date:** June 23, 2026  
+**Version:** 1.3  
+**Date:** June 24, 2026  
 **Author:** Vincent Yang, FschoolAI  
 **Audience:** Engineering team — Tencent engineer, Bytedance engineer, Aryan, Ryan, Vincent
 
@@ -718,6 +718,102 @@ Both options must be decided and built before the Cohort Agent is activated. Add
 
 ---
 
+### Agent 15 — Podcast / Audio Overview Agent
+
+**Owner:** Aryan (pipeline) + Tencent engineer (dialogue script)  
+**Environment:** Async background pipeline — delivers via `notification_queue`  
+**Priority:** P2  
+**Tier:** Pro (10 episodes/month cap) + Max (unlimited)
+
+**What it does:** Generates a 5–15 minute, two-host conversational audio episode from a student-selected source set. The episode is brain-grounded — the script uses the student's knowledge gaps, their lecture transcript, and the professor's terminology, exactly as the Lesson Generator does. A podcast generated only from raw uploaded text without brain context is not acceptable.
+
+**Source set (student selects one or more):**
+- Lecture transcript (from Lecture Agent)
+- Uploaded notes or PDF
+- Syllabus document (from Canvas Agent)
+- A concept the student is weak on (pulled from `knowledge_gaps` in brain context)
+
+**Episode formats:**
+
+| Format | Description |
+|---|---|
+| `deep-dive` | Extended exploration of one concept or topic |
+| `brief` | 5-minute high-density summary |
+| `debate` | Two hosts argue opposing interpretations or approaches |
+| `exam-cram` | Fast-paced review of high-yield exam topics based on the student's gaps |
+
+**Pipeline (Pattern B — async, reuses Lesson Generator plumbing):**
+
+```
+Step 1:  context = brain.read(student_id)          // knowledge_gaps, professor terminology, lecture transcript
+Step 2:  script  = dialogue_script_agent(source_set, context, format)
+             — Two distinct host personas (Host A: explainer, Host B: questioner/challenger)
+             — Turn-taking structure with natural transitions
+             — Brain-grounded: gaps and professor terms woven into the dialogue
+Step 3:  audio_a = elevenlabs.tts(host_a_lines, voice_id="host_a")
+         audio_b = elevenlabs.tts(host_b_lines, voice_id="host_b")
+Step 4:  episode = stitch(audio_a, audio_b)         // interleave turns in order
+Step 5:  store episode at audio_url (Supabase Storage)
+Step 6:  write to audio_overviews table
+Step 7:  write to notification_queue: "Your CHEM 201 podcast is ready"
+```
+
+**LLM for script generation:** GPT-4o or Claude Sonnet (same routing as Lesson Generator — quality is the moat, do not downgrade to mini for the script).
+
+**TTS:** ElevenLabs multi-voice. Two distinct voice IDs — one per host persona. Voice IDs are configurable per deployment.
+
+**Latency budget:** < 3 minutes end-to-end for a 10-minute episode. This agent is **exempt from the 3-second NFR** (§9). The student is notified when the episode is ready — they do not wait at a loading screen.
+
+**Brain signals written:**
+- `podcast_generated`: `{ source_set: string[], format: string, duration_seconds: int }`
+- `podcast_listened`: `{ episode_id: uuid, completed: boolean, percent_completed: float }`
+
+**Academic integrity:** Podcast scripts are explanatory and review-oriented. They do not write assignments, generate essay content, or produce any output that could be submitted as academic work.
+
+---
+
+## 4.1 Studio Surface
+
+**Owner:** Vincent  
+**Priority:** P2  
+**Tier:** Pro and Max (source selection and generation are Pro+ features)
+
+**What it is:** A single consolidated panel where the student selects a source set once and generates any supported learning format on demand — NotebookLM-style, but grounded in the student's brain context. The Studio is primarily a **UI router over existing agents** — it does not introduce new generation logic.
+
+**Source set selection (shared across all formats):**
+The student picks one or more sources:
+- A lecture transcript (from Lecture Agent)
+- Uploaded notes or PDF
+- A Canvas assignment or syllabus
+- A concept from their knowledge gap list
+
+**Formats available from the Studio:**
+
+| Format | Powered by | Tier |
+|---|---|---|
+| Podcast (Audio Overview) | Agent 15 | Pro (10/month), Max (unlimited) |
+| Summary | Lecture Agent | Pro+ |
+| Flashcards | Lecture Agent | Pro+ |
+| Quiz | Lecture Agent | Pro+ |
+| Mind Map | §3.6 Graph Visualisation | Max |
+| Brain-grounded Video | Lesson Generator (Agent 6) | Max |
+
+**Design principle:** One source selection → many on-demand formats. The student does not need to re-upload or re-describe their material for each format. The Studio passes the same source set and brain context to each agent.
+
+**What the Studio is NOT:**
+- It is not a new generation engine — it routes to existing agents.
+- It does not generate slide decks, infographics, or data tables (see §11 — out of scope).
+- It is not a real-time interactive experience — all heavy formats (podcast, video) are async with notification delivery.
+
+**UI requirements:**
+- Source set picker (multi-select, shows available sources from Canvas + Lecture Agent)
+- Format selector (cards, one per format, greyed out if not available on current tier)
+- "Generate" button — triggers the appropriate agent pipeline
+- Status tracker — shows in-progress generations with estimated completion time
+- History panel — past generated items, playable/viewable inline
+
+---
+
 ## 5. User Flows
 
 ### 5.1 Onboarding Flow
@@ -923,6 +1019,17 @@ created_at          timestamp
 
 **SRS engine:** The spaced-repetition scheduling uses the **FSRS algorithm** (Free Spaced Repetition Scheduler — open-source, more accurate than SM-2). It runs client-side in the browser/app. On each flashcard review, the student rates their recall (1–4). The FSRS algorithm updates `ease_factor`, `interval_days`, and `next_review_at`. The "spaced-repetition due" trigger in the Intervention Agent reads `next_review_at` to determine when to send a reminder. **This table and scheduling engine must be built before the spaced-repetition trigger is activated.** Remove the trigger from the Intervention Agent's positive trigger table until `flashcard_reviews` is populated with real data.
 
+**audio_overviews** (generated podcast episodes)
+```sql
+id                  uuid PRIMARY KEY
+student_id          uuid REFERENCES students(id)
+source_refs         jsonb             -- array of source identifiers (transcript IDs, note IDs, concept tags)
+format              text              -- 'deep-dive' | 'brief' | 'debate' | 'exam-cram'
+duration_seconds    int
+audio_url           text              -- Supabase Storage URL
+created_at          timestamp
+```
+
 ---
 
 ## 7. Technical Stack
@@ -941,6 +1048,7 @@ created_at          timestamp
 | Hosting | Manus (FschoolAI frontend) |
 | Notification delivery | Firebase Cloud Messaging (push), Twilio (SMS), Resend (email) |
 | SRS engine | FSRS algorithm (open-source, client-side) |
+| Podcast TTS | ElevenLabs multi-voice API (Agent 15) |
 | Stripe | Payment processing (Phase 1 launch requirement) |
 
 ---
@@ -961,6 +1069,7 @@ This section is a launch blocker. With 14 agents, nightly Reflection, cohort agg
 | Flashcard and quiz generation | GPT-4o-mini | Template-driven, low creativity requirement |
 | **Tutoring (Tutor Agent, Exam Mode)** | **GPT-4o or Claude Sonnet** | Core product, quality is the moat — do not downgrade |
 | **Video script generation (Lesson Generator)** | **GPT-4o or Claude Sonnet** | Max-tier feature, brain-grounded, quality matters |
+| **Podcast dialogue script (Agent 15)** | **GPT-4o or Claude Sonnet** | Pro/Max feature, brain-grounded two-host script — same quality bar as Lesson Generator |
 | Reflection synthesis (Reflection Agent) | GPT-4o-mini | Runs nightly, structured signal processing |
 | Cohort insight generation | GPT-4o-mini | Templated output, low creativity |
 
@@ -977,6 +1086,8 @@ This section is a launch blocker. With 14 agents, nightly Reflection, cohort agg
 These are estimates based on GPT-4o-mini for routing/evaluation and GPT-4o for tutoring at current API pricing. Validate against actual usage in the first 30 days and adjust routing rules accordingly.
 
 **Video cost note (Max tier):** A single brain-grounded video (script + ElevenLabs TTS + animation render) costs approximately $0.80–1.20 per video. At 4 videos/month per Max user, this is $3.20–4.80/month in video costs alone. Cohort amortisation (see Agent 14) reduces this when the same core video is reused across cohort members with only the framing layer personalised.
+
+**Podcast cost note (Agent 15):** ElevenLabs multi-voice TTS for a 10-minute two-host episode costs approximately $0.15–0.40 per episode (dependent on character count and voice tier). At 10 episodes/month for a Pro user, this is $1.50–4.00/month in TTS costs alone before LLM script generation. **This cost must be validated against actual ElevenLabs pricing and usage before the Pro tier cap is finalised.** The 10/month cap is a conservative starting point — adjust based on observed cost per episode in the first 30 days. Max tier (unlimited) requires cohort amortisation or a per-episode cost ceiling to remain within the $5.00/month gross margin target.
 
 ---
 
@@ -1003,9 +1114,12 @@ The build order is designed so no engineer blocks another. Ryan's brain mock is 
 | Week 4 | Office Hours Agent | Tencent engineer |
 | Week 4 | Calendar Agent | Bytedance engineer |
 | Week 4 | Effectiveness feedback loop — per-student threshold tuning | Ryan |
+| Week 4 | **Lesson Generator async plumbing** — job queue, Supabase Storage, notification delivery | Aryan |
 | Week 5 | Reflection Agent (NeuroAGI) | Ryan |
 | Week 5 | Terminal Agent | Vincent |
 | Week 5 | Cold-start mode — deadline-only proactivity until baseline exists | Vincent |
+| Week 5 | **Agent 15 — Podcast / Audio Overview Agent** — dialogue script (GPT-4o/Sonnet) + ElevenLabs multi-voice TTS + stitch + notify | Aryan (pipeline) + Tencent engineer (script) |
+| Week 5 | **Studio UI surface** — source set picker, format cards, async status tracker, history panel | Vincent |
 | Week 6 | Replace mock brain with live NeuroAGI API | Ryan + all |
 | Week 7+ | **Cohort Agent** — requires canonical layer + 10+ students + legal sign-off | Ryan + Vincent |
 | Week 7+ | Canonical entity layer (`canonical_courses`, `canonical_assignments`) | Ryan |
@@ -1063,12 +1177,31 @@ The following are explicitly out of scope for Phase 1 and should not be built un
 | Tier | Price | Key Phase 1 features |
 |---|---|---|
 | Free | $0 | 20 messages/day, basic brain, Canvas sync |
-| Pro | $12/month | Unlimited chat, nightly reflection, proactive interventions, Lesson Generator (10/month), Exam Predictor |
-| Max | $20/month | Everything in Pro + unlimited Lesson Generator, Brain export, Brain API access, cross-course knowledge graph |
+| Pro | $12/month | Unlimited chat, nightly reflection, proactive interventions, Lesson Generator (10/month), Exam Predictor, **Podcast / Audio Overview (10 episodes/month)**, **Studio panel** |
+| Max | $20/month | Everything in Pro + unlimited Lesson Generator, **unlimited Podcast / Audio Overview**, Brain export, Brain API access, cross-course knowledge graph |
 
 Stripe integration is required before public launch. The Lesson Generator (video generation feature) is a **Max-tier feature** — it is gated behind $20/month and must not be accessible to Free or Pro users. See §7.1 for cost envelope and model routing. See TOKEN_ECONOMY.md for full tier feature breakdown.
 
 **Video generation (Lesson Generator) is Phase 1 Max-tier only.** It is not a generic explainer — see Agent 6 (Library Agent) and the Lesson Generator spec for the brain-grounded video pipeline.
+
+**Podcast / Audio Overview (Agent 15) is Pro+ only.** Free users do not have access to podcast generation. Pro users are capped at 10 episodes/month. Max users have unlimited episodes. See §7.1 for ElevenLabs cost validation requirements before the cap is finalised.
+
+**Studio panel is a Pro+ feature.** Free users do not see the Studio surface. The Studio is the single entry point for all on-demand format generation (podcast, summary, flashcards, quiz, mind map, video).
+
+---
+
+### Explicitly Out of Scope — Do Not Build in Phase 1
+
+The following output formats are **explicitly out of scope for Phase 1** and must not be added to the Studio or any agent pipeline. They are document-productivity formats, not learning formats. FschoolAI is a learning intelligence product, not a document generator.
+
+| Out-of-scope format | Reason | Phase |
+|---|---|---|
+| **Slide Deck generation** | Document-productivity format. NotebookLM has this. Not a learning format. | Phase 2 at earliest |
+| **Infographic generation** | Document-productivity format. Requires design tooling outside the learning pipeline. | Phase 2 at earliest |
+| **Data Table generation** | Document-productivity format. Not a learning format. | Phase 2 at earliest |
+| **Real-time interactive podcast** (conversing with hosts live) | Technically complex, high latency, requires streaming TTS + dialogue management. Ship one-way podcast first and validate demand. | Phase 2 flag |
+
+Any engineer who receives a request to add slide deck, infographic, or data table generation should escalate to Vincent before building. These are not scope creep — they are a different product category.
 
 ---
 
