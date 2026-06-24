@@ -1,5 +1,5 @@
 # FschoolAI — Product Requirements Document (PRD)
-**Version:** 1.1  
+**Version:** 1.2  
 **Date:** June 23, 2026  
 **Author:** Vincent Yang, FschoolAI  
 **Audience:** Engineering team — Tencent engineer, Bytedance engineer, Aryan, Ryan, Vincent
@@ -133,16 +133,19 @@ The Signal Arbiter is the most important missing piece in a naive proactive syst
 
 **How it works:**
 1. Every background agent that wants to reach the student writes a **candidate signal** to the `proactive_signals` queue — it does NOT send a notification directly.
-2. The Arbiter runs every 5 minutes per student.
-3. For each student, it reads all pending candidates, then:
+2. The Arbiter is **triggered by writes to `proactive_signals`**, not by a polling cron. When a new candidate is written for a student, a 2–3 minute debounce window opens. Any additional candidates for the same student written within that window are batched together. After the window closes, the Arbiter runs once for that student's batch.
+3. For each student batch, it reads all pending candidates, then:
    - **Deduplicates** — removes redundant candidates (e.g., two agents both flagging the same deadline)
    - **Ranks** — scores each candidate by `urgency × value`. Urgency = time sensitivity. Value = estimated benefit to the student.
    - **Enforces rate limits** — maximum 3 proactive messages per student per day. Maximum 1 per hour.
    - **Enforces quiet hours** — no delivery between 11pm and 8am unless the student has overridden this.
    - **Selects** — approves the top-ranked candidate(s) and writes them to `notification_queue`.
 4. Rejected candidates are discarded or deferred to the next cycle.
+5. A **low-frequency safety sweep cron** (once per hour) scans for candidates whose `expires_at` has passed without being processed — this handles edge cases where the event trigger was missed. It does NOT process all students on every run.
 
 The Arbiter is the confidence gate. Nothing reaches the student without passing through it.
+
+**Implementation note:** The debounce is implemented as a short-lived lock per `student_id` in Redis or Supabase. On the first write for a student, set a lock with a 2-minute TTL and schedule the Arbiter run. Subsequent writes within the TTL extend the window by 1 minute (max 3 minutes total). This prevents the all-students sweep that a polling cron would require at scale.
 
 #### 3.5.3 Delivery Layer
 
@@ -179,6 +182,23 @@ On Day 1, the brain is empty. Behavioural triggers (stress level, confusion patt
 - **Learning style proactivity is gated** — adaptive explanation format is set to a neutral default until the learning style assessment is complete.
 
 The UI must not show empty states as errors. During cold-start, show: "I'm learning how you work. The more you use FschoolAI, the more personalised I become."
+
+### 3.6 Graph-Dependent Behaviours — Gated on Live NeuroAGI Brain
+
+**Critical distinction:** The `StudentBrain` schema in §3.1 describes a typed knowledge graph with `knowledge_nodes`, prerequisite edges, and confidence scores. The Phase 1 mock brain (§3.3) and the `brain_context` Supabase table are flat JSON — a `knowledge_gaps` array and a `stress_level` float. These are not the same thing.
+
+The following behaviours **require the live NeuroAGI graph brain** and are **not buildable in Phase 1** with the flat mock:
+
+| Behaviour | Why it needs the graph | Phase 1 fallback |
+|---|---|---|
+| Prerequisite checking ("do they understand the product rule before integration by parts?") | Requires typed prerequisite edges between knowledge nodes | Tutor Agent checks for prerequisite by asking the student directly: "Before I explain this, do you know X?" |
+| "Prerequisite mastered > 0.85" positive trigger (Intervention Agent) | Requires per-node confidence scores from the graph | **Disable this trigger in Phase 1.** Remove from the Intervention Agent's trigger table until the live brain is available. |
+| Knowledge node decay (concepts not revisited in 30+ days lose confidence) | Requires per-node confidence scores and last-reviewed timestamps | Reflection Agent skips decay in Phase 1. Flat mock does not track per-concept recency. |
+| Cross-course knowledge graph visualisation (Max tier) | Requires the full graph structure | Defer to Phase 2. Show a placeholder in the Max tier dashboard. |
+
+**Schedule warning:** §8 lists "Replace mock brain with live NeuroAGI API" as a Week 6 task. This is aspirational, not a firm dependency. The NeuroAGI brain is an active research stack — the graph layer, multi-hop traversal, and confidence scoring are not guaranteed to be production-ready on a fixed date. All agents must be designed to function with the flat mock indefinitely. The Phase 2 brain swap is a progressive enhancement, not a hard launch blocker.
+
+**For Ryan:** The flat mock is the contract. Any behaviour that requires more than `learning_style`, `knowledge_gaps[]`, `stress_level`, `upcoming_deadlines[]`, `preferred_language`, and `session_count` must be explicitly flagged as graph-dependent and gated. Do not design agent logic that silently breaks when the graph is unavailable.
 
 ---
 
@@ -246,6 +266,10 @@ The UI must not show empty states as errors. During cold-start, show: "I'm learn
 - `grade_summary`: current standing per course
 - `stress_signal`: if 3+ assignments due within 48 hours → stress_level += 0.2
 
+**Syllabus lookahead (required):** After syncing the syllabus, the Canvas Agent must extract the weekly topic schedule from the syllabus document and store it as structured data in `course_content`. This enables the Planner Agent and Tutor Agent to know what topics are coming up in the next 1–2 weeks — not just what is due, but what will be taught. The Intervention Agent can then fire a proactive trigger: "You have stereochemistry coming up in CHEM 201 next week and your brain shows a gap there. Want to review it now?" Without syllabus lookahead, proactive preparation is impossible.
+
+**Bring-your-own past material:** Students who transfer from another institution or who have past course materials (notes, old exams, textbooks) can upload them to FschoolAI. The Canvas Agent is not responsible for this — it is a separate upload flow in the UI. Uploaded materials are stored in `course_content` with `source = 'student_upload'` and are available to the Tutor Agent and Lesson Generator as grounding context. This is a Phase 1 feature — do not defer it to Phase 2.
+
 **Note for Aryan:** Canvas uses OAuth 2.0. The student authorises FschoolAI to read their Canvas data. FschoolAI never stores the Canvas password. The Canvas API token is stored encrypted in Supabase.
 
 ---
@@ -271,7 +295,7 @@ The UI must not show empty states as errors. During cold-start, show: "I'm learn
 
 **Knowledge gap detection:** When the student asks a question, the Tutor Agent identifies whether the question reveals a deeper gap. If the student asks "why does integration by parts work?", the agent checks whether they understand the product rule first. If not, it teaches the prerequisite before answering the original question.
 
-**Socratic mode:** For questions that are clearly homework or exam questions, the Tutor Agent does not give the answer directly. It asks guiding questions that lead the student to the answer themselves. This is configurable — the student can turn off Socratic mode if they just want the answer.
+**Socratic mode:** For questions that are clearly graded homework or exam questions, the Tutor Agent does not give the answer directly. It asks guiding questions that lead the student to the answer themselves. **This is NOT configurable for graded assignments** — the student cannot turn off Socratic mode for questions that are identifiable as graded work (i.e., the question matches an open assignment in Canvas with a future due date). Socratic mode can be turned off only for practice problems, past assignments, and conceptual questions that are not tied to a graded deliverable. This is an academic integrity guardrail, not a preference setting.
 
 **Simplification levels:** Content must be adjustable to the student's level. International students and students who are not native English speakers need simpler language. The agent detects this from the student's communication style and adjusts automatically.
 
@@ -375,6 +399,47 @@ Tuesday June 24:
 
 ---
 
+### Agent 6b — Lesson Generator (Brain-Grounded Video)
+
+**Owner:** Aryan (pipeline) + Tencent engineer (script generation)  
+**Environment:** Max tier only — gated at $20/month  
+**Priority:** P2 (Phase 1 Max tier launch feature)
+
+**What it does:** Generates a short personalised video lesson (2–4 minutes) for a specific concept the student is struggling with. This is not a generic explainer video. The script is built entirely from the student's brain context — their specific knowledge gap, their lecture transcript for the relevant course, their syllabus, and the professor's terminology. "A video built from your CHEM 201 lecture and the exact step you got wrong twice" is the product. A generic explainer is a commodity.
+
+**Brain-grounded script generation (required, not optional):**
+The script generator must use all of the following as input context:
+- The student's specific knowledge gap (from `brain_context.knowledge_gaps`)
+- The lecture transcript for the relevant course (from Lecture Agent output)
+- The course syllabus (from Canvas Agent)
+- The professor's terminology and examples (extracted from lecture transcript)
+- The student's learning style (from `brain_context.learning_style`)
+- The specific question or problem the student got wrong (from `session_history`)
+
+A script generated without this context is not acceptable. If the lecture transcript is not available, the Lesson Generator must prompt the student to record a lecture first before generating the video.
+
+**Pipeline (async):**
+```
+Step 1:  Script generation — GPT-4o/Claude Sonnet, brain-grounded (30–60 seconds)
+Step 2:  Animation/visual generation — Manim or similar (60–120 seconds)
+Step 3:  TTS voiceover — ElevenLabs (10–20 seconds)
+Step 4:  Render and stitch (30–60 seconds)
+Step 5:  Deliver via notification_queue: "Your CHEM 201 stereochemistry video is ready"
+```
+
+**Async delivery (required):** Video generation takes 2–5 minutes end-to-end. This breaks the 3-second NFR in §9. Video generation is explicitly exempt from the 3-second NFR. The student triggers generation and receives a notification when the video is ready. The UI shows a progress indicator. Latency budget: < 5 minutes from trigger to delivery notification.
+
+**Segment-level regeneration:** The pipeline must be chunked so a single segment can be re-run without rebuilding the whole video. The decision for Phase 1 is: **pre-generated branching** (cheaper, faster to build). The script is divided into 3–5 segments. Each segment is rendered independently. When the student requests a change ("explain this part differently"), only the relevant segment is re-generated and re-rendered. True segment regeneration (re-running the full pipeline for one segment) is the Phase 2 upgrade.
+
+**Cohort amortisation (cost control):** When the Cohort Agent detects that 10+ students in the same course section are confused about the same concept, it triggers a shared video generation job. The core asset (script + animation + voiceover) is generated once. The personalisation layer (intro referencing the student's specific mistake, outro referencing their next deadline) is generated per-student. This reduces the per-video cost from ~$1.00 to ~$0.15 for cohort-triggered videos. The Lesson Generator must support a `cohort_mode: true` flag that separates the core asset generation from the personalisation layer.
+
+**Brain signals written:**
+- `video_generated`: concept, course, duration
+- `video_watched`: boolean, percentage watched
+- `video_segment_regenerated`: which segment was re-run
+
+---
+
 ### Agent 7 — Exam Mode Agent
 
 **Owner:** Vincent  
@@ -429,6 +494,15 @@ Tuesday June 24:
 | Spaced-repetition due | Concept last reviewed > 7 days ago + exam within 14 days | "It's been 8 days since you reviewed stereochemistry. A 10-minute refresher now will stick better than cramming." |
 | Streak opportunity | Student studied 4 days in a row | "4-day streak. One more session today and you'll have your best week this semester." |
 
+**Stress level cap and escalation path (required):**
+The Intervention Agent must not escalate indefinitely. If a student's stress level exceeds 0.9 for 3+ consecutive days and the student has not engaged with any intervention, the agent must:
+1. Stop sending stress-related notifications (the student is clearly not responding — more notifications make it worse)
+2. Show a single in-app message on next open: "It looks like you're going through a tough week. FschoolAI is here when you're ready. Here are some campus mental health resources."
+3. Write `stress_escalated: true` to the brain and suppress all stress-triggered notifications for 48 hours
+4. After 48 hours, reset to normal monitoring
+
+The agent must never imply a clinical diagnosis, never use the word "anxiety" or "depression", and never suggest the student is failing. Language must be supportive and non-judgmental. The campus mental health resource link is configurable per institution.
+
 **Important:** All triggers — positive and negative — write to the `proactive_signals` queue. The Signal Arbiter (§3.5.2) decides what actually reaches the student. This agent does not send notifications directly.
 
 **Brain signals written:**
@@ -464,6 +538,16 @@ Tuesday June 24:
 **Owner:** Tencent engineer  
 **Environment:** Office Hours Preparation  
 **Priority:** P2
+
+**Academic integrity guardrail — writing feedback only:**
+When a student asks for help with a written assignment (essay, report, lab write-up), this agent and the Tutor Agent must provide **feedback and suggestions only — not rewritten text**. Specifically:
+- The agent may identify structural weaknesses: "Your thesis statement is unclear — it does not state a position."
+- The agent may suggest what to improve: "Your second paragraph lacks a topic sentence."
+- The agent may NOT rewrite sentences, paragraphs, or sections for the student.
+- The agent may NOT generate a full outline and then write content for each section.
+- The agent may generate a **blank structural scaffold** (section headings only, no content) to help the student organise their own writing.
+
+This guardrail applies to all written assignments tied to an open Canvas assignment with a future due date. For past assignments or practice writing, the restriction is lifted.
 
 **What it does:** Helps the student prepare for and follow up on professor office hours. Before office hours, it generates a list of specific questions based on the student's knowledge gaps. After office hours, it helps the student record what was discussed and updates the brain with new knowledge.
 
@@ -597,6 +681,17 @@ canonical_assignments (
 ```
 
 Cohorts are grouped by `(institution_id, canvas_course_id)`. These IDs are shared across students in the same Canvas instance.
+
+**Concept taxonomy (required prerequisite — harder than the canonical course layer):**
+The confusion clustering algorithm joins on `concept_tag`. If tags are free-text strings written by the Tutor Agent at inference time, the same concept will appear as "stereochem", "stereochemistry", "chirality", "R/S configuration", and "chiral centres" — none of which will reach the k=10 threshold individually.
+
+Two approaches are acceptable. Choose one before building the Cohort Agent:
+
+**Option A — Canonical concept ontology per subject:** A curated taxonomy of concept tags per subject domain (e.g., Organic Chemistry: `[stereochemistry, reaction_mechanisms, functional_groups, ...]`). The Tutor Agent maps its free-text gap identification to the nearest canonical tag at write time. Requires upfront curation per subject. Recommended for Phase 1 subjects (STEM, economics).
+
+**Option B — Embedding-based tag normalisation:** The Tutor Agent writes a free-text concept description. At aggregation time, the Cohort Agent embeds all concept tags and clusters them by cosine similarity (threshold: 0.85). Concepts within the same cluster are merged into a representative tag. No upfront curation, but requires an embedding model call per aggregation run.
+
+Both options must be decided and built before the Cohort Agent is activated. Add the chosen approach to the build order in §8 under Week 7+.
 
 **Confusion clustering algorithm:**
 1. Every time the Tutor Agent writes a `confusion_detected` signal, it includes `canonical_course_id` and `concept_tag`.
@@ -811,6 +906,23 @@ week_start              date
 updated_at              timestamp
 ```
 
+**flashcard_reviews** (SRS state — required for spaced-repetition trigger)
+```sql
+id                  uuid PRIMARY KEY
+student_id          uuid REFERENCES students(id)
+flashcard_id        uuid              -- references the flashcard generated by Lecture Agent
+concept_tag         text
+ease_factor         float DEFAULT 2.5 -- FSRS ease factor
+interval_days       int DEFAULT 1     -- current review interval in days
+repetitions         int DEFAULT 0     -- number of times reviewed
+next_review_at      timestamp         -- when this card is next due
+last_reviewed_at    timestamp
+rating              int               -- last review rating: 1 (again) 2 (hard) 3 (good) 4 (easy)
+created_at          timestamp
+```
+
+**SRS engine:** The spaced-repetition scheduling uses the **FSRS algorithm** (Free Spaced Repetition Scheduler — open-source, more accurate than SM-2). It runs client-side in the browser/app. On each flashcard review, the student rates their recall (1–4). The FSRS algorithm updates `ease_factor`, `interval_days`, and `next_review_at`. The "spaced-repetition due" trigger in the Intervention Agent reads `next_review_at` to determine when to send a reminder. **This table and scheduling engine must be built before the spaced-repetition trigger is activated.** Remove the trigger from the Intervention Agent's positive trigger table until `flashcard_reviews` is populated with real data.
+
 ---
 
 ## 7. Technical Stack
@@ -827,6 +939,44 @@ updated_at              timestamp
 | Calendar integration | Google Calendar API + Apple CalDAV |
 | Chrome extension | Manifest V3, React |
 | Hosting | Manus (FschoolAI frontend) |
+| Notification delivery | Firebase Cloud Messaging (push), Twilio (SMS), Resend (email) |
+| SRS engine | FSRS algorithm (open-source, client-side) |
+| Stripe | Payment processing (Phase 1 launch requirement) |
+
+---
+
+### 7.1 Cost Envelope and Model Routing
+
+This section is a launch blocker. With 14 agents, nightly Reflection, cohort aggregation, an arbiter, and video generation, the default "use GPT-4o for everything" approach is not economically viable. The following routing rules are required before launch.
+
+**Per-active-user cost target:** < $1.50/month for a Free user, < $3.00/month for a Pro user, < $5.00/month for a Max user. Gross margin targets: Free (0% — acquisition cost), Pro (~75%), Max (~70% including video).
+
+**Model routing rules:**
+
+| Task | Model | Rationale |
+|---|---|---|
+| Intent classification (Reggie routing) | GPT-4o-mini or Claude Haiku | Sub-100ms, < $0.001/call, runs on every message |
+| Signal evaluation (Intervention Agent, Arbiter scoring) | GPT-4o-mini | Structured JSON output, no long context needed |
+| Summarisation (Lecture Agent summary, Planner output) | GPT-4o-mini | High volume, quality threshold is moderate |
+| Flashcard and quiz generation | GPT-4o-mini | Template-driven, low creativity requirement |
+| **Tutoring (Tutor Agent, Exam Mode)** | **GPT-4o or Claude Sonnet** | Core product, quality is the moat — do not downgrade |
+| **Video script generation (Lesson Generator)** | **GPT-4o or Claude Sonnet** | Max-tier feature, brain-grounded, quality matters |
+| Reflection synthesis (Reflection Agent) | GPT-4o-mini | Runs nightly, structured signal processing |
+| Cohort insight generation | GPT-4o-mini | Templated output, low creativity |
+
+**Prompt caching:** The brain context object (`learning_style`, `knowledge_gaps`, `stress_level`, `upcoming_deadlines`) is stable within a session. Cache it as a system prompt prefix using OpenAI's prompt caching feature. Estimated saving: 40–60% of token cost for multi-turn sessions.
+
+**Cost per active user per day (estimated at launch):**
+
+| User type | Sessions/day | Est. LLM cost/day | Est. LLM cost/month |
+|---|---|---|---|
+| Free (casual, 20 msg cap) | 1 session, ~15 messages | $0.02 | $0.60 |
+| Pro (regular, unlimited) | 2–3 sessions, ~40 messages | $0.06 | $1.80 |
+| Max (power user, video) | 3+ sessions + 1 video/week | $0.12 | $3.60 |
+
+These are estimates based on GPT-4o-mini for routing/evaluation and GPT-4o for tutoring at current API pricing. Validate against actual usage in the first 30 days and adjust routing rules accordingly.
+
+**Video cost note (Max tier):** A single brain-grounded video (script + ElevenLabs TTS + animation render) costs approximately $0.80–1.20 per video. At 4 videos/month per Max user, this is $3.20–4.80/month in video costs alone. Cohort amortisation (see Agent 14) reduces this when the same core video is reused across cohort members with only the framing layer personalised.
 
 ---
 
@@ -887,6 +1037,13 @@ The build order is designed so no engineer blocks another. Ryan's brain mock is 
 | Student-reported grade improvement | > 40% of users report improvement |
 | Retention (Day 30) | > 45% |
 | NPS | > 50 |
+| Free → Pro conversion rate | > 8% within 30 days of signup |
+| Pro → Max upgrade rate | > 15% of Pro users within 60 days |
+| **LLM cost per active Pro user/month** | **< $3.00** |
+| **LLM cost per active Max user/month** | **< $5.00** |
+| Proactive notification open rate | > 35% |
+| Proactive notification disable rate | < 5% (measures Arbiter quality) |
+| Video completion rate (Lesson Generator) | > 60% of generated videos watched to completion |
 
 ---
 
@@ -897,10 +1054,21 @@ The following are explicitly out of scope for Phase 1 and should not be built un
 - NeuroAGI hardware integration (Neural Card)
 - School/institution-facing dashboard
 - Professor tools
-- Payment processing (subscription billing)
 - Native mobile app (iOS/Android)
 - Social features (study groups, leaderboard)
 - EducAI integration
+
+**Payment processing is IN scope for Phase 1.** FschoolAI launches with a Free tier and two paid tiers:
+
+| Tier | Price | Key Phase 1 features |
+|---|---|---|
+| Free | $0 | 20 messages/day, basic brain, Canvas sync |
+| Pro | $12/month | Unlimited chat, nightly reflection, proactive interventions, Lesson Generator (10/month), Exam Predictor |
+| Max | $20/month | Everything in Pro + unlimited Lesson Generator, Brain export, Brain API access, cross-course knowledge graph |
+
+Stripe integration is required before public launch. The Lesson Generator (video generation feature) is a **Max-tier feature** — it is gated behind $20/month and must not be accessible to Free or Pro users. See §7.1 for cost envelope and model routing. See TOKEN_ECONOMY.md for full tier feature breakdown.
+
+**Video generation (Lesson Generator) is Phase 1 Max-tier only.** It is not a generic explainer — see Agent 6 (Library Agent) and the Lesson Generator spec for the brain-grounded video pipeline.
 
 ---
 
