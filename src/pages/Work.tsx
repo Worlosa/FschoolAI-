@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useApp } from "../context/AppContext";
+import { selectUpcomingAssignments } from "../lib/assignments";
 
 
 function formatDue(dateStr) {
@@ -261,17 +262,9 @@ export default function Work() {
   const greetingWord = hour < 12 ? "Morning" : hour < 18 ? "Afternoon" : "Evening";
   const name = userData?.name || localStorage.getItem("fschool_name") || "";
 
-  // Filter to upcoming unsubmitted assignments, sorted by due date
-  const upcoming = assignments
-    .filter(a => {
-      if (!a.dueAt) return false;
-      const due = new Date(a.dueAt);
-      const now = new Date();
-      // Show if due in future OR overdue but not submitted
-      return due > now || !a.submission?.submittedAt;
-    })
-    .sort((a, b) => +new Date(a.dueAt) - +new Date(b.dueAt))
-    .slice(0, 5); // show top 5
+  // Upcoming = due soon (future) or recently overdue-and-unsubmitted, soonest
+  // first, past-course work excluded. See src/lib/assignments.ts for why.
+  const upcoming = selectUpcomingAssignments(assignments, { limit: 5 });
 
   const completedCount = assignments.filter(a => a.submission?.submittedAt).length;
   // "Connected" = has a Canvas OAuth token OR has any synced data (e.g. from the
