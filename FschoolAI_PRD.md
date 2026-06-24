@@ -1,5 +1,5 @@
 # FschoolAI — Product Requirements Document (PRD)
-**Version:** 1.3  
+**Version:** 1.4  
 **Date:** June 24, 2026  
 **Author:** Vincent Yang, FschoolAI  
 **Audience:** Engineering team — Tencent engineer, Bytedance engineer, Aryan, Ryan, Vincent
@@ -465,6 +465,50 @@ Step 5:  Deliver via notification_queue: "Your CHEM 201 stereochemistry video is
 
 ---
 
+### Agent 7b — Exam Predictor + Grade What-If Calculator
+
+**Owner:** Vincent  
+**Environment:** Grade analytics — reads from Canvas Agent data  
+**Priority:** P1  
+**Tier:** Pro and Max
+
+**What it does:** Two related capabilities surfaced as a single panel in the student dashboard.
+
+#### Exam Predictor
+
+Given the student's current course grade, assignment weights from the syllabus, and their `exam_readiness_score` from Agent 7, the Exam Predictor estimates the grade range the student is likely to achieve on an upcoming exam and the resulting final course grade. It is not a guarantee — it is a probability-weighted estimate designed to answer the question: "If I keep studying at this pace, what grade am I likely to get?"
+
+**Inputs (all pulled automatically from Canvas Agent + Exam Mode Agent):**
+- Current weighted grade in the course
+- Assignment weights from the syllabus (Canvas sync)
+- Upcoming exam weight
+- Student's `exam_readiness_score` (0–100) from Agent 7
+- Historical performance on similar assessments (from `brain_signals`)
+
+**Output:** A predicted exam score range (e.g., "Based on your readiness score and past performance, you are likely to score 68–78% on this exam") and the resulting final grade range (e.g., "This puts your final grade at B– to B+").
+
+**Model:** GPT-4o-mini with structured output. The prediction is a heuristic estimate, not a statistical model. It must be clearly labelled as an estimate in the UI — never presented as a certainty.
+
+**Important constraint:** The Exam Predictor must not be shown until the student has at least one graded assignment in the course (cold-start guard). With zero grade data, the prediction is meaningless and must not be displayed.
+
+#### Grade What-If Calculator
+
+A student-facing interactive tool. The student inputs hypothetical scores on upcoming assignments and exams, and the calculator shows in real time how each scenario affects their final course grade. This is the "what do I need to get on the final to pass?" feature every student wants.
+
+**Inputs (student-controlled):**
+- Hypothetical score on any upcoming graded item (slider or text input)
+- The calculator pre-fills with the Exam Predictor's estimated score as a starting point
+
+**Output:** Updated final grade projection, recalculated live as the student adjusts inputs.
+
+**Implementation:** Client-side calculation using the assignment weight schema from Canvas Agent. No LLM call required — this is pure arithmetic over the Canvas grade data. The Canvas Agent must expose a `grade_weights` object per course for this to work.
+
+**Brain signals written:**
+- `exam_predicted`: `{ course_id, predicted_score_range, predicted_final_grade_range, readiness_score_at_prediction }`
+- `what_if_used`: `{ course_id, scenarios_run: int }` — counts how many what-if scenarios the student explored
+
+---
+
 ### Agent 8 — Intervention Agent
 
 **Owner:** Vincent  
@@ -796,7 +840,7 @@ The student picks one or more sources:
 | Flashcards | Lecture Agent | Pro+ |
 | Quiz | Lecture Agent | Pro+ |
 | Mind Map | §3.6 Graph Visualisation | Max |
-| Brain-grounded Video | Lesson Generator (Agent 6) | Max |
+| Brain-grounded Video | Lesson Generator (Agent 6b) | Max |
 
 **Design principle:** One source selection → many on-demand formats. The student does not need to re-upload or re-describe their material for each format. The Studio passes the same source set and brain context to each agent.
 
@@ -1120,9 +1164,13 @@ The build order is designed so no engineer blocks another. Ryan's brain mock is 
 | Week 5 | Cold-start mode — deadline-only proactivity until baseline exists | Vincent |
 | Week 5 | **Agent 15 — Podcast / Audio Overview Agent** — dialogue script (GPT-4o/Sonnet) + ElevenLabs multi-voice TTS + stitch + notify | Aryan (pipeline) + Tencent engineer (script) |
 | Week 5 | **Studio UI surface** — source set picker, format cards, async status tracker, history panel | Vincent |
+| Week 5 | **Exam Predictor + Grade What-If Calculator (Agent 7b)** — grade analytics panel, client-side what-if calculator | Vincent |
+| Week 5 | **SRS engine — `flashcard_reviews` table + FSRS client-side scheduler** — prerequisite for spaced-repetition trigger in Intervention Agent | Aryan |
+| Week 5 | **Stripe integration** — Free/Pro/Max tier enforcement, subscription management, webhook handlers; required before public launch | Vincent + Aryan |
 | Week 6 | Replace mock brain with live NeuroAGI API | Ryan + all |
 | Week 7+ | **Cohort Agent** — requires canonical layer + 10+ students + legal sign-off | Ryan + Vincent |
 | Week 7+ | Canonical entity layer (`canonical_courses`, `canonical_assignments`) | Ryan |
+| Week 7+ | **Concept taxonomy decision + implementation** — choose Option A (canonical ontology) or Option B (embedding-based normalisation); prerequisite for Cohort Agent activation | Ryan + Vincent |
 
 ---
 
@@ -1177,12 +1225,12 @@ The following are explicitly out of scope for Phase 1 and should not be built un
 | Tier | Price | Key Phase 1 features |
 |---|---|---|
 | Free | $0 | 20 messages/day, basic brain, Canvas sync |
-| Pro | $12/month | Unlimited chat, nightly reflection, proactive interventions, Lesson Generator (10/month), Exam Predictor, **Podcast / Audio Overview (10 episodes/month)**, **Studio panel** |
+| Pro | $12/month | Unlimited chat, nightly reflection, proactive interventions, Lesson Generator (10/month), **Exam Predictor + Grade What-If Calculator (Agent 7b)**, **Podcast / Audio Overview (10 episodes/month)**, **Studio panel** |
 | Max | $20/month | Everything in Pro + unlimited Lesson Generator, **unlimited Podcast / Audio Overview**, Brain export, Brain API access, cross-course knowledge graph |
 
 Stripe integration is required before public launch. The Lesson Generator (video generation feature) is a **Max-tier feature** — it is gated behind $20/month and must not be accessible to Free or Pro users. See §7.1 for cost envelope and model routing. See TOKEN_ECONOMY.md for full tier feature breakdown.
 
-**Video generation (Lesson Generator) is Phase 1 Max-tier only.** It is not a generic explainer — see Agent 6 (Library Agent) and the Lesson Generator spec for the brain-grounded video pipeline.
+**Video generation (Lesson Generator) is Phase 1 Max-tier only.** It is not a generic explainer — see Agent 6b (Lesson Generator) for the brain-grounded video pipeline. Agent 6 is the Library Agent — a separate agent.
 
 **Podcast / Audio Overview (Agent 15) is Pro+ only.** Free users do not have access to podcast generation. Pro users are capped at 10 episodes/month. Max users have unlimited episodes. See §7.1 for ElevenLabs cost validation requirements before the cap is finalised.
 
