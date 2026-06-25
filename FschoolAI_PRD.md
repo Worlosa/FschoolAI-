@@ -1,6 +1,6 @@
 # FschoolAI — Product Requirements Document (PRD)
-**Version:** 1.7  
-**Date:** June 24, 2026  
+**Version:** 1.8  
+**Date:** June 25, 2026  
 **Author:** Vincent Yang, FschoolAI  
 **Audience:** Engineering team — Tencent engineer, Bytedance engineer, Aryan, Ryan, Vincent
 
@@ -9,6 +9,8 @@
 > **v1.6 addition (§18):** defines NeuroAGI as the **parent brain platform** (FschoolAI is one branch product of many) and the **merged brain architecture** — all technical decisions follow `neuroagi-core` **v2** (the minimal memory-log + bus + cortex kernel), while **v1** contributes only feature *concepts* (skill verification/credentials, learning style, brain health dashboard) re-implemented as v2 derived layers. §18 then **connects** this brain to the FschoolAI PRD via an explicit primitive-mapping table. Where §18 and §12 differ, §18 (v2 target) governs; §12 describes the current transitional Supabase deployment. The six conflicts this surfaced are reconciled **inline** at their source (look for "Merged-brain note" callouts in §3.1, §3.4, §3.5.2, §3.6, §6, §7, and §15), not only here.
 
 > **v1.7 addition:** §18.1 now states the **topology and division of responsibility** (per engineering direction) — `neuro-agi ↔ fschool (main agent) ↔ subagents`: internal scenarios stay closed-loop inside FschoolAI, and NeuroAGI's role is narrowed to exactly three jobs (route intent, augment context, facilitate bidirectional interaction). Reinforced at Agent 1 (Reggie = the main-agent node) and in the §18.4 mapping.
+
+> **v1.8 — conflict resolutions:** each merged-brain conflict was decided in favour of the optimal approach and applied to the source text (not left as a side-note): **data model** → single `memory` log (§6); **Signal Arbiter** → `cortex.policy`, don't reinvent (§3.5.2); **proactive queues** → outbox memories + channel (§3.5.2/§6); **decay** → core day-one mechanism (§3.6 table); **knowledge graph** → derived layer gated on *data sufficiency*, not infrastructure (§3.6 retitled + reframed); **brain API** → canonical product contract is `/api/agent-manager`, canonical brain interface is the v2 primitives, granular `/api/brain/*` RPC deprecated as a public contract (§15.2); **person bridge** → brain uses a text `subject`, no FK into product tables (§12.4); **§18.4** Intervention/agent rows rewritten so NeuroAGI routes+arbitrates and FschoolAI runs the closed loop. The **Social / Leaderboard / Study-Rooms** scope contradiction (§11) is **resolved as in-scope** (they are already coded on `frontend/dev`); the deferral was removed, with the §14 cohort/leaderboard privacy review retained as the only gate.
 
 ---
 
@@ -195,20 +197,20 @@ On Day 1, the brain is empty. Behavioural triggers (stress level, confusion patt
 
 The UI must not show empty states as errors. During cold-start, show: "I'm learning how you work. The more you use FschoolAI, the more personalised I become."
 
-### 3.6 Graph-Dependent Behaviours — Gated on Live NeuroAGI Brain
+### 3.6 Graph-Dependent Behaviours — Gated on Data Sufficiency (the graph is a derived layer)
 
 **Critical distinction:** The `StudentBrain` schema in §3.1 describes a typed knowledge graph with `knowledge_nodes`, prerequisite edges, and confidence scores. The Phase 1 mock brain (§3.3) and the `brain_context` Supabase table are flat JSON — a `knowledge_gaps` array and a `stress_level` float. These are not the same thing.
 
-The following behaviours **require the live NeuroAGI graph brain** and are **not buildable in Phase 1** with the flat mock:
+**Resolution (v1.8).** Under the merged v2 brain (§18.2) the knowledge graph is a **derived layer over the memory log** — recomputable at any time, not a separate database we wait on. So the behaviours below are **not gated on infrastructure** ("when the graph brain ships") but on **data sufficiency** — enough accumulated signals/confidence for the derived graph to be trustworthy. Build each as a derived-layer read that activates once its data threshold is met; the fallbacks below remain correct while data is thin:
 
-| Behaviour | Why it needs the graph | Phase 1 fallback |
+| Behaviour | Why it's gated (data, not infrastructure) | Fallback while data is thin |
 |---|---|---|
 | Prerequisite checking ("do they understand the product rule before integration by parts?") | Requires typed prerequisite edges between knowledge nodes | Tutor Agent checks for prerequisite by asking the student directly: "Before I explain this, do you know X?" |
-| "Prerequisite mastered > 0.85" positive trigger (Intervention Agent) | Requires per-node confidence scores from the graph | **Disable this trigger in Phase 1.** Remove from the Intervention Agent's trigger table until the live brain is available. |
-| Knowledge node decay (concepts not revisited in 30+ days lose confidence) | Requires per-node confidence scores and last-reviewed timestamps | Reflection Agent skips decay in Phase 1. Flat mock does not track per-concept recency. |
-| Cross-course knowledge graph visualisation (Max tier) | Requires the full graph structure | Defer to Phase 2. Show a placeholder in the Max tier dashboard. |
+| "Prerequisite mastered > 0.85" positive trigger (Intervention Agent) | Needs per-node confidence, which the derived layer produces only after enough evidence | **Disable until data-sufficient.** Keep it out of the Intervention Agent's trigger table until the derived graph has enough per-concept confidence to be reliable. |
+| Knowledge node decay (concepts not revisited in 30+ days lose confidence) | Derived from per-node confidence + last-reviewed, which the derived layer computes from the memory log | **Available day one** — forgetting (`salience × time`, 14-day half-life) is a *core* v2 mechanism; the derived knowledge layer inherits decay from the decaying memory log. No separate per-concept timestamp tracking needed. |
+| Cross-course knowledge graph visualisation (Max tier) | Needs cross-course concept links — a derived-layer output | Activates once cross-course data exists; show a placeholder in the Max dashboard until then. |
 
-> **Merged-brain note (§18.2) — two corrections this table needs under v2:** (1) **Decay is not a deferred graph feature.** In the v2 brain, forgetting (`salience × time`, 14-day half-life) is a *core, day-one* mechanism — so "Knowledge node decay" above is available immediately, not gated on a live graph. (2) **The knowledge graph is a derived layer** over the memory log, recomputable at any time. The real gate on the graph-dependent rows above is therefore **data sufficiency** (enough signals/confidence accumulated), *not* waiting for a separate graph database to ship. Keep the Phase-1 fallbacks, but reframe the gate as data-readiness, not infrastructure-readiness.
+> **Resolved (v1.8, §18.2):** the two v2 corrections — decay is core/day-one, and the graph is a derived layer gated on data sufficiency rather than infrastructure — are now applied directly to the heading, intro, and table above.
 
 **Schedule warning:** §8 lists "Replace mock brain with live NeuroAGI API" as a Week 6 task. This is aspirational, not a firm dependency. The NeuroAGI brain is an active research stack — the graph layer, multi-hop traversal, and confidence scoring are not guaranteed to be production-ready on a fixed date. All agents must be designed to function with the flat mock indefinitely. The Phase 2 brain swap is a progressive enhancement, not a hard launch blocker.
 
@@ -1235,8 +1237,9 @@ The following are explicitly out of scope for Phase 1 and should not be built un
 - School/institution-facing dashboard
 - Professor tools
 - Native mobile app (iOS/Android)
-- Social features (study groups, leaderboard)
 - EducAI integration
+
+> **Resolved (v1.8) — Social, Leaderboard, and Study Rooms ARE in Phase-1 scope.** They are specced (`design/pages/06-SOCIAL`, `07-LEADERBOARD`, `08-STUDY-ROOMS`), have dedicated agents (§14: Social Intelligence, Study Room Orchestrator, Leaderboard), and are already implemented on `frontend/dev` (`StudyRooms.tsx`, `VoiceRoom.tsx`, `Whiteboard.tsx`, friends migration) — so the earlier deferral is removed from the list above. **One constraint remains:** the cohort/leaderboard aggregation surfaces must still pass the PIPEDA/FERPA review and k-anonymity gate in §14 before they expose any cross-student data.
 
 **Payment processing is IN scope for Phase 1.** FschoolAI launches with a Free tier and two paid tiers:
 
@@ -1326,7 +1329,7 @@ There must be an explicit mapping. The docs reference two mechanisms, which the 
 1. A `canvas_user_id` column on `neuro.persons`, looked up on Canvas OAuth login (source: CURRENT_ARCHITECTURE.md, Problem 4).
 2. A `person-bridge` utility (`backend/server/utils/person-bridge.ts`) exposing `getPersonId(userId)` that finds-or-creates the `neuro.persons` record, plus a `fschool_user_id UUID` column on `neuro.persons` (source: BACKEND_GAPS.md, Gap 1).
 
-> Discrepancy to resolve (do not silently pick one): BACKEND_GAPS.md proposes `fschool_user_id UUID REFERENCES public.users(id)`, but CURRENT_ARCHITECTURE.md states `public.users.id` is `text` (Canvas ID), and uses `canvas_user_id` on `neuro.persons`. The bridge column type and name are **TBD** pending reconciliation; the resolved column must match the actual `public.users.id` type.
+> **Decision (v1.8):** Resolved via the v2 model. The brain identifies a person by a **text `subject`** (v2's `memory.subject` is `text`), and the brain **holds no foreign key into product tables** (the §18.1 hard rule forbids it) — so the UUID-vs-text FK question dissolves. The person-bridge maps the FschoolAI user id → a stable text `subject` (one per person, reused across products, §18.5). The transitional Supabase deployment may keep a `canvas_user_id` lookup column on `neuro.persons` typed to match the actual `public.users.id`; it is a lookup aid, not the identity mechanism.
 
 The required pattern: every route that receives a FschoolAI identifier must resolve it to `person_id` **before any brain operation** — chat (`agents.sessions`/`agents.messages`), signals (`brain.signals`), context (`brain.context_window`), reflections (`brain.reflections`) all key on the Brain `person_id` UUID (source: CURRENT_ARCHITECTURE.md; BACKEND_GAPS.md). A new student is provisioned by creating `neuro.persons` first, then the `fschool.students` profile referencing `person_id` (source: DATABASE_ARCHITECTURE.md).
 
@@ -1626,7 +1629,7 @@ Key endpoints grouped by domain. **Full list in API_DOCUMENTATION.md.**
 
 > **`auth/` and `extension/`:** API_DOCUMENTATION.md (v1.0.0) does not yet enumerate dedicated `auth/*` routes (auth is a JWT requirement on all routes) or `extension/*` routes (the extension currently reuses brain/signals/agent routes). `extension/*` routes are required per §16/§17 (Gap 2) and are reserved here.
 
-> **Merged-brain note (§18.2):** The `brain/*` RPC routes above (`/process`, `/causal-analysis`, `/predict`, `/intervene`) are **FschoolAI's product-side API**, not the brain's own interface. The NeuroAGI v2 brain is reached through `remember` / `recall` / `forget` / `reinforce` + the capability bus (`invoke` / `ingest` / `tick`), exposed over REST + `WS /channel/{device}` + MCP. FschoolAI's backend *composes* those brain primitives behind its own `/api/*` surface — the two layers must not be conflated.
+> **Resolved (v1.8, §18.2):** The `brain/*` RPC routes above (`/process`, `/causal-analysis`, `/predict`, `/intervene`) are **FschoolAI's product-side API**, not the brain's own interface. The NeuroAGI v2 brain is reached through `remember` / `recall` / `forget` / `reinforce` + the capability bus (`invoke` / `ingest` / `tick`), exposed over REST + `WS /channel/{device}` + MCP. **Decision:** the canonical *product* contract is the single `POST /api/agent-manager` (+ SSE, §15.1/§15.4); the canonical *brain* interface is the v2 primitive set. The granular `/api/brain/*` RPC routes are **deprecated as a public contract** — retained only as internal compositions the agent-manager may call, never something the frontend or another product targets directly.
 
 ### 15.3 Request/response envelope
 
@@ -1956,10 +1959,10 @@ Read the table through the topology in §18.1: NeuroAGI supplies **intent routin
 | StudentBrain context object (§3.1) / pre-computed `context_window` (§13) | A `recall`-derived context assembled on `tick` and cached (the cortex equivalent of Context Window Builder, §14.2) |
 | **Signal Arbiter** (§3.5.2) — dedup, rank, rate-limit, quiet hours | **`cortex.policy` gate** — 1:1 (quiet hours / daily budget / cooldown / importance + urgent bypass). Build on it; do not reinvent. |
 | `proactive_signals` queue + `notification_queue` (§6) | `kind="outbox"` memories selected by the policy gate, delivered via `channel.say` |
-| **Intervention Agent** (§8, Pattern B) | A `watch` watcher on `tick` that `invoke`s a delivery capability **through the policy gate** |
+| **Intervention Agent** (§8, Pattern B) | NeuroAGI side: a `watch` watcher on `tick` detects the trigger and the `cortex.policy` gate arbitrates *whether/when* to reach out (route-intent + facilitate-interaction). It hands the intervention intent + context to FschoolAI (main agent), which **composes and delivers** the message via its subagents — the scenario runs closed-loop in FS (§18.1). |
 | **Reflection Agent** (Agent 12, nightly) | `scheduler` (`kind="schedule"`) firing a `sleep_consolidate` derived pass (digest + decay sweep) |
 | **Cohort Agent** (§14) | A shared space (`subject = "cohort:<canonical_course_id>"`) + `audience`; k-anonymity enforced in the aggregation layer before any `recall` is exposed |
-| FschoolAI agents (§4, §14) | Each registers on the `bus` as a capability (`local`/`http`/`mcp`); the brain `invoke`s them, they `ingest` results back |
+| FschoolAI agents (§4, §14) | The `bus` is the bidirectional channel between NeuroAGI and FschoolAI (the **main agent**): the brain routes intent + augmented context to FS and `ingest`s results back. FS then orchestrates its **subagents** internally (§18.1) — the brain does not invoke each subagent directly. |
 | `person_id ↔ user_id` bridge (§12.4) | The product maps its user id to the brain `subject`; one `subject` per person, shared across all products |
 | Two-DB env wiring (§12.5) | In the v2 target the product calls the **brain API** (REST/WS/MCP) instead of holding two Supabase clients; the FschoolAI production DB remains the raw-data store (§12.3 boundary unchanged) |
 | Effectiveness feedback loop (§3.5.4) | Delivery outcomes written back as signals; the policy gate's thresholds tune per `subject` from those signals |
