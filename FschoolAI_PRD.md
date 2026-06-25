@@ -1,8 +1,14 @@
 # FschoolAI — Product Requirements Document (PRD)
-**Version:** 1.4  
+**Version:** 1.7  
 **Date:** June 24, 2026  
 **Author:** Vincent Yang, FschoolAI  
 **Audience:** Engineering team — Tencent engineer, Bytedance engineer, Aryan, Ryan, Vincent
+
+> **v1.5 additions (§12–§17):** dual-database architecture (NeuroAGI Brain DB vs FschoolAI Production DB) + `person_id ↔ user_id` bridge; stateful-brain / stateless-agents model; the complete agent roster (main + background + sub-agents) reconciling the 15 numbered agents with `agents/*` and `FEATURE_AND_AGENT_MAP.md`; the API & frontend–backend contract; the full Chrome extension architecture; and the backend gap register with proposed resolutions. These sections are synthesized from the repo's technical docs (`ARCHITECTURE_V2_STATEFUL_STATELESS.md`, `CURRENT_ARCHITECTURE.md`, `BACKEND_GAPS.md`, `API_DOCUMENTATION.md`, `FRONTEND_BACKEND_CONTRACT.md`, `EXTENSION_ARCHITECTURE.md`, `LIBRARY_ARCHITECTURE.md`, `MEMORY_ARCHITECTURE.md`, `agents/*`); inline `(source: …)` citations point to the originating doc.
+
+> **v1.6 addition (§18):** defines NeuroAGI as the **parent brain platform** (FschoolAI is one branch product of many) and the **merged brain architecture** — all technical decisions follow `neuroagi-core` **v2** (the minimal memory-log + bus + cortex kernel), while **v1** contributes only feature *concepts* (skill verification/credentials, learning style, brain health dashboard) re-implemented as v2 derived layers. §18 then **connects** this brain to the FschoolAI PRD via an explicit primitive-mapping table. Where §18 and §12 differ, §18 (v2 target) governs; §12 describes the current transitional Supabase deployment. The six conflicts this surfaced are reconciled **inline** at their source (look for "Merged-brain note" callouts in §3.1, §3.4, §3.5.2, §3.6, §6, §7, and §15), not only here.
+
+> **v1.7 addition:** §18.1 now states the **topology and division of responsibility** (per engineering direction) — `neuro-agi ↔ fschool (main agent) ↔ subagents`: internal scenarios stay closed-loop inside FschoolAI, and NeuroAGI's role is narrowed to exactly three jobs (route intent, augment context, facilitate bidirectional interaction). Reinforced at Agent 1 (Reggie = the main-agent node) and in the §18.4 mapping.
 
 ---
 
@@ -31,6 +37,8 @@ The product must be so useful that students are willing to pay for it personally
 ### 3.1 The Student Brain
 
 Every student has a brain object stored in the NeuroAGI brain layer. This is a persistent, structured knowledge graph about the student. It is the foundation that every agent reads from and writes to.
+
+> **Merged-brain note (§18):** In the target NeuroAGI **v2** brain, this `StudentBrain` object is not a set of stored fields — it is a **view assembled from `recall`** over the append-only memory log, and the knowledge graph is a **derived layer** (recomputable), not a primary store. Read the schema below as the *shape FschoolAI consumes*, not the brain's physical tables.
 
 ```
 StudentBrain {
@@ -103,6 +111,8 @@ await brain.write(student_id, signal)
 
 No other change to any agent is required.
 
+> **Merged-brain note (§18.4):** In the v2 brain, `brain.read(student_id)` resolves to `recall(subject = person_id, …)` and `brain.write(student_id, signal)` to `remember({kind:"signal", …}, subject)` (or `bus.ingest`). The `brain.read` / `brain.write` abstraction stays as written — §18 just defines what it resolves to underneath.
+
 ### 3.5 Proactivity Infrastructure
 
 This section defines the infrastructure that allows FschoolAI to act on behalf of the student without waiting for them to open the app. It is the backbone of all background and proactive agents.
@@ -130,6 +140,8 @@ cron.schedule('0 2 * * *', () => reflectionAgent.runForAllStudents())
 #### 3.5.2 Signal Arbiter
 
 The Signal Arbiter is the most important missing piece in a naive proactive system. Without it, multiple background agents fire simultaneously and the student receives a flood of notifications that they immediately disable.
+
+> **Merged-brain note (§18.4):** In the NeuroAGI v2 brain the Signal Arbiter **is** the `cortex.policy` gate (quiet hours / daily budget / cooldown / importance + urgent bypass). Build FschoolAI's arbiter **on that gate** — do not re-implement debounce, ranking, and rate-limiting from scratch. The `proactive_signals` and `notification_queue` tables described below map to `kind="outbox"` memories selected by the gate and delivered via the `channel`.
 
 **How it works:**
 1. Every background agent that wants to reach the student writes a **candidate signal** to the `proactive_signals` queue — it does NOT send a notification directly.
@@ -196,6 +208,8 @@ The following behaviours **require the live NeuroAGI graph brain** and are **not
 | Knowledge node decay (concepts not revisited in 30+ days lose confidence) | Requires per-node confidence scores and last-reviewed timestamps | Reflection Agent skips decay in Phase 1. Flat mock does not track per-concept recency. |
 | Cross-course knowledge graph visualisation (Max tier) | Requires the full graph structure | Defer to Phase 2. Show a placeholder in the Max tier dashboard. |
 
+> **Merged-brain note (§18.2) — two corrections this table needs under v2:** (1) **Decay is not a deferred graph feature.** In the v2 brain, forgetting (`salience × time`, 14-day half-life) is a *core, day-one* mechanism — so "Knowledge node decay" above is available immediately, not gated on a live graph. (2) **The knowledge graph is a derived layer** over the memory log, recomputable at any time. The real gate on the graph-dependent rows above is therefore **data sufficiency** (enough signals/confidence accumulated), *not* waiting for a separate graph database to ship. Keep the Phase-1 fallbacks, but reframe the gate as data-readiness, not infrastructure-readiness.
+
 **Schedule warning:** §8 lists "Replace mock brain with live NeuroAGI API" as a Week 6 task. This is aspirational, not a firm dependency. The NeuroAGI brain is an active research stack — the graph layer, multi-hop traversal, and confidence scoring are not guaranteed to be production-ready on a fixed date. All agents must be designed to function with the flat mock indefinitely. The Phase 2 brain swap is a progressive enhancement, not a hard launch blocker.
 
 **For Ryan:** The flat mock is the contract. Any behaviour that requires more than `learning_style`, `knowledge_gaps[]`, `stress_level`, `upcoming_deadlines[]`, `preferred_language`, and `session_count` must be explicitly flagged as graph-dependent and gated. Do not design agent logic that silently breaks when the graph is unavailable.
@@ -211,6 +225,8 @@ The following behaviours **require the live NeuroAGI graph brain** and are **not
 **Priority:** P0 — must be built first, all other agents depend on it
 
 **What it does:** Reggie receives the student's message, reads the brain context, decides which specialist agent to call, passes the message and context to that agent, and returns the response to the student. Reggie is the router and the face of FschoolAI.
+
+> **Topology note (§18.1):** Reggie is the **"fschool (main agent)"** node in the platform chain. NeuroAGI routes intent and augments context *to* Reggie; Reggie then orchestrates the specialist **subagents** (§14) and closes the loop inside FschoolAI. Reggie's routing is product-internal orchestration; NeuroAGI's intent-routing is the upstream "what does the user want / which direction" signal that feeds it.
 
 **Input:** Student message (text, voice, image)  
 **Output:** Response from the appropriate specialist agent
@@ -934,6 +950,8 @@ created_at      timestamp
 last_active     timestamp
 ```
 
+> **Merged-brain note (§18.2):** The brain tables in this section (`brain_context`, `brain_signals`, `proactive_signals`, `notification_queue`, `cohort_confusion_signals`, …) describe the *current/transitional* Supabase representation. In the **v2 target** they collapse into the single append-only **`memory`** log — each becomes a `kind` (`signal`, `outbox`, `trait`, `schedule`, …) with a JSONB `body`, scoped by `subject`. The FschoolAI **product** tables (`students`, `courses`, `assignments`, `sessions`) stay as raw operational data (the §12.3 boundary). Model new *brain* writes as memory `kind`s, not new tables.
+
 **brain_context** (Phase 1 mock — later replaced by NeuroAGI API)
 ```sql
 id              uuid PRIMARY KEY
@@ -1083,7 +1101,7 @@ created_at          timestamp
 | Frontend | React 19, Tailwind CSS 4, shadcn/ui |
 | Mobile | React Native (Phase 2) |
 | Backend | Supabase (database + auth + storage) |
-| Brain layer | NeuroAGI API (Phase 2) / local mock JSON (Phase 1) |
+| Brain layer | **NeuroAGI v2 kernel** — memory-log + decay + bus + cortex, reached via REST / `WS /channel` / **MCP** (§18.2). Phase 1: local mock JSON; transitional: direct Supabase brain schemas (§12). v1's TypeScript engines are deprecated and not used. |
 | LLM | GPT-4o via OpenAI API (Phase 1) |
 | Speech-to-text | OpenAI Whisper |
 | Canvas integration | Canvas LMS REST API + OAuth 2.0 |
@@ -1250,6 +1268,713 @@ The following output formats are **explicitly out of scope for Phase 1** and mus
 | **Real-time interactive podcast** (conversing with hosts live) | Technically complex, high latency, requires streaming TTS + dialogue management. Ship one-way podcast first and validate demand. | Phase 2 flag |
 
 Any engineer who receives a request to add slide deck, infographic, or data table generation should escalate to Vincent before building. These are not scope creep — they are a different product category.
+
+---
+
+## 12. Dual-Database Architecture
+
+FschoolAI runs on **two physically separate Supabase projects**. This is not a logical convenience — it is the enforcement boundary for the stateful-brain / stateless-agent model described in §13. The rule is absolute: FschoolAI owns the product; NeuroAGI Brain owns the person (source: CURRENT_ARCHITECTURE.md).
+
+> **Architecture note (see §18):** This section describes the *current/transitional* deployment — FschoolAI reading the NeuroAGI brain's Supabase schemas directly. The *target* brain is the NeuroAGI **v2 kernel** (§18), which products reach through a REST/WS/MCP API rather than direct schema access. The raw-data-vs-abstraction boundary (§12.3) and the person/product ownership rule hold in both; only the access mechanism changes.
+
+### 12.1 The Two Physical Projects
+
+| Project | Supabase ref | Role | What lives here |
+|---|---|---|---|
+| **FschoolAI Production DB** | `wqgxpouhbwhwpzudrptp` | Raw operational store (stateless domain layer) | User accounts, Canvas OAuth tokens, raw Canvas payloads, course/assignment/grade records |
+| **NeuroAGI Brain DB** | `qiolhlvqfzujnkwnymft` | Stateful intelligence layer | Identity, signals, patterns, knowledge gaps, hypotheses, interventions, chat sessions/messages |
+
+**Why two projects, not two schemas in one project.** The Brain is a separate entity that long-term serves many apps via the Brain SDK, not just FschoolAI (source: ARCHITECTURE_V2_STATEFUL_STATELESS.md §5). Keeping it in its own Supabase project means the Brain can be addressed, scaled, secured, and eventually swapped for a graph DB independently of any single product. FschoolAI is "an app that runs on the OS"; the Brain is "the OS" (source: CURRENT_ARCHITECTURE.md). Physical separation also prevents the common failure mode of agents reaching into raw operational tables and treating the product DB as memory.
+
+### 12.2 The Four Brain DB Schemas
+
+The Brain DB is partitioned into four schemas. Every schema ultimately references `neuro.persons(id)` as the root of identity (source: strategy/docs/DATABASE_ARCHITECTURE.md).
+
+| Schema | Purpose | Key tables (real names from the docs) |
+|---|---|---|
+| `neuro` | Core identity + long-term memory | `neuro.persons` (id, display_name, email, timezone, language; carries `canvas_user_id`), `neuro.memory` (key-value facts), `neuro.patterns` (behavioral patterns) |
+| `brain` | The learned/evolving intelligence | `brain.signals`, `brain.reflections`, `brain.context_window`, `brain.knowledge` / `brain.knowledge_graph` |
+| `agents` | Conversation state | `agents.sessions`, `agents.messages` |
+| `fschool` | The brain's *view* of academic domain data (not the source of truth) | `fschool.students` (links to `neuro.persons`), `fschool.courses`, `fschool.assignments`, `fschool.grades` |
+
+(source: CURRENT_ARCHITECTURE.md; strategy/docs/DATABASE_ARCHITECTURE.md)
+
+> Note: several services still reference non-existent flat tables (`brain_signals`, `behavioral_signals`, `concept_progress`). The canonical write path is `supabase.schema('brain').from('signals')`, keyed on `person_id` (source: CURRENT_ARCHITECTURE.md, Problems 1–2). Code must use the schema-qualified tables above; flat-table names are wrong.
+
+### 12.3 The Raw-Data vs Learned-Abstraction Boundary
+
+The hard architectural rule: **raw domain data stays in FschoolAI; only learned abstractions enter the Brain** (source: ARCHITECTURE_V2_STATEFUL_STATELESS.md §3).
+
+| Raw domain data (stays in FschoolAI Production DB) | Learned abstraction (enters NeuroAGI Brain DB) |
+|---|---|
+| Music 201 assignment score: 94/100 | `music_performance_signal: strong, consistent across 3 assignments` |
+| PSYC 201 lecture transcript | `psyc201_knowledge_gap: classical vs operant conditioning` |
+| 2.5h study session on stats | `stats_engagement_pattern: deep focus, evening, visual learner` |
+| Professor Chen's syllabus | `professor_chen_style: case-study heavy, midterm = 40%` |
+
+The Brain holds **signals, patterns, gaps, and traits — not documents** (source: ARCHITECTURE_V2_STATEFUL_STATELESS.md §3). This both prevents data bloat and enables cross-agent intelligence: a third-party agent can read `music_performance_signal` without ever touching the raw Music 201 records. The `fschool.*` schema is the one nuance — it is the brain's *read-view* of academic data so the brain can reason about deadlines (e.g. `brain-context-window.ts` reads upcoming deadlines from `fschool.assignments`), but the source of truth remains `public.*` in the Production DB (source: CURRENT_ARCHITECTURE.md, Problem 8).
+
+### 12.4 The `person_id ↔ user_id` Bridge
+
+The two databases use **different identifiers for the same student**, and reconciling them is a critical blocker (source: BACKEND_GAPS.md, Gap 1).
+
+- FschoolAI Production DB: `public.users.id` is **`text`** — the Canvas user ID (e.g. `"12345"`) (source: CURRENT_ARCHITECTURE.md, Problem 4).
+- NeuroAGI Brain DB: `neuro.persons.id` is a **`uuid`** (source: CURRENT_ARCHITECTURE.md; DATABASE_ARCHITECTURE.md).
+
+There must be an explicit mapping. The docs reference two mechanisms, which the implementation must reconcile:
+
+1. A `canvas_user_id` column on `neuro.persons`, looked up on Canvas OAuth login (source: CURRENT_ARCHITECTURE.md, Problem 4).
+2. A `person-bridge` utility (`backend/server/utils/person-bridge.ts`) exposing `getPersonId(userId)` that finds-or-creates the `neuro.persons` record, plus a `fschool_user_id UUID` column on `neuro.persons` (source: BACKEND_GAPS.md, Gap 1).
+
+> Discrepancy to resolve (do not silently pick one): BACKEND_GAPS.md proposes `fschool_user_id UUID REFERENCES public.users(id)`, but CURRENT_ARCHITECTURE.md states `public.users.id` is `text` (Canvas ID), and uses `canvas_user_id` on `neuro.persons`. The bridge column type and name are **TBD** pending reconciliation; the resolved column must match the actual `public.users.id` type.
+
+The required pattern: every route that receives a FschoolAI identifier must resolve it to `person_id` **before any brain operation** — chat (`agents.sessions`/`agents.messages`), signals (`brain.signals`), context (`brain.context_window`), reflections (`brain.reflections`) all key on the Brain `person_id` UUID (source: CURRENT_ARCHITECTURE.md; BACKEND_GAPS.md). A new student is provisioned by creating `neuro.persons` first, then the `fschool.students` profile referencing `person_id` (source: DATABASE_ARCHITECTURE.md).
+
+### 12.5 Environment Variables and the Connection Rule
+
+A single `SUPABASE_URL` for two databases is a known architectural-confusion hazard (source: CURRENT_ARCHITECTURE.md, Problem 3). The required configuration is two explicit clients:
+
+```
+BRAIN_SUPABASE_URL=https://qiolhlvqfzujnkwnymft.supabase.co
+BRAIN_SUPABASE_KEY=...
+
+FSCHOOL_SUPABASE_URL=https://wqgxpouhbwhwpzudrptp.supabase.co
+FSCHOOL_SUPABASE_KEY=...
+```
+
+(source: CURRENT_ARCHITECTURE.md, Problem 3)
+
+**Rules:**
+- Backend services that read/write intelligence (chat, signals, reflections, sessions) **must** point at the Brain DB via `BRAIN_SUPABASE_*`.
+- Services that read/write operational Canvas data (`canvas-sync.ts`) **must** use `FSCHOOL_SUPABASE_*`. The `VITE_`-prefixed vars are frontend-only and **must not** be used in backend services (source: CURRENT_ARCHITECTURE.md, Problem 3).
+- Canvas sync writes to **both** databases: `public.assignments` (operational source of truth) and `fschool.assignments` (brain's academic view) (source: CURRENT_ARCHITECTURE.md, Problem 8).
+
+---
+
+## 13. Stateful Brain, Stateless Agents
+
+### 13.1 The Inversion
+
+The foundational principle, from the v2 architecture review: **NeuroAGI is stateful; FschoolAI is stateless** (source: ARCHITECTURE_V2_STATEFUL_STATELESS.md §2).
+
+| Layer | System | State | Responsibility |
+|---|---|---|---|
+| Brain | NeuroAGI | **Stateful** | Holds knowledge graph, cognitive patterns, memory, learned signals, identity. Persists across all apps and sessions. Never forgets. |
+| Agents | FschoolAI | **Stateless** | Read from the brain, act, return results. Hold no state themselves. |
+| Domain data | FschoolAI Library | **Stateless** | Course content, syllabi, professor intelligence — domain-specific, not personal. |
+
+(source: ARCHITECTURE_V2_STATEFUL_STATELESS.md §2)
+
+### 13.2 Why This Makes Agents Replaceable
+
+Because all durable state lives in the Brain, an agent is a thin execution wrapper over accumulated brain context. Any agent can be rewritten, replaced, or retired **without losing history** — the signals, patterns, gaps, sessions, and reflections it produced remain in the Brain DB, owned by the person, not the agent. A new scenario does not require a new stateful agent; it requires existing agents to read *different* brain signals (source: ARCHITECTURE_V2_STATEFUL_STATELESS.md §7).
+
+### 13.3 Where Chat State Lives
+
+Chat sessions and messages are **brain state, not product state**. They live in `agents.sessions` and `agents.messages` in the **Brain DB** (source: CURRENT_ARCHITECTURE.md, Problem 5; DATABASE_ARCHITECTURE.md). The Production DB's `public.sessions` and `public.messages` are **dead legacy tables (0 rows)** retained only from the pre-brain schema and must not be used (source: CURRENT_ARCHITECTURE.md, Problem 5).
+
+### 13.4 The read → act → write Loop
+
+Every agent invocation follows one loop (source: CURRENT_ARCHITECTURE.md; ARCHITECTURE_V2_STATEFUL_STATELESS.md §7):
+
+1. **Read** brain context for the resolved `person_id` (the pre-computed `brain.context_window` snapshot — memory, patterns, knowledge, recent signals, upcoming deadlines).
+2. **Act** — the agent reasons over that context and executes its task (e.g. `brain-chat-session.ts` calls Claude, see §7.1 model-routing).
+3. **Write** a distilled signal back via `signal-ingestion.ts` → `brain.signals`, keyed on `person_id` with `source: 'fschoolai'` and `occurred_at`. Raw conversation is processed by reflection (`brain-reflection-engine.ts`) into signals/patterns — only abstractions persist (source: CURRENT_ARCHITECTURE.md, Problems 1–2 fix; §3 of v2 doc).
+
+### 13.5 Concurrency at Scale
+
+Stateless agents scale horizontally with no inter-instance coordination — each request is independent (source: ARCHITECTURE_V2_STATEFUL_STATELESS.md §6). Concurrency risk concentrates at the **brain write layer** (nightly reflection):
+
+| Risk | Mitigation |
+|---|---|
+| Thousands of nightly reflections firing at once | **Staggered scheduling** across a 4-hour window (10 PM–2 AM local), not all at midnight |
+| Brain write contention | **Write queue with optimistic locking**; reflection writes are low-frequency (once/day/person) |
+| Graph DB write throughput (future state) | Target graph DB supports 100K+ writes/sec — not a bottleneck at FschoolAI scale |
+
+(source: ARCHITECTURE_V2_STATEFUL_STATELESS.md §6)
+
+### 13.6 The Context-Window Latency Reality
+
+The read step has a latency cost that conflicts with the §9 NFR. When `brain.context_window` is empty, `brain-chat-session.ts` falls back to `refresh()`, which runs **~10 parallel DB queries plus a Claude call — roughly 3–8 seconds** before the student gets any response (source: CURRENT_ARCHITECTURE.md, Problem 7). This violates the §9 3-second response NFR.
+
+**Resolution — the pre-computed `brain.context_window` cache:**
+
+1. The scheduler (`brain-scheduler.ts`) pre-computes and refreshes `brain.context_window` per person (e.g. every 30 min), so chat reads a ready snapshot instead of recomputing (source: CURRENT_ARCHITECTURE.md, Problem 7).
+2. Add an in-memory/Redis cache layer over `brain.context_window` to avoid a DB read on every message.
+3. Return a fast fallback response while context loads in the background on a cold miss.
+
+The cache is what reconciles the read→act→write loop with the 3-second NFR: steady-state reads hit a warm snapshot, and the expensive 10-query refresh runs **off the request path** on the scheduler.
+
+---
+
+## 14. Complete Agent Roster — Main Agents & Sub-Agents
+
+This section reconciles the PRD's 15 numbered agents (plus §4.1 Studio) with the fuller agent map maintained in `strategy/FEATURE_AND_AGENT_MAP.md` and `agents/PAGE_AI_MAP.md`. Those documents assume a layered architecture — a **Tutor Coordinator / Agent Manager** that routes one student-facing voice to many specialist sub-agents, backed by a **proactivity infrastructure** that runs on a scheduler — that the numbered list only partially captures.
+
+### 14.1 Main (interactive) agents — recap
+
+These are the 15 already specced. They are surfaced to the student through the named tutor (one voice, many specialists — see `agents/PAGE_AI_MAP.md`).
+
+| # | Agent | Primary page(s) | Trigger (one line) |
+|---|---|---|---|
+| 1 | Reggie (Tutor Coordinator / Agent Manager) | CHAT (all pages) | Every student message; reads context window first, then routes to a sub-agent. |
+| 2 | Canvas Agent | CANVAS, ASSIGNMENTS | Student asks about grades/deadlines/courses. |
+| 3 | Tutor / Study Agent | STUDY, CHAT | Flashcard / study-guide / explain request. |
+| 4 | Planner | HOME, ASSIGNMENTS | Today's-priorities / scheduling request. |
+| 5 | Lecture (Recording) Agent | LIBRARY | Audio upload → transcription + professor-emphasis detection. |
+| 6 | Library Agent | LIBRARY | Resource request / file upload. |
+| 6b | Lesson Generator (video) | STUDY, CHAT | Gap + deadline detected, or "teach me about [topic]". |
+| 7 | Exam Mode | STUDY, CHAT | Exam-prep request. |
+| 7b | Exam Predictor (static) | ASSIGNMENTS, CANVAS | Grade-prediction request. |
+| 8 | Intervention Engine | HOME, CHAT (push) | Absence / deadline-at-risk detected. |
+| 9 | Audio Agent | ALL (voice layer) | STT / TTS / translate. |
+| 10 | Office Hours | CANVAS, CHAT | Professor / scheduling query. |
+| 11 | Calendar | HOME, ASSIGNMENTS | Deadline / event sync. |
+| 12 | Reflection Engine | BRAIN, CHAT | Scheduler tick (nightly + 6h). |
+| 13 | Terminal | (dev/admin) | Operator command. |
+| 14 | Cohort Agent | SOCIAL, LEADERBOARD | Cohort-level aggregation. |
+| 15 | Podcast Agent | STUDIO | Audio Overview request. |
+
+### 14.2 Background / infrastructure agents (the proactivity backbone)
+
+These never address the student directly. They keep the brain warm so interactive agents always read a pre-computed context window rather than rebuilding from raw signals (source: `agents/context-window-builder.md`; `agents/PAGE_AI_MAP.md`). **These are assumed by the proactivity model but are not in the numbered list — they should be added.**
+
+| Agent | Cadence | Reads | Writes |
+|---|---|---|---|
+| **Brain Scheduler** | Cron; context rebuild + Canvas sync every 30 min, Reflection every 6h | n/a (orchestrator) | Triggers the agents below; no direct DB write |
+| **Signal Ingestion** | Continuous (on any event) | Raw events from Canvas, chat, study sessions, UI | `brain.signals` (normalized) |
+| **Context Window Builder** | Every 30 min (scheduler) + on-demand if stale >30 min | `brain.signals`, `neuro.patterns`, `neuro.memory`, `agents.sessions`, `brain.reflections`, `fschool.assignments` | `brain.context_window` |
+| Reflection Engine (Agent 12) | Every 6h / nightly | `brain.signals` (last N), `brain.reflections` | `brain.reflections`, `neuro.patterns` |
+| Intervention Engine (Agent 8) | Event-driven (absence / deadline) | `brain.signals`, `fschool.assignments` | Push notifications; `brain.signals` |
+| Cohort Agent (Agent 14) | Periodic aggregate | Cross-student `brain.signals` (consented) | `brain.signals`, cohort tables |
+
+### 14.3 Sub-agents / specialist agents missing from the numbered list
+
+Each below has a spec in `/agents` but no slot in the 15. Owner is **TBD** unless a spec names one.
+
+#### Situation Synthesizer
+- **Status:** NOT BUILT, Sprint 1, build first (source: `agents/situation-synthesizer.md`).
+- **Purpose:** Generates the tutor's situation-aware opening greeting on every app open.
+- **Trigger:** HOME page load, chat open from HOME, or when Motivation Engine sends a nudge.
+- **Inputs:** `brain.signals` (24h), `fschool.assignments` (7d), `neuro.patterns`, `neuro.memory` (tutor name), `agents.sessions`, `agents.messages` (last).
+- **Outputs:** `brain.signals` (type `situation_synthesis`), updates `brain.context_window.current_situation`.
+
+#### Motivation Engine
+- **Status:** NOT BUILT, Sprint 3 (source: `agents/motivation-engine.md`).
+- **Purpose:** Detects motivation drops and fires the right nudge *type* (competitive/achievement/social/fear/curiosity/reward) for this student.
+- **Trigger:** Every 2h for active students; also absence, engagement decline, streak-at-risk, leaderboard drop, friend-online.
+- **Inputs:** `brain.signals` (48h), `neuro.patterns` (`motivation_response_history`).
+- **Outputs:** `brain.signals` (`motivation_nudge_sent`, success/ignored), `neuro.patterns` (nudge-type effectiveness).
+
+#### Professor Intelligence
+- **Status:** NOT BUILT, Sprint 2, HIGH priority (source: `agents/professor-intelligence.md`).
+- **Purpose:** Builds a per-professor grading-style profile from the student's own graded work.
+- **Trigger:** New grade posted, course-page open, "what does Prof [x] want?", or call from Assignment Agent.
+- **Inputs:** graded submissions + feedback + rubrics from Canvas, prior `brain.reflections` (`professor_insight`).
+- **Outputs:** `brain.reflections` (`professor_insight`), `brain.signals` (`professor_profile_updated`).
+
+#### Voice Preference Agent
+- **Status:** NOT BUILT, Sprint 1. **Lives inside the Agent Manager**, not standalone (source: `agents/voice-preference-agent.md`).
+- **Purpose:** Detects voice-change intent in any message and generates a custom voice via ElevenLabs Voice Design.
+- **Trigger:** `detectVoiceChangeIntent()` runs on every message before routing.
+- **Inputs:** `neuro.voice` (current voice_id), `neuro.memory` (tutor name).
+- **Outputs:** `neuro.voice` (new voice_id + description), `brain.signals` (`preference` / `voice_changed`).
+
+#### Assignment Agent
+- **Status:** PARTIAL (`brain-assignment.ts` exists, basic), Sprint 2 (source: `agents/assignment-agent.md`).
+- **Purpose:** On "Help me start," generates a personalized starting framework from rubric + professor profile + gaps; outputs time estimates + predicted grade.
+- **Trigger:** "Help me start" tap, chat request, or proactively 48h pre-deadline if not started.
+- **Inputs:** `fschool.assignments`, `brain.reflections` (`professor_insight`, `writing_analysis`), context window (gaps), `neuro.patterns`.
+- **Outputs:** `brain.signals` (`assignment_help_requested`), `agents.messages` (the framework).
+
+#### Study Room Orchestrator
+- **Owner:** Aryan (Cloudflare Durable Objects infra). **Status:** NOT BUILT, Sprint 3 (source: `agents/study-room-orchestrator.md`).
+- **Purpose:** Runs the in-room AI tutor across multiple students simultaneously without leaking any individual's gaps. 6 modes (facilitator, peer-teaching, clarifier, challenger, timekeeper, silent).
+- **Trigger:** Student joins room, room question asked, 10-min silence, topic change.
+- **Inputs:** each participant's private context window, room topic, conversation history.
+- **Outputs:** `brain.signals` (per-student room interactions, peer-teaching events), `neuro.patterns` (group-config effectiveness).
+
+#### Social Intelligence
+- **Status:** NOT BUILT, Sprint 3 (source: `agents/social-intelligence.md`).
+- **Purpose:** Models who the student studies best with; scores friend compatibility and suggests partners.
+- **Trigger:** SOCIAL page open, room-session end, "who should I study with?", or detection of solo study where social would help.
+- **Inputs:** study-room history, post-room performance, friend interactions, schedule/course overlap (opt-in).
+- **Outputs:** `brain.signals`, `brain.reflections` (social insights), `neuro.patterns` (social effectiveness).
+
+#### Content Connector
+- **Status:** NOT BUILT, Sprint 4 (source: `agents/remaining-agents.md`).
+- **Purpose:** Links outside content (videos/articles/links) to current coursework.
+- **Trigger:** Student shares a link, or brain detects from integrations.
+- **Inputs:** shared content + `fschool.courses` / current-course context. **Outputs:** `brain.signals` (`content_connection`).
+
+#### Writing Evolution Tracker
+- **Status:** NOT BUILT, Sprint 4 (source: `agents/remaining-agents.md`). *(= the "Writing Intelligence Agent" flagged HIGH in FEATURE_AND_AGENT_MAP Page 4.)*
+- **Purpose:** Analyzes every submission for complexity, vocabulary, clarity, citation accuracy; tracks growth over time.
+- **Trigger:** Every assignment submission; monthly report.
+- **Inputs:** submitted writing, prior `brain.signals` (`writing_metrics`). **Outputs:** `brain.signals` (`writing_metrics`), `brain.reflections` (`writing_evolution_report`).
+
+#### Knowledge Graph Builder
+- **Status:** NOT BUILT, Sprint 4 (source: `agents/remaining-agents.md`).
+- **Purpose:** Renders an interactive concept graph (node = concept, edge = relation, size = mastery).
+- **Trigger:** BRAIN page open. **Inputs:** `neuro.patterns`, `brain.signals`. **Outputs:** read-mostly.
+
+#### Focus Agent
+- **Status:** NOT BUILT, Sprint 4 (source: `agents/remaining-agents.md`).
+- **Purpose:** Tracks attention during study; learns optimal session length; suggests breaks.
+- **Trigger:** Study session start. **Inputs:** interaction timing, scroll/tab patterns, `neuro.patterns`. **Outputs:** `brain.signals` (`session_duration`, `focus_score`, `break_taken`).
+
+#### Library Organizer
+- **Status:** NOT BUILT, Phase 2 / Sprint 4 (source: FEATURE_AND_AGENT_MAP Page 7).
+- **Purpose:** Classifies uploads by course/topic/type, extracts concepts, connects to assignments.
+- **Trigger:** Any file upload. **Inputs:** `brain.context_window`, `fschool.courses`. **Outputs:** `brain.signals` (`library_upload`), `brain.reflections` (extracted concepts).
+
+#### UI Preference Agent
+- **Status:** NOT BUILT, Sprint 4 (source: `agents/remaining-agents.md`).
+- **Purpose:** Applies interface customizations requested in chat ("make it darker").
+- **Trigger:** UI-modification intent in any message. **Inputs:** chat message, `neuro.memory` (`ui_preferences`). **Outputs:** `neuro.memory`, `brain.signals` (`ui_customization`).
+
+#### Pattern Recognition
+- **Status:** NOT BUILT (source: `agents/PAGE_AI_MAP.md`; logic overlaps Reflection Engine).
+- **Purpose:** Identifies learning style and behavioral patterns from signal history.
+- **Trigger:** Background. **Inputs:** `brain.signals` history. **Outputs:** `neuro.patterns`.
+
+> Also referenced but folded elsewhere: **Token Engine** (in-app gamification, surfaced on every page — source: `agents/PAGE_AI_MAP.md`, `agents/token-engine.md`) and **Leaderboard Agent** (source: `agents/remaining-agents.md`). These are infrastructure/gamification rather than tutoring sub-agents — and note they conflict with the §11 out-of-scope deferral of Social/Leaderboard; that contradiction must be resolved.
+
+### 14.4 Which agent owns what — and overlaps to resolve
+
+| Capability | Owning agent | Folded into a numbered agent? |
+|---|---|---|
+| Opening greeting / working memory | Situation Synthesizer | Partially overlaps Agent 4 (Planner) for "today's priorities"; should feed it, not duplicate. |
+| Pre-computed brain context | Context Window Builder | Infrastructure (§14.2); no numbered slot — recommend adding. |
+| Voice synthesis vs voice *preference* | Audio Agent (#9) plays TTS; **Voice Preference Agent** chooses/generates the voice | Voice Preference Agent should be a sub-capability of the Agent Manager that configures Agent 9, not a second audio agent. |
+| Grade prediction (static vs live) | **Exam Predictor (#7b)** is static; `agents/exam-predictor.md` specs a **dynamic** predictor that updates in real time | §7b should be extended to the dynamic model, not kept as a separate static agent. |
+| Lesson creation (video vs multi-format) | **Lesson Generator (#6b)** is video-only; `agents/lesson-generator.md` specs **multi-format** micro-lessons | §6b should generalize beyond video to the full lesson-type matrix. |
+| Draft analysis / writing growth | Writing Evolution Tracker | Not numbered; FEATURE_AND_AGENT_MAP calls it "Writing Intelligence." Same agent, two names — consolidate. |
+| Professor grading profiles | Professor Intelligence | Not numbered; feeds Assignment Agent and Exam Predictor. Recommend numbering. |
+| Assignment frameworks | Assignment Agent | Not numbered; partial code exists (`brain-assignment.ts`). |
+| In-room multi-student tutoring | Study Room Orchestrator | Not numbered; depends on Aryan's Durable Objects infra. |
+| Social compatibility / partner suggestion | Social Intelligence | Distinct from Agent 14 (Cohort) — Social Intelligence is per-student, Cohort is aggregate. |
+| Knowledge map / pattern surfacing | Knowledge Graph Builder + Pattern Recognition | Pattern Recognition overlaps Reflection Engine (#12); recommend it be a read-side view of Reflection output, not a separate writer. |
+| Attention / focus | Focus Agent | Not numbered. |
+| Upload classification | Library Organizer | Partially overlaps Agent 6 (Library); Organizer is the background classifier behind the Library page. |
+| UI / content / motivation | UI Preference Agent, Content Connector, Motivation Engine | None numbered; Motivation Engine partially overlaps Agent 8 (Intervention). Keep distinct but coordinate via one delivery layer to avoid double-nudging. |
+
+**Net gap:** the numbered list (1–15) is interactive-agent-centric and omits the entire §14.2 infrastructure tier and most §14.3 specialists. Recommended action: (a) add Context Window Builder, Signal Ingestion, and Brain Scheduler as explicitly numbered infrastructure agents; (b) extend §6b, §7b, and §9 per the overlaps above rather than create duplicates; (c) number Professor Intelligence, Assignment Agent, Writing Evolution Tracker, Social Intelligence, and Study Room Orchestrator as first-class sub-agents under the Agent Manager.
+
+---
+
+## 15. API & Frontend–Backend Contract
+
+### 15.1 Contract principles
+
+FschoolAI exposes two complementary API surfaces, and the distinction is foundational.
+
+**The single-endpoint model.** The frontend never calls individual agents directly. Every AI interaction — greetings, assignment enrichment, study prep, chat — flows through exactly one route:
+
+```
+POST /api/agent-manager
+Body: { page, student_id, action?, context? }
+Response: { type, content, signals? }
+```
+
+The Agent Manager decides which agent runs. The UI team designs to this contract; the backend team builds to it. This is what makes connecting a new page "a one-hour job per page" — the UI never learns which agent ran, how brain context is assembled, or which tables are read (source: FRONTEND_BACKEND_CONTRACT.md).
+
+**The broader endpoint surface.** Beneath the Agent Manager, the backend also exposes a granular REST surface (~50 routes across brain, agent, signals, and Canvas domains) documented in API_DOCUMENTATION.md. These are used by the Agent Manager itself, by background jobs, by the browser extension, and for direct integration/testing.
+
+**Auth.** All requests except `GET /health` require a JWT in the Authorization header (source: API_DOCUMENTATION.md): `Authorization: Bearer <jwt_token>`.
+
+**Base URL & versioning.** Dev base URL `http://localhost:5000`; API version `1.0.0`; all timestamps ISO 8601 (source: API_DOCUMENTATION.md).
+
+### 15.2 Endpoint catalog
+
+Key endpoints grouped by domain. **Full list in API_DOCUMENTATION.md.**
+
+| Group | Method & Path | Purpose |
+|-------|---------------|---------|
+| **agent-manager** | `POST /api/agent-manager` | Single entry point; routes a page+action to the right agent |
+| **health** | `GET /health` | Server status; only route not requiring auth |
+| **brain/** | `POST /api/brain/process` | Process user input through the brain |
+| **brain/** | `POST /api/brain/causal-analysis` | Analyze causal relationships in user data |
+| **brain/** | `POST /api/brain/predict` | Generate predictions about user outcomes |
+| **brain/** | `POST /api/brain/intervene` | Get intervention recommendations |
+| **brain/** | `GET /api/brain/insights/:userId` | AI-generated insights about a user |
+| **brain/** | `GET /api/brain/status?userId=` | Current brain status (focus, emotional state, velocity) |
+| **brain/** | `POST /api/brain/feedback` | Submit feedback to improve the brain |
+| **agent/** | `GET /api/agents` | List all available agents |
+| **agent/** | `POST /api/agents/study` | Personalized study explanation |
+| **agent/** | `POST /api/agents/focus` | Detect/enable focus mode |
+| **agent/** | `POST /api/agents/motivation` | Motivation boost |
+| **agent/** | `GET /api/agents/performance?userId=` | Performance analysis |
+| **agent/** | `POST /api/agents/problem-solver` | Step-by-step problem help |
+| **agent/** | `POST /api/agents/synthesis` | Connect concepts |
+| **agent/** | `POST /api/agents/personalization` | Personalized learning path |
+| **agent/** | `POST /api/agents/reflection` | Consolidate learning after a session |
+| **agent/** | `GET /api/agents/recommendation?userId=` | Next learning recommendation |
+| **agent/** | `POST /api/agents/escalation` | Check if escalation to instructor is needed |
+| **signals/** | `POST /api/signals/behavioral` | Log behavioral signal |
+| **signals/** | `POST /api/signals/emotional` | Log emotional signal |
+| **signals/** | `POST /api/signals/knowledge` | Log knowledge/mastery signal |
+| **signals/** | `POST /api/signals/context` | Log context signal (location/device/environment) |
+| **signals/** | `POST /api/signals/outcome` | Log outcome signal (result/score) |
+| **signals/** | `POST /api/signals/batch` | Batch insert mixed signals |
+| **signals/** | `GET /api/signals/:userId?limit=&offset=` | Get all signals for a user, paginated |
+| **canvas/** | `POST /api/canvas/oauth/authorize` | Start Canvas OAuth flow |
+| **canvas/** | `GET /api/canvas/oauth/callback` | Canvas OAuth callback, handled automatically |
+| **canvas/** | `POST /api/canvas/sync` | Sync Canvas courses/assignments/grades |
+| **canvas/** | `GET /api/canvas/courses?userId=` | Get synced Canvas courses |
+| **canvas/** | `GET /api/canvas/assignments?userId=` | Get Canvas assignments |
+
+> **`auth/` and `extension/`:** API_DOCUMENTATION.md (v1.0.0) does not yet enumerate dedicated `auth/*` routes (auth is a JWT requirement on all routes) or `extension/*` routes (the extension currently reuses brain/signals/agent routes). `extension/*` routes are required per §16/§17 (Gap 2) and are reserved here.
+
+> **Merged-brain note (§18.2):** The `brain/*` RPC routes above (`/process`, `/causal-analysis`, `/predict`, `/intervene`) are **FschoolAI's product-side API**, not the brain's own interface. The NeuroAGI v2 brain is reached through `remember` / `recall` / `forget` / `reinforce` + the capability bus (`invoke` / `ingest` / `tick`), exposed over REST + `WS /channel/{device}` + MCP. FschoolAI's backend *composes* those brain primitives behind its own `/api/*` surface — the two layers must not be conflated.
+
+### 15.3 Request/response envelope
+
+**Success envelope** (granular API):
+
+```json
+{
+  "success": true,
+  "data": { "agentUsed": "study", "response": "...", "insights": [], "recommendations": [] },
+  "requestId": "req-123",
+  "timestamp": "2026-05-21T00:00:00Z"
+}
+```
+
+Agent Manager responses use the lighter contract envelope (`type` + `content`, optional `signals`).
+
+**Error envelope:**
+
+```json
+{
+  "success": false,
+  "error": { "code": "ERROR_CODE", "message": "Human readable message", "details": {} },
+  "requestId": "req-123",
+  "timestamp": "2026-05-21T00:00:00Z"
+}
+```
+
+**Error codes** (source: API_DOCUMENTATION.md):
+
+| Code | Status | Meaning |
+|------|--------|---------|
+| `VALIDATION_ERROR` | 400 | Invalid request data |
+| `AUTHENTICATION_ERROR` | 401 | Missing/invalid token |
+| `AUTHORIZATION_ERROR` | 403 | Insufficient permissions |
+| `NOT_FOUND` | 404 | Resource not found |
+| `CONFLICT` | 409 | Resource conflict |
+| `RATE_LIMIT` | 429 | Rate limit exceeded |
+| `EXTERNAL_SERVICE_ERROR` | 502 | External service failed |
+| `DATABASE_ERROR` | 500 | Database error |
+| `AGENT_ERROR` | 500 | Agent processing error |
+| `BRAIN_ERROR` | 500 | Brain system error |
+| `INTERNAL_ERROR` | 500 | Internal server error |
+
+At the contract layer, errors are also surfaced inline as an `error`-typed agent-manager response (`{ "type": "error", "content": { "code", "message", "fallback" } }`) so the UI renders a graceful fallback instead of a blank screen (source: FRONTEND_BACKEND_CONTRACT.md).
+
+### 15.4 Streaming — chat SSE contract
+
+Chat is the one action that streams (Server-Sent Events). Frontend sends `action: "chat"` with `context.message`; backend streams `stream_chunk` events terminated by a single `stream_done` carrying earned tokens (source: FRONTEND_BACKEND_CONTRACT.md):
+
+```json
+{ "type": "stream_chunk", "content": "Entropy is..." }
+{ "type": "stream_chunk", "content": " the measure of..." }
+{ "type": "stream_done", "tokens_earned": 5 }
+```
+
+Separately, a `tokens_earned` event (WebSocket or polling) pushes `{ amount, reason, new_balance, tier_progress }` so counters/tier progress update live.
+
+### 15.5 Per-page contracts
+
+Every page calls the same `POST /api/agent-manager`; the `page` + `action` fields select behavior and the response `type` tells the UI what to render (source: FRONTEND_BACKEND_CONTRACT.md):
+
+| Page | Action(s) sent | Response `type` |
+|------|----------------|-----------------|
+| HOME | (load on page load; cache 15 min) | `greeting` |
+| ASSIGNMENTS | `load`, `help_start` | `assignments_enriched`, `assignment_framework` |
+| STUDY | `load`, `generate_flashcards` | `study_ready` |
+| CANVAS | `load` | `canvas_enriched` |
+| BRAIN | `load` | `brain_state` |
+| SOCIAL | `load` | `social_state` |
+| LEADERBOARD | `load` (with `context.category`, `context.scope`) | `leaderboard` |
+| All pages (Chat) | `chat` | `stream_chunk` … `stream_done` (SSE, §15.4) |
+
+### 15.6 Rate limiting & Canvas OAuth callback
+
+**Rate limiting** (source: API_DOCUMENTATION.md): per user 100 req/min; per IP 1000 req/min. Remaining quota on `X-RateLimit-Remaining`; exceeding either returns `RATE_LIMIT` (429). List endpoints paginate via `limit`/`offset`.
+
+**Canvas OAuth callback** is a two-step flow: `POST /api/canvas/oauth/authorize` returns an `authUrl`; after the user authorizes, Canvas redirects to `GET /api/canvas/oauth/callback`, which the backend handles automatically (code exchange + token persistence). The app then calls `POST /api/canvas/sync`. No frontend handling of the callback is required.
+
+---
+
+## 16. Chrome Extension Architecture
+
+The Chrome extension is the only surface that sees what a student actually does inside their LMS. The PRD previously reduced it to "captures lecture audio"; that is a fraction of its role. It is the brain's eyes and ears on the LMS — a behavioral-signal emitter and content capturer that feeds both the FschoolAI Library and the NeuroAGI Brain. Built on Manifest V3 (content script + background service worker).
+
+### 16.1 Core Principle — Signal Emitter + Content Capturer, Not an Audio Recorder
+
+> The extension is not a sync tool. It is a **brain signal emitter** that also happens to sync academic data. (source: EXTENSION_ARCHITECTURE.md)
+
+Every action is a signal; every piece of content is a library item. The extension is "dumb and fast"; the backend and brain are "smart and persistent." It makes no decisions and holds no intelligence (source: EXTENSION_ARCHITECTURE.md).
+
+| Component | File | Role |
+|---|---|---|
+| Background service worker | `background.js` | Sync, backend API calls, signal emission, auto-crawl, Canvas API ingest |
+| Content script | `content/universal.js` | Page-type detection, deep text extraction (incl. shadow DOM piercing), time-on-page |
+| Popup UI | `popup/popup.html` + `popup/popup.js` | Login, capture button, sync status |
+
+Data flow forks at the content script: each detected page produces **(a)** a behavioral signal → `/api/extension/signal`, and **(b)** content capture → `/api/extension/content` (source: EXTENSION_ARCHITECTURE.md).
+
+### 16.2 Multi-LMS Support
+
+Targets Canvas, D2L, Moodle, and Blackboard (source: LIBRARY_ARCHITECTURE.md). The existing page-detection + deep-text-extraction logic in `content/universal.js` is solid and must be preserved — in particular **shadow DOM piercing** (for D2L web components) and **auto-crawl** (for D2L/Moodle) (source: EXTENSION_ARCHITECTURE.md).
+
+**Content-type detection.** Each page is classified as `courses`, `assignments`, `grades`, `syllabus`, `rubric`, `lecture`/`module`, `announcement`, or `feedback` (source: EXTENSION_ARCHITECTURE.md).
+
+**`university_id` derivation.** Derived from the LMS URL host — canonical example `canvas.utoronto.ca → "uoft"` (others: `"ubc"`, `"mcmaster"`, `"mit"`, `"stanford"`) (source: LIBRARY_ARCHITECTURE.md). Every backend request includes the derived `university_id`. The exact host→ID mapping table is **TBD**.
+
+### 16.3 Content Capture
+
+The extension captures full page **content**, not just metadata (v1 captured only names/dates/scores, forcing generic AI answers) (source: EXTENSION_ARCHITECTURE.md).
+
+| Content Type | Trigger | Shared? | Stored In |
+|---|---|---|---|
+| `syllabus` | Visits syllabus page | Yes | `public.course_content` (Library) |
+| `lecture` | Visits lecture/module page | Yes | `public.course_content` (full text, week number) |
+| `rubric` | Opens assignment details | Yes | `public.course_content` (+ `professor_name` if extractable) |
+| `announcement` | Views announcements | Yes | `public.course_content` |
+| `feedback` | Views graded work | **No — personal** | NeuroAGI Brain signals only, never the shared Library |
+
+Shared content lands in `course_content` (Production DB) via `POST /api/extension/content`; the backend dedups and stores only new items. Key columns: `university_id`, `course_id`, `canvas_course_id`, `content_type`, `content_hash`, `text` (≤~50,000 chars), `summary`/`concepts` (populated by Library Organizer), `week_number`, `module_name`, `professor_name`, `source_url`, `first_seen_at`/`last_seen_at`, `seen_by_count` (source: LIBRARY_ARCHITECTURE.md).
+
+**PDFs/PPTs rendered on-page:** the extension extracts on-page *rendered text* of slides/module pages (shadow-DOM-piercing handles component renderers). Handling of natively-downloaded binary PDF/PPT files is **TBD** — docs describe on-page text extraction only (source: EXTENSION_ARCHITECTURE.md).
+
+### 16.4 Behavioral Signal Emission
+
+The extension emits a personal signal for every meaningful LMS action; these feed `brain.signals` (source: EXTENSION_ARCHITECTURE.md). Signals POST with `source: 'chrome_extension'`, timestamp, and URL.
+
+| Student Action | Signal Type | Key Payload |
+|---|---|---|
+| Opens any assignment page | `assignment_viewed` | `assignment_id`, `days_until_due`, `hour_of_day` |
+| Spends >2 min on an assignment | `assignment_deep_read` | `assignment_id`, `time_on_page_seconds` |
+| Bounces off assignment <30s | `assignment_bounced` | `assignment_id`, `days_until_due` |
+| Opens grades page | `grades_checked` | `hour_of_day`, `day_of_week` |
+| Opens grades after submitting | `post_submit_grade_check` | `assignment_id`, `time_since_submit` |
+| Visits same assignment 3+× without submitting | `procrastination_loop` | `assignment_id`, `visit_count`, `days_until_due` |
+| Opens LMS 11pm–4am | `late_night_session` | `hour_of_day`, `pages_visited` |
+| Opens syllabus | `syllabus_viewed` | `course_id`, `week_of_semester` |
+| Views professor feedback | `feedback_viewed` | `assignment_id`, `grade_received` |
+| Navigates to a new course | `course_switched` | `from_course_id`, `to_course_id` |
+| Canvas sync returns a graded assignment | `assignment_graded` | `score`, `max_score`, `percentage`, `submitted_at`, `due_at`, `days_early` |
+
+Time-on-page is tracked (entry diffed on `beforeunload`); a `*_time_spent` signal fires when dwell exceeds 5s. These power pattern recognition, the intervention engine, and grade-trajectory prediction (reasonable accuracy after ~5 `assignment_graded` points) (source: EXTENSION_ARCHITECTURE.md).
+
+### 16.5 The Shared-Library Moat
+
+Course content is identical for every student in a course, so it is stored once and shared — **course-scoped and university-scoped, not student-scoped** (source: EXTENSION_ARCHITECTURE.md).
+
+**Dedup by content hash.** `content_hash = SHA-256(university_id + course_id + content_type + text[:500])`, a `UNIQUE` column. The first student to visit triggers a full write + Claude analysis (~3s, fraction of a cent); the second student's matching hash → **no write, no Claude call** — they inherit the analyzed item at zero cost while still emitting their own view signal. `seen_by_count` records reach (source: LIBRARY_ARCHITECTURE.md).
+
+**Network-effect rationale** (source: LIBRARY_ARCHITECTURE.md):
+
+| Students at a University | Library Coverage |
+|---|---|
+| 10 | Syllabi + some lectures for popular courses |
+| 50 | Complete library for all enrolled courses |
+| 200 | Complete library for all major courses |
+| 1,000 | Professor intelligence profiles from hundreds of graded assignments |
+| 100,000 globally | Every major course at every major university, indexed and connected |
+
+A competitor starting today has zero library and must accumulate it student-by-student; FschoolAI's library widens the gap every day — positioned as "the most important asset FschoolAI will ever build."
+
+### 16.6 Cross-Course Intelligence
+
+Without cross-course linking, every course is a silo. When the Library Organizer adds a new lecture/module, a **Cross-Course Connector** extracts its concepts, searches the Library for those concepts across the student's other enrolled courses, and stores each match in `brain.knowledge` (type `cross_course_connection`), e.g. `{ concept: "regression analysis", course_a: "PSYC201", course_b: "STATS101", chapter_b: 4, confidence: 0.87 }`. The context-window builder includes the top connections, so Reggie links new concepts to where the student already saw them (source: EXTENSION_ARCHITECTURE.md).
+
+### 16.7 Security & Auth
+
+All extension traffic must route through the FschoolAI backend (never directly to Supabase): authenticate with a Supabase Auth JWT, send `Authorization: Bearer <jwt>` on every call; the backend holds the service key and applies owner-scoped logic. The v2 recommendation replaces the custom SHA-256 login with `supabase.auth.signInWithPassword()`, JWT in `chrome.storage.local`. Anon-key-in-the-client is rejected (source: EXTENSION_ARCHITECTURE.md, extension/README.md).
+
+**Must fix** (RLS/token/auth gaps from extension/AUDIT.md):
+
+| ID | Severity | Gap | Required Fix |
+|---|---|---|---|
+| C2 | Critical | Open RLS (`for all using(true)`) + `grant all … to anon` + shipped anon key → anyone can dump every user row (email, password_hash, live canvas_token, gpa) and bulk PATCH/DELETE | Adopt Supabase Auth (`auth.uid()`); owner-scoped policies (`using (user_id = auth.uid()::text)`); `revoke all on neuroagi.users from anon`; never select `password_hash`/`canvas_token` client-side |
+| C3 | Critical | Password auth = client-side unsalted SHA-256 vs a world-readable table; "session" = `localStorage.fschool_uid` (set any id = be that user) | Server-side auth with salted slow KDF (bcrypt/argon2); real session tokens; never expose `password_hash` |
+| C4 | Critical | `canvas_token` stored plaintext + client-readable | Move tokens to a service_role-only table / Supabase Vault; rotate all existing tokens after C2 |
+| H1 | High | Extension and web app mint divergent IDs for the same person | Make extension login-only (web app owns account creation), or adopt the existing row id on email match |
+| H3 | High | Auto-capture stale-user race; `background.js` trusts `msg.userId` blindly → cross-user attribution | Re-read `neuroagi_user` immediately before send; stamp + verify user id before persisting |
+| M1 | Medium | Auto-capture matches `<all_urls>` with broad keywords → scrapes non-LMS sites | Scope `content_scripts.matches`/auto-capture to detected LMS domains |
+| M2 | Medium | Up to 600 chars of scraped PII logged to console | Remove or gate behind a debug flag |
+| M4 | Medium | Missing indexes + nullable ownership FKs | Add indexes; `NOT NULL` on ownership FKs during the auth migration |
+
+The audit places the **Auth + RLS overhaul (C2/C3/C4)** as #1 priority and says to "treat all current data (esp. every `canvas_token`) as exposed" until it lands (source: extension/AUDIT.md).
+
+---
+
+## 17. Known Backend Gaps & Resolutions
+
+These are the concrete engineering gaps between this spec and the current build; each must be closed before/around launch. Gaps 1–5 are launch blockers; 6–11 may proceed in parallel (source: BACKEND_GAPS.md).
+
+### 17.1 Gap register
+
+| # | Gap | Severity | Impact | Resolution |
+|---|-----|----------|--------|------------|
+| 1 | No `user_id` → `person_id` bridge | 🔴 Critical | Every chat loads the wrong brain context or fails; extension signals can't link to the right brain record | `backend/server/utils/person-bridge.ts` with `getPersonId(userId)` (find-or-create `neuro.persons`); add bridge column (type TBD, see §12.4); resolve to `person_id` before any brain op. (source: BACKEND_GAPS.md Gap 1) |
+| 2 | No extension backend routes | 🔴 Critical | Extension v2 has nothing to call; sync/signals/content all fail | Create `routes/extension.ts`: `POST /api/extension/sync`, `/signal`, `/content`, `GET /api/extension/library/exists`; register in `index.ts`; all JWT-protected. (source: BACKEND_GAPS.md Gap 2) |
+| 3 | Context window never reads the library | 🔴 Critical | Reggie has no rubric/lecture context for assignment/lecture questions | Add `getRelevantLibraryItems(personId, courseIds)` to `brain-context-window.ts`; inject `syllabus`/`rubric` rows under "Course Materials." (source: BACKEND_GAPS.md Gap 3) |
+| 4 | Assignment Agent has no rubric source (`rubric` always `undefined`) | 🔴 Critical | Agent advises against an empty rubric | `getRubricForAssignment(courseId, title)` querying `course_content` (`content_type='rubric'`); pass into `assignmentCtx`. (source: BACKEND_GAPS.md Gap 4) |
+| 5 | `fschool.assignments` never populated | 🔴 Critical | Brain has no deadline awareness → no proactive nudges | In `/api/extension/sync`, after writing `public.assignments`, also upsert into `fschool.assignments` (keyed `id,person_id`). (source: BACKEND_GAPS.md Gap 5) |
+| 6 | No Library Organizer agent | 🟡 High | Library fills with raw text no agent reads | `services/library-organizer.ts` `processLibraryItem(itemId)`: Haiku extracts summary+concepts+difficulty → updates `course_content`, upserts `brain.knowledge`; called at end of `/content`. (source: BACKEND_GAPS.md Gap 6) |
+| 7 | No prompt caching | 🟡 High | Chat ~5× more expensive than needed | `cache_control: { type: 'ephemeral' }` on the brain-context system block in `brain-chat-session.ts`. See §17.3. (source: BACKEND_GAPS.md Gap 7) |
+| 8 | No `university_id` on any data | 🟡 High | Shared library can't scope correctly — content collides/leaks across schools | Add `public.users.university_id TEXT`; extension `detectUniversityId(url)`; include `university_id` in every `/sync` and `/content`. (source: BACKEND_GAPS.md Gap 8) |
+| 9 | No professor identity across students | 🟡 High | Professor Intelligence can't link two students' feedback to one profile | Add `course_content.professor_name`/`professor_id`; extension extracts name; backend computes `professor_id = sha256(university_id + professor_name)[:16]`. (source: BACKEND_GAPS.md Gap 9) |
+| 10 | Extension manifest name is `"NeuroAgi"` | 🟢 Low | Off-brand label in Chrome | Change `extension/manifest.json` name to `"FschoolAI"`/`"Reggie by FschoolAI"`. (source: BACKEND_GAPS.md Gap 10) |
+| 11 | Plaintext Canvas tokens | 🟡 High | LMS tokens at rest in plaintext + open RLS = high-value breach | Encrypt tokens at rest (envelope encryption, server-held key, decrypt server-side behind JWT routes); route all writes through the backend service key. See §17.4. **(proposed)** |
+
+### 17.2 Memory & recall architecture
+
+Resolution to "how do agents read student files" (underlies Gaps 3/4/6). Principle: **memory is stored and retrieved, not trained into weights** (source: MEMORY_ARCHITECTURE.md). Two-tier model: long-term = brain DB (`neuroagi.*`); working = Reggie's context window; recall moves relevant items long-term → working per query.
+
+**LLM-routed summary index (not vector RAG).** A single student's corpus is small (hundreds of files), so we let a reasoning model select by intent rather than rank by cosine similarity (source: MEMORY_ARCHITECTURE.md):
+
+- **At ingest (background, per file):** extract text → Haiku 1–2 sentence summary + keywords → store `summary`, `keywords`, `content_text`.
+- **At query:** (1) **Route** — model picks files from the index (`{file, course, summary, keywords}`, ~30 tokens/file → ~7K for 200 files); (2) **Read** — load only chosen `content_text`.
+- `pgvector` added later only as a pre-filter if a corpus outgrows the context window — never the final decider.
+
+**Schema — extend `neuroagi.files`:**
+
+```sql
+ALTER TABLE neuroagi.files ADD COLUMN IF NOT EXISTS summary        TEXT;
+ALTER TABLE neuroagi.files ADD COLUMN IF NOT EXISTS keywords       TEXT[];
+ALTER TABLE neuroagi.files ADD COLUMN IF NOT EXISTS extract_status TEXT DEFAULT 'pending';
+ALTER TABLE neuroagi.files ADD COLUMN IF NOT EXISTS extracted_at   TIMESTAMPTZ;
+```
+
+Heavy extract+summarize runs at sync, in the background — never on Reggie's chat path — idempotent on `(user_id, lms_file_id)`. Note `neuroagi.files` (personal) is distinct from `public.course_content` (shared library, Gaps 3/6); they are not merged (source: MEMORY_ARCHITECTURE.md).
+
+**The `recall_memory` tool.** Reggie's recall is a Claude tool (replacing the ~5–6s classify-then-`name ilike` flow), firing only when a question needs memory:
+
+```
+recall_memory(query) → { files, grades, assignments, signals }
+  1. Load file INDEX (id, name, course, summary, keywords)
+  2. Route: model picks relevant file_ids by intent
+  3. Read:  SELECT content_text for those ids
+  4. Return structured memory slice  (model-agnostic; swappable)
+```
+
+### 17.3 Prompt caching
+
+Resolves Gap 7. The brain context (profile, course list, file summary index, recent signals) is carried as a cached system-prompt prefix:
+
+```typescript
+content: [
+  { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }, // brain context — cached
+  { type: 'text', text: userMessage }                                          // per-turn — not cached
+]
+```
+
+The cached block (2,000–4,000 tokens) is reused across all turns; cache hits cost 10% of normal input price → **70–80% token/cost reduction per multi-turn session** (source: BACKEND_GAPS.md Gap 7; MEMORY_ARCHITECTURE.md). This is the same context block §7.1 assembles — caching is a property of the existing path. The on-demand `content_text` fetched via `recall_memory` stays uncached.
+
+### 17.4 Security hardening checklist
+
+Security is **Phase 0** — it gates everything that stores file contents (source: MEMORY_ARCHITECTURE.md). Close before Phase 1 is testable end-to-end:
+
+- [ ] **RLS** — close the open `for all using(true)` policies; move to user-scoped once identity is JWT-based.
+- [ ] **JWT auth on all routes** — extension authenticates, every write goes through the backend API which validates `Authorization: Bearer <jwt>`.
+- [ ] **Anon-vs-service-key discipline** — no anon key writing from the client; backend uses the service key server-side only, behind JWT validation.
+- [ ] **Canvas/LMS token encryption** — encrypt at rest, decrypt only server-side; raw file bytes in a private Storage bucket with signed URLs.
+- [ ] **One project, correct env** — resolve any Supabase ref/env mismatch so every reader/writer agrees (else the brain becomes a silent third silo).
+- [ ] **Rotate** any service key shared in chat or docs.
+- [ ] **Rate limiting** on `/api/extension/*` and chat routes to bound abuse/cost from a leaked JWT. **(proposed)**
+
+---
+
+## 18. NeuroAGI — The Parent Brain Platform (and How FschoolAI Connects)
+
+NeuroAGI is not a feature of FschoolAI. It is the **parent platform**: a persistent, compounding, person-owned brain that sits *underneath* a family of products. **FschoolAI is one branch — the first/flagship (education) product — of many.** This section defines the *merged* NeuroAGI brain that all products (FschoolAI included) build against, and maps every brain touchpoint elsewhere in this PRD onto it. Where this section and §12 differ, **this section (the v2 target) governs**; §12 documents the current transitional deployment.
+
+### 18.1 NeuroAGI is the platform; FschoolAI is one branch
+
+- **One person = one brain, across every product.** The brain owns the person; products borrow them temporarily. FschoolAI is the education vertical; future verticals (TBD) connect to the *same* brain for the *same* person.
+- **A product is thin.** To the brain, a product is just (a) a `source` label on the signals it writes and (b) a set of capabilities it registers on the bus. Products are replaceable and disposable; the brain and its accumulated history are not.
+- **Compounding across products is the moat.** A trait learned in FschoolAI (e.g. "visual learner", "avoids starting early") is immediately available to the next product via `recall` — no re-learning, no re-onboarding.
+- **Hard rule — no product-specific concepts in the brain.** Education objects (`knowledge_gaps`, `courses`, `assignments`) are *product data*, not brain schema. The brain stores person-level abstractions only (signals, patterns, traits). This is what keeps it reusable across products.
+
+**Topology and division of responsibility (engineering direction).** The relationship is a three-tier chain:
+
+```
+neuro-agi  <----->  fschool (main agent)  <->  other agent (subagent)
+```
+
+- **FschoolAI is the *main agent*.** It owns and orchestrates the product experience and calls its specialist agents (§14) as **subagents**.
+- **Internal scenarios stay closed-loop inside FschoolAI.** Any flow that is internal to the product — a study session, an assignment walkthrough, a subagent-to-subagent handoff — runs to completion *within FschoolAI*. It does **not** round-trip through NeuroAGI on every step.
+- **NeuroAGI's role is deliberately narrow — exactly three jobs:**
+  1. **Route intent** — accurately interpret what the user wants and point FschoolAI at the right direction / subagent.
+  2. **Augment context** — enrich the request with the person's history, behavioral modeling, and learned traits (the derived layers in §18.3).
+  3. **Facilitate bidirectional interaction** — provide the two-way channel/bus (`invoke` / `ingest`, `WS /channel`) so brain and product can talk *during* an interaction, including proactive outreach.
+
+NeuroAGI does **not** run the product's internal logic. It routes, it personalizes, and it carries the conversation both ways; FschoolAI (as main agent) does the work and closes the loop with its subagents. This sharpens §13: *orchestration of subagents* is the main agent's job; *state, intent-routing, and context augmentation* are the brain's.
+
+### 18.2 The merged brain — technical foundation is NeuroAGI **v2**
+
+All technical and architectural decisions for the brain follow **`neuroagi-core` v2** (the minimal kernel), not v1. v1's TypeScript engines are deprecated dead code (they reference flat tables that no longer exist) and are **not** a technical reference.
+
+**Kernel (the unchanging core):**
+- **`memory`** — a single append-only log. Every fact is one row: `kind` + JSONB `body` + `subject` (whose brain) + `tags`/`audience`/`source`/`salience`/timestamps. New information types require **zero schema change** — just a new `kind`.
+- **Forgetting is default** — deterministic decay `effective = salience × exp(-λ·days)` (14-day half-life); `recall` reinforces (use-it-or-lose-it); sub-threshold memories soft-forgotten (kept for audit). Data bloat is an intrinsic property, not a cleanup chore.
+- **`bus`** — a bidirectional capability registry. `invoke` (brain → agent) and `ingest` (agent → brain), over three transports: `local` / `http` / `mcp`. The brain is itself a standard MCP server and can call external MCP agents.
+- **`watch` / `tick`** — a heartbeat that lets the brain act unprompted (proactivity).
+
+**Cortex (the recomputable derived layer — pure functions over `recall`):** `ingress` (multimodal envelope → per-modality perceivers), `reflex` (millisecond fast-path for urgent signals), `channel` (outbox / `WS say`), `hypothesis` (cluster repeated signals → promote to a need/focus), **`policy`** (quiet hours / daily budget / cooldown / importance + urgent bypass), `scheduler` (`kind="schedule"` → fire on time), `semantic` (pluggable embedder). If a derived layer crashes it does not corrupt the memory log.
+
+**Deployment surface (how products connect):** REST + `WS /channel/{device}` + MCP (`uvicorn brain.server:app`). Storage is any Postgres via one `Store` interface (Supabase is merely one option); `pgvector` optional. Multi-tenant by `subject`; sharing via `audience` / `memory_grant` / `space_member`.
+
+> **Reconciliation with §12.** §12's two-Supabase-project model (schemas `neuro`/`brain`/`agents`/`fschool`, read directly by FschoolAI) is the **current transitional state**. The **target** is the v2 kernel fronted by the REST/WS/MCP surface above; FschoolAI migrates from direct schema reads to brain API calls. The raw-data-vs-abstraction boundary (§12.3) and the person-ownership rule are unchanged — only the access mechanism changes.
+
+### 18.3 v1 capabilities, re-implemented the v2 way
+
+v1's contribution is its **product-feature concepts**, not its implementation. Each becomes a v2 **derived layer or bus capability** — a pure function over the memory log, recomputable, and available to *every* product, not just FschoolAI. None of these is a bespoke stateful service.
+
+| v1 feature concept (from `brain-sdk.ts`) | v2 realization |
+|---|---|
+| **Skill verification / credentials** (`verifySkill` → `masteryLevel`, `evidenceCount`) | A recall-derived layer: aggregate `kind="signal"` memories tagged with a skill, score mastery from evidence count + outcome signals; expose as a `verify_skill` bus capability / MCP tool. Output is a pure function of the log — recomputable, tamper-evident. |
+| **Learning style** (`learningStyle: visual/auditory/…`) | A trait mined by the `hypothesis` engine from behavioral signals, promoted to a low-decay `kind="trait"` memory; read at `recall` and injected into context. Not a column — a derived, evolving trait. |
+| **Brain health dashboard** (`getHealthMetrics` → signals, concepts tracked, brain age) | A `recall` aggregate over the memory log (counts, time-span, decay state, recent reinforcement); exposed as a `brain_health` capability/endpoint. No new tables. |
+| **Export / delete (portability + right-to-be-forgotten)** | Native to v2: the memory log *is* the data — export = dump memories by `subject`; delete = `forget` (soft, audited). RTBF is structural, not a bolt-on. |
+
+### 18.4 Connecting the FschoolAI PRD to the brain (the mapping)
+
+This is the **connection**. Every brain touchpoint defined elsewhere in this PRD maps 1:1 onto a v2 primitive — implement against the right-hand column.
+
+Read the table through the topology in §18.1: NeuroAGI supplies **intent routing, context augmentation, and the bidirectional channel**; FschoolAI (main agent) consumes those and runs the actual scenario with its subagents. The brain-side rows (Signal Arbiter → `cortex.policy`, context assembly, intent routing) are NeuroAGI's three jobs; the agent-orchestration rows are FschoolAI's closed loop.
+
+| FschoolAI PRD concept | NeuroAGI v2 primitive |
+|---|---|
+| `brain.read(student_id)` (§3.4) | `recall(subject = person_id, …)` |
+| `brain.write(signal)` (§3.2) | `remember({kind:"signal", body, source:"fschoolai"}, subject)` — or `bus.ingest` from a product agent |
+| StudentBrain context object (§3.1) / pre-computed `context_window` (§13) | A `recall`-derived context assembled on `tick` and cached (the cortex equivalent of Context Window Builder, §14.2) |
+| **Signal Arbiter** (§3.5.2) — dedup, rank, rate-limit, quiet hours | **`cortex.policy` gate** — 1:1 (quiet hours / daily budget / cooldown / importance + urgent bypass). Build on it; do not reinvent. |
+| `proactive_signals` queue + `notification_queue` (§6) | `kind="outbox"` memories selected by the policy gate, delivered via `channel.say` |
+| **Intervention Agent** (§8, Pattern B) | A `watch` watcher on `tick` that `invoke`s a delivery capability **through the policy gate** |
+| **Reflection Agent** (Agent 12, nightly) | `scheduler` (`kind="schedule"`) firing a `sleep_consolidate` derived pass (digest + decay sweep) |
+| **Cohort Agent** (§14) | A shared space (`subject = "cohort:<canonical_course_id>"`) + `audience`; k-anonymity enforced in the aggregation layer before any `recall` is exposed |
+| FschoolAI agents (§4, §14) | Each registers on the `bus` as a capability (`local`/`http`/`mcp`); the brain `invoke`s them, they `ingest` results back |
+| `person_id ↔ user_id` bridge (§12.4) | The product maps its user id to the brain `subject`; one `subject` per person, shared across all products |
+| Two-DB env wiring (§12.5) | In the v2 target the product calls the **brain API** (REST/WS/MCP) instead of holding two Supabase clients; the FschoolAI production DB remains the raw-data store (§12.3 boundary unchanged) |
+| Effectiveness feedback loop (§3.5.4) | Delivery outcomes written back as signals; the policy gate's thresholds tune per `subject` from those signals |
+
+### 18.5 How the next product connects (the platform contract)
+
+Because many products are coming, the onboarding contract for any new product is fixed and minimal:
+
+1. **Authenticate** its users onto a brain `subject` (reusing the existing subject if the person already has a brain from another product).
+2. **Register** its agents as bus capabilities (`local`/`http`/`mcp`).
+3. **Write** signals via `remember` / `ingest` (always stamped with its own `source`).
+4. **Read** via `recall` — and inherit everything other products have already taught the brain about that person.
+5. **Optionally subscribe** a `channel` for proactive delivery, gated by `cortex.policy`.
+
+Governance constants across all products: per-`source` attribution on every memory, consent/trust gating, `subject` isolation by default, and cross-product/cross-person sharing **only** via explicit `audience` / `memory_grant` / `space_member`. The brain never imports a product's domain concepts — that boundary is what lets product N+1 benefit, on day one, from everything products 1…N have learned.
 
 ---
 
