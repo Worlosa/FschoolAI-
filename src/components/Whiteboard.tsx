@@ -319,6 +319,9 @@ export default function Whiteboard({
   const currentRef = useRef<Point[]>([]);
   const [localLaser, setLocalLaser] = useState<{ x: number; y: number } | null>(null);
   const [textInput, setTextInput] = useState<{ x: number; y: number } | null>(null);
+  const [showGrid, setShowGrid]   = useState(false);
+  const [showHelp, setShowHelp]   = useState(false);
+  const showGridRef = useRef(false);
   const erasedThisDragRef = useRef<Set<string>>(new Set());
   const selectedRef = useRef<string | null>(null);
   const selectDragStartRef = useRef<Point | null>(null);
@@ -367,6 +370,23 @@ export default function Whiteboard({
     ctx.globalAlpha = 1;
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, BOARD_W, BOARD_H);
+
+    // Optional grid overlay — drawn after BG fill so it sits under all strokes.
+    if (showGridRef.current) {
+      const GRID = 50; // board-space pixels between grid lines
+      ctx.save();
+      ctx.globalAlpha = 0.12;
+      ctx.strokeStyle = bg === "#ffffff" || bg === "#f4ecd8" || bg === "#d9c9a3" ? "#000" : "#fff";
+      ctx.lineWidth = 0.5;
+      ctx.setLineDash([2, 3]);
+      for (let x = GRID; x < BOARD_W; x += GRID) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, BOARD_H); ctx.stroke();
+      }
+      for (let y = GRID; y < BOARD_H; y += GRID) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(BOARD_W, y); ctx.stroke();
+      }
+      ctx.restore();
+    }
 
     const selId = selectedRef.current;
     const delta = selectDragDeltaRef.current;
@@ -429,6 +449,7 @@ export default function Whiteboard({
     render();
   }, [bg]);           // eslint-disable-line
   useEffect(() => { render(); }, [liveStrokes]);  // eslint-disable-line
+  useEffect(() => { showGridRef.current = showGrid; render(); }, [showGrid]); // eslint-disable-line
 
   // Keep a ref to finishStroke so the global listener always calls the latest version.
   const finishStrokeRef = useRef<() => void>(() => {});
@@ -444,6 +465,39 @@ export default function Whiteboard({
       window.removeEventListener("pointercancel", globalUp);
     };
   }, []);
+
+  // Keyboard shortcuts for tools + delete-to-erase for selected stroke.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if ((e.target as HTMLElement).isContentEditable) return;
+
+      // Undo / Redo — delegate to parent handlers.
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === "z") { e.preventDefault(); onUndo?.(); return; }
+      if ((e.ctrlKey || e.metaKey) && (e.shiftKey ? e.key === "Z" : e.key === "y")) { e.preventDefault(); onRedo?.(); return; }
+
+      // Skip all other shortcuts when a modifier is held.
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      // Delete / Backspace → erase selected stroke.
+      if ((e.key === "Delete" || e.key === "Backspace") && toolRef.current === "select") {
+        if (selectedRef.current) { onEraseStroke(selectedRef.current); selectedRef.current = null; render(); }
+        return;
+      }
+
+      // Tool hotkeys.
+      const map: Record<string, Tool> = {
+        p: "pen", e: "stroke-erase", a: "area-erase",
+        l: "laser", t: "text", s: "select",
+        r: "rect",
+      };
+      if (e.key in map) { e.preventDefault(); onToolChange(map[e.key]); return; }
+      if (e.key === "Escape") { e.preventDefault(); onToolChange("pen"); }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onToolChange, onUndo, onRedo, onEraseStroke]); // eslint-disable-line
 
   // Convert a pointer-event client position → board coordinate space (0–BOARD_W × 0–BOARD_H).
   // The canvas element is CSS-scaled via `zoom`, so we divide the CSS pixel offset by
@@ -669,9 +723,25 @@ export default function Whiteboard({
     }
     if (toolRef.current === "stroke-erase") { eraseAt(pt); return; }
 
-    // Shape tools: keep only [start, currentPt] for preview
+    // Shape tools: keep only [start, currentPt] for preview.
+    // Holding Shift constrains: rect → square, line/arrow → nearest 45°.
     if (SHAPE_TOOLS.includes(toolRef.current)) {
-      currentRef.current = [currentRef.current[0] ?? pt, pt];
+      let end = pt;
+      const start = currentRef.current[0] ?? pt;
+      if (e.shiftKey) {
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        if (toolRef.current === "rect") {
+          const side = Math.max(Math.abs(dx), Math.abs(dy));
+          end = { x: start.x + Math.sign(dx) * side, y: start.y + Math.sign(dy) * side };
+        } else if (toolRef.current === "line" || toolRef.current === "arrow") {
+          const angle = Math.atan2(dy, dx);
+          const snap  = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+          const len   = Math.hypot(dx, dy);
+          end = { x: Math.round(start.x + Math.cos(snap) * len), y: Math.round(start.y + Math.sin(snap) * len) };
+        }
+      }
+      currentRef.current = [start, end];
       const canvas = canvasRef.current;
       if (canvas && snapshotRef.current) {
         const ctx = canvas.getContext("2d")!;
@@ -790,7 +860,27 @@ export default function Whiteboard({
   const isPen = tool === "pen";
   const isText = tool === "text";
   const isShape = SHAPE_TOOLS.includes(tool);
-  const cursor = tool === "stroke-erase" ? "pointer" : tool === "laser" ? "none" : tool === "text" ? "text" : tool === "select" ? "default" : "crosshair";
+  // Build a circular SVG cursor sized to the active tool's stroke radius.
+  // r is in CSS pixels; hotspot is centred on the circle.
+  function makeSizeCursor(r: number, strokeColor = "#333", fillColor = "none"): string {
+    const safe = Math.max(2, Math.min(60, Math.round(r)));
+    const size = (safe + 3) * 2;
+    const c = safe + 3;
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${size}' height='${size}'>`
+      + `<circle cx='${c}' cy='${c}' r='${safe}' fill='${fillColor}' stroke='${strokeColor}' stroke-width='1.5' opacity='0.85'/>`
+      + (fillColor === "none" ? `<circle cx='${c}' cy='${c}' r='2' fill='${strokeColor}' opacity='0.85'/>` : "")
+      + `</svg>`;
+    return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${c} ${c}, crosshair`;
+  }
+
+  const cursor =
+    tool === "pen"         ? makeSizeCursor(Math.max(2, Math.round(penWidth  / 2)))
+    : tool === "area-erase" ? makeSizeCursor(Math.max(6, Math.round(eraserSize / 3)), "#888", "rgba(180,180,180,0.12)")
+    : tool === "stroke-erase" ? "pointer"
+    : tool === "laser"        ? "none"
+    : tool === "text"         ? "text"
+    : tool === "select"       ? "default"
+    : "crosshair";
   const isCustomColor = !PEN_COLORS.includes(color);
 
   function handleTextCommit(text: string) {
@@ -904,6 +994,16 @@ export default function Whiteboard({
             title="Reset zoom to 100%"
           >{Math.round(zoom * 100)}%</button>
         )}
+        <button
+          style={{ ...chip(showGrid), opacity: 0.85 }}
+          onClick={() => setShowGrid(g => !g)}
+          title="Toggle grid overlay"
+        >⊞ Grid</button>
+        <button
+          style={{ ...chip(showHelp), minWidth: "28px" }}
+          onClick={() => setShowHelp(h => !h)}
+          title="Keyboard shortcuts"
+        >?</button>
         <button
           style={{ ...chip(false), color: "rgba(100,210,120,0.9)", borderColor: "rgba(80,190,100,0.18)", background: "rgba(80,190,100,0.06)" }}
           onClick={handleExport}
@@ -1021,6 +1121,34 @@ export default function Whiteboard({
               style={{ ...chip(eraserSize === w), width: "34px", display: "flex", alignItems: "center", justifyContent: "center", padding: "6px 0" }}>
               <span style={{ display: "block", width: `${Math.min(22, 8 + i * 4)}px`, height: `${Math.min(22, 8 + i * 4)}px`, borderRadius: "50%", border: `2px solid ${eraserSize === w ? "#c49a3c" : "var(--text-dim)"}` }} />
             </button>
+          ))}
+        </div>
+      )}
+
+      {/* Keyboard shortcut cheatsheet */}
+      {showHelp && (
+        <div style={{
+          margin: "0 16px 8px", padding: "12px 16px", borderRadius: "10px",
+          background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+          display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 24px",
+        }}>
+          {([
+            ["P", "Pen"],       ["E", "Stroke erase"],
+            ["A", "Area erase"],["L", "Laser pointer"],
+            ["T", "Text"],      ["S", "Select / move"],
+            ["R", "Shapes"],    ["Esc", "Back to pen"],
+            ["Ctrl+Z", "Undo"], ["Ctrl+Shift+Z", "Redo"],
+            ["Delete", "Erase selected"], ["Shift+draw", "Constrain shape"],
+            ["Ctrl+scroll", "Zoom in/out"], ["Middle drag", "Pan"],
+          ] as [string, string][]).map(([key, label]) => (
+            <div key={key} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "11px" }}>
+              <kbd style={{
+                background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.18)",
+                borderRadius: "4px", padding: "1px 6px", fontFamily: "inherit",
+                color: "var(--text-primary)", flexShrink: 0, whiteSpace: "nowrap",
+              }}>{key}</kbd>
+              <span style={{ color: "var(--text-dim)" }}>{label}</span>
+            </div>
           ))}
         </div>
       )}

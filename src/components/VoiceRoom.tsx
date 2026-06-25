@@ -37,6 +37,7 @@ export default function VoiceRoom({ roomId, userName, onClose, onSpeakingChange,
   const [status, setStatus]       = useState<Status>("loading");
   const [url, setUrl]             = useState<string | null>(null);
   const [minimized, setMinimized] = useState(false);
+  const [retryKey, setRetryKey]   = useState(0);
 
   const [pos, setPos]             = useState(() =>
     defaultPos(window.innerWidth, window.innerHeight)
@@ -47,6 +48,8 @@ export default function VoiceRoom({ roomId, userName, onClose, onSpeakingChange,
   const [ncEnabled, setNcEnabled] = useState(true);
   const ncEnabledRef = useRef(true);
   const [connectionQuality, setConnectionQuality] = useState<"good" | "fair" | "poor" | "unknown">("unknown");
+  const [showPttHint, setShowPttHint]  = useState(false);
+  const pttHintShownRef = useRef(false);
   const callFrameRef = useRef<any>(null);
 
   const dragging   = useRef(false);
@@ -81,7 +84,7 @@ export default function VoiceRoom({ roomId, userName, onClose, onSpeakingChange,
       }
     })();
     return () => { alive = false; ctrl.abort(); };
-  }, [roomId]);
+  }, [roomId, retryKey]);
 
   // Correct Daily.co SDK pattern: wrap an empty iframe (no src), then call join() which
   // navigates the iframe to the room URL AND puts the SDK into "joined" state so that
@@ -99,6 +102,11 @@ export default function VoiceRoom({ roomId, userName, onClose, onSpeakingChange,
     frame.on("joined-meeting", () => {
       if (ncEnabledRef.current) {
         frame.updateInputSettings({ audio: { processor: { type: "noise-cancellation" } } }).catch(() => {});
+      }
+      if (!pttHintShownRef.current) {
+        pttHintShownRef.current = true;
+        setShowPttHint(true);
+        setTimeout(() => setShowPttHint(false), 3500);
       }
     });
     frame.on("active-speaker-change", (e: any) => {
@@ -254,9 +262,19 @@ export default function VoiceRoom({ roomId, userName, onClose, onSpeakingChange,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <span style={{ fontSize: "14px", pointerEvents: "none" }}>🎙</span>
-          <span style={{ fontSize: "13px", fontWeight: 600, color: ACCENT, pointerEvents: "none" }}>Voice Chat</span>
+          {/* Live pulse dot — always visible so minimized bar shows call is active */}
           {status === "ready" && (
+            <span style={{
+              display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", flexShrink: 0,
+              background: "#4ade80", boxShadow: "0 0 6px #4ade80",
+              animation: "vcPulse 1.8s ease-in-out infinite",
+            }} />
+          )}
+          <span style={{ fontSize: "14px", pointerEvents: "none" }}>🎙</span>
+          <span style={{ fontSize: "13px", fontWeight: 600, color: ACCENT, pointerEvents: "none" }}>
+            {isMinimized ? "Voice" : "Voice Chat"}
+          </span>
+          {status === "ready" && !isMinimized && (
             <button
               onPointerDown={e => {
                 e.preventDefault();
@@ -292,7 +310,7 @@ export default function VoiceRoom({ roomId, userName, onClose, onSpeakingChange,
               {pttActive ? "🔴 LIVE" : "🎙 Hold to talk"}
             </button>
           )}
-          {status === "ready" && (
+          {status === "ready" && !isMinimized && (
             <button
               onClick={toggleNC}
               title={ncEnabled ? "Noise cancellation on (click to disable)" : "Noise cancellation off (click to enable)"}
@@ -314,7 +332,7 @@ export default function VoiceRoom({ roomId, userName, onClose, onSpeakingChange,
               {ncEnabled ? "🎧 NC On" : "🎧 NC Off"}
             </button>
           )}
-          {status === "ready" && (
+          {status === "ready" && !isMinimized && (
             <button
               onClick={onToggleHand}
               title={handRaised ? "Lower hand" : "Raise hand"}
@@ -336,7 +354,7 @@ export default function VoiceRoom({ roomId, userName, onClose, onSpeakingChange,
               ✋ {handRaised ? "Raised" : "Raise"}
             </button>
           )}
-          {connectionQuality !== "unknown" && (
+          {connectionQuality !== "unknown" && !isMinimized && (
             <span title={`Connection: ${connectionQuality}`} style={{
               display: "inline-flex", alignItems: "center", gap: "4px",
               fontSize: "11px", color: connectionQuality === "good" ? "#4ade80" : connectionQuality === "fair" ? "#f59e0b" : "#f87171",
@@ -429,6 +447,18 @@ export default function VoiceRoom({ roomId, userName, onClose, onSpeakingChange,
                 🎙 LIVE
               </div>
             )}
+            {showPttHint && !pttActive && (
+              <div style={{
+                position: "absolute", bottom: "54px", left: "50%", transform: "translateX(-50%)",
+                background: "rgba(20,20,28,0.92)", color: "var(--text-primary)", fontSize: "12px",
+                fontWeight: 500, padding: "8px 16px", borderRadius: "20px", zIndex: 10,
+                pointerEvents: "none", border: "1px solid rgba(255,255,255,0.12)",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.5)", whiteSpace: "nowrap",
+                animation: "vcPttHint 3.5s ease forwards",
+              }}>
+                💡 Hold <kbd style={{ background: "rgba(255,255,255,0.12)", borderRadius: "4px", padding: "1px 6px", fontFamily: "inherit" }}>Space</kbd> to talk
+              </div>
+            )}
           </div>
         )}
 
@@ -452,14 +482,30 @@ export default function VoiceRoom({ roomId, userName, onClose, onSpeakingChange,
             <p style={{ fontSize: "13px", color: "var(--text-primary)", marginBottom: "6px" }}>
               Couldn't connect to voice.
             </p>
-            <p style={{ fontSize: "11px", color: "var(--text-dim)" }}>
-              Check your connection and try reopening the panel.
+            <p style={{ fontSize: "11px", color: "var(--text-dim)", marginBottom: "16px" }}>
+              Check your connection and try again.
             </p>
+            <button
+              onClick={() => { setStatus("loading"); setUrl(null); setRetryKey(k => k + 1); }}
+              style={{
+                background: "rgba(96,165,250,0.12)",
+                border: "1px solid rgba(96,165,250,0.35)",
+                borderRadius: "8px",
+                color: ACCENT,
+                fontSize: "13px",
+                fontWeight: 600,
+                padding: "8px 20px",
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+            >
+              Try again
+            </button>
           </div>
         )}
       </div>
 
-      <style>{`@keyframes vcPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.3)}}`}</style>
+      <style>{`@keyframes vcPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.3)}}@keyframes vcPttHint{0%{opacity:0;transform:translateX(-50%) translateY(6px)}10%{opacity:1;transform:translateX(-50%) translateY(0)}80%{opacity:1}100%{opacity:0}}`}</style>
     </div>
   );
 
