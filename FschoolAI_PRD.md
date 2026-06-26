@@ -1,5 +1,5 @@
 # FschoolAI — Product Requirements Document (PRD)
-**Version:** 1.8  
+**Version:** 1.9  
 **Date:** June 25, 2026  
 **Author:** Vincent Yang, FschoolAI  
 **Audience:** Engineering team — Tencent engineer, Bytedance engineer, Aryan, Ryan, Vincent
@@ -381,7 +381,7 @@ Tuesday June 24:
 - 5 quiz questions (multiple choice + short answer)
 - Connections to existing brain knowledge ("This concept relates to what you studied last week in CHEM 201")
 
-**Note for Aryan:** The Chrome extension captures audio from the student's microphone (in-class) or from a browser tab (online lecture). Audio is processed via Whisper. The transcript and summary are stored in Supabase and linked to the student's brain.
+**Note for Aryan:** The Chrome extension captures audio from the student's microphone (in-class) or from a browser tab (online lecture). The recorded lecture is transcribed post-session with **self-hosted Whisper large-v3** (handles English, Spanish, French, and Mandarin; fine-tunable on an academic corpus). The transcript and summary are stored in Supabase and linked to the student's brain; the agent's existing LLM pass produces the summary, concept list, flashcards, and quiz, so a provider's built-in chaptering is not required.
 
 **Brain signals written:**
 - `lecture_attended`: course, date, duration
@@ -582,12 +582,12 @@ The agent must never imply a clinical diagnosis, never use the word "anxiety" or
 **What it does:** Handles all audio-related tasks. Transcribes lecture recordings, translates content into the student's preferred language, converts text explanations to audio for auditory learners, and processes voice input from the student.
 
 **Capabilities:**
-- Speech-to-text (Whisper) — transcribe any audio file or live recording
+- Speech-to-text — transcribe any audio file or live recording. Real-time is language-routed per §7 (ElevenLabs Scribe for English, Deepgram Nova-3 for Spanish/French, Tencent Cloud ASR for Mandarin); post-processing/batch transcription uses self-hosted Whisper large-v3
 - Text-to-speech — read explanations aloud
 - Translation — translate lecture content, study materials, or AI responses into the student's language
 - Language detection — automatically detects the student's preferred language from their messages
 
-**Supported languages (Phase 1):** English, Mandarin Chinese, Hindi, French, Spanish, Arabic
+**Supported languages (Phase 1):** English (default), Mandarin Chinese (Simplified, zh-CN — a Phase-1 requirement), Spanish (es-419), French (fr-FR). Hindi and Arabic follow in Phase 2. STT and TTS providers are routed per language (§7).
 
 **Brain signals written:**
 - `preferred_language`: detected from student's messages
@@ -745,7 +745,7 @@ canonical_assignments (
 Cohorts are grouped by `(institution_id, canvas_course_id)`. These IDs are shared across students in the same Canvas instance.
 
 **Concept taxonomy (required prerequisite — harder than the canonical course layer):**
-The confusion clustering algorithm joins on `concept_tag`. If tags are free-text strings written by the Tutor Agent at inference time, the same concept will appear as "stereochem", "stereochemistry", "chirality", "R/S configuration", and "chiral centres" — none of which will reach the k=10 threshold individually.
+The confusion clustering algorithm joins on `concept_tag`. If tags are free-text strings written by the Tutor Agent at inference time, the same concept will appear as "stereochem", "stereochemistry", "chirality", "R/S configuration", and "chiral centres" — none of which will reach the k=10 threshold individually. The same fragmentation happens **across languages** — a Mandarin learner's `导数` and an English learner's `derivative` are one concept and must cluster together. So concept tags must resolve to a **language-agnostic canonical concept ID with localised labels**, never free-text in whatever language the Tutor Agent used (this is also what lets the course/university brain share understanding across English- and Mandarin-speaking students — §9 Language).
 
 Two approaches are acceptable. Choose one before building the Cohort Agent:
 
@@ -1105,14 +1105,17 @@ created_at          timestamp
 | Backend | Supabase (database + auth + storage) |
 | Brain layer | **NeuroAGI v2 kernel** — memory-log + decay + bus + cortex, reached via REST / `WS /channel` / **MCP** (§18.2). Phase 1: local mock JSON; transitional: direct Supabase brain schemas (§12). v1's TypeScript engines are deprecated and not used. |
 | LLM | GPT-4o via OpenAI API (Phase 1) |
-| Speech-to-text | OpenAI Whisper |
+| Speech-to-text (real-time) | Language-routed: ElevenLabs Scribe v2 RT (English) · Deepgram Nova-3 (Spanish es-419 / French fr-FR, with academic keyterms) · **Tencent Cloud ASR** (Mandarin zh-CN), with Krisp on-device noise cancellation upstream |
+| Speech-to-text (post-processing) | **Self-hosted Whisper large-v3** — all languages (EN/ES/FR/ZH); fine-tunable on an academic corpus, runs on-prem |
+| Voice rooms (study, ≤8) | LiveKit (Cloud → self-hosted at scale); native WebRTC P2P + Cloudflare TURN for 2–3 person rooms; Agora fallback for Latin-American edge — replaces Daily.co |
+| Math notation | LLM post-processing step — converts spoken math to symbols/LaTeX ("x squared" → x²) |
 | Canvas integration | Canvas LMS REST API + OAuth 2.0 |
 | Calendar integration | Google Calendar API + Apple CalDAV |
 | Chrome extension | Manifest V3, React |
 | Hosting | Manus (FschoolAI frontend) |
 | Notification delivery | Firebase Cloud Messaging (push), Twilio (SMS), Resend (email) |
 | SRS engine | FSRS algorithm (open-source, client-side) |
-| Podcast TTS | ElevenLabs multi-voice API (Agent 15) |
+| Text-to-speech | ElevenLabs (multilingual multi-voice — Audio Agent §9 + Podcast Agent §15; includes zh-CN voices) |
 | Stripe | Payment processing (Phase 1 launch requirement) |
 
 ---
@@ -1200,7 +1203,7 @@ The build order is designed so no engineer blocks another. Ryan's brain mock is 
 
 **Privacy:** Student data is never used to train models. Canvas tokens are stored encrypted. Brain data belongs to the student — they can export or delete it at any time.
 
-**Language:** All agents must support English by default. Mandarin Chinese support is required for Phase 1 (Chinese student market). Additional languages via Audio Agent in Phase 2.
+**Language:** All agents must support English by default. **Mandarin Chinese (Simplified, zh-CN) is required for Phase 1** (Chinese student market) — scoped to Chinese *international* students in North America, not a mainland-China deployment (which would require China-region infrastructure, an ICP licence, and data residency, and is out of scope here). Spanish (es-419) and French (fr-FR) are the secondary languages. Speech is **language-routed** to the best engine per language (§7) behind a language-detection step. The UI must localise to zh-CN and ship a **CJK font fallback** (e.g. Noto Sans SC) — the display typefaces do not cover Chinese. Concept tags written to the cohort/course brain must use **language-agnostic canonical IDs with localised labels** (§14), so `导数` and "derivative" map to the same concept node. Hindi, Arabic, and other languages follow in Phase 2 via the Audio Agent.
 
 **Offline mode:** Core brain context is cached locally. Students can view their study plan and upcoming deadlines without internet. Active agent sessions require internet.
 
