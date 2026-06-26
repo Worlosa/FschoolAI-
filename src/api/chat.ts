@@ -58,3 +58,18 @@ export async function uploadChatImage(roomId: string, file: File): Promise<strin
   if (!data?.signedUrl) throw new Error("Could not get signed URL for uploaded image");
   return data.signedUrl;
 }
+
+/** Upload an image to the whiteboard-images prefix and return a signed URL. */
+export async function uploadWhiteboardImage(roomId: string, file: File): Promise<string> {
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
+  const path = `whiteboard-images/${roomId}/${crypto.randomUUID()}.${ext}`;
+  const { error: uploadErr } = await supabase.storage
+    .from("media-uploads")
+    .upload(path, file, { contentType: file.type, upsert: false });
+  if (uploadErr) throw uploadErr;
+  const { data } = await supabase.storage
+    .from("media-uploads")
+    .createSignedUrl(path, 31536000);
+  if (!data?.signedUrl) throw new Error("Could not get signed URL for whiteboard image");
+  return data.signedUrl;
+}

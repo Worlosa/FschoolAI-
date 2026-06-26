@@ -1166,8 +1166,21 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     const idx = list.findIndex((s: any) => s.id === strokeId);
     if (idx === -1) return;
     const s = list[idx];
-    const moved = { ...s, points: s.points.map((p: Point) => ({ ...p, x: p.x + dx, y: p.y + dy })) };
+    const moved = s.mode === "image"
+      ? { ...s, x: (s.x ?? 0) + dx, y: (s.y ?? 0) + dy }
+      : { ...s, points: (s.points ?? []).map((p: Point) => ({ ...p, x: p.x + dx, y: p.y + dy })) };
     arr.doc?.transact(() => { arr.delete(idx, 1); arr.insert(idx, [moved]); });
+  }
+
+  function handleReplaceImageStroke(oldId: string, newData: { mode: "image"; url: string; x: number; y: number; w: number; h: number }) {
+    const arr = yjsStrokesRef.current;
+    if (!arr) return;
+    const list = arr.toArray() as any[];
+    const idx = list.findIndex((s: any) => s.id === oldId);
+    if (idx === -1) return;
+    const updated = { ...list[idx], x: newData.x, y: newData.y, w: newData.w, h: newData.h };
+    arr.doc?.transact(() => { arr.delete(idx, 1); arr.insert(idx, [updated]); });
+    setStrokes(prev => prev.map(s => s.id === oldId ? { ...s, x: newData.x, y: newData.y, w: newData.w, h: newData.h } : s));
   }
 
   async function startSession() {
@@ -1645,7 +1658,10 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [showBoard]);
 
-  function handleStrokeComplete(stroke: { mode: "pen" | "erase"; style: PenStyle; color: string; width: number; points: Point[] }) {
+  function handleStrokeComplete(stroke:
+    | { mode: "pen" | "erase"; style: PenStyle; color: string; width: number; points: Point[] }
+    | { mode: "image"; url: string; x: number; y: number; w: number; h: number }
+  ) {
     const newStroke = {
       id: (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2) + Date.now().toString(36)),
       room_id: room.id,
@@ -1653,7 +1669,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
       name: userData?.name ?? "Anonymous",
       created_at: new Date().toISOString(),
       ...stroke,
-    };
+    } as Stroke;
     setStrokes(prev => [...prev, newStroke]);
     yjsStrokesRef.current?.push([newStroke]);
     // Track for undo; new stroke invalidates the redo history.
@@ -2015,6 +2031,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           onStrokeComplete={handleStrokeComplete}
           onEraseStroke={handleEraseStroke}
           onMoveStroke={handleMoveStroke}
+          onReplaceImageStroke={handleReplaceImageStroke}
           onLiveStroke={handleLiveStroke}
           onClear={handleClearBoard}
           canUndo={canUndo}
@@ -2027,6 +2044,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           onLaserMove={handleLaserMove}
           onClose={() => setShowBoard(false)}
           activeSpeaker={activeSpeakerName}
+          roomId={room.id}
         />
       )}
 

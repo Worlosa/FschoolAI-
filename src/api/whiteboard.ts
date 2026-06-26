@@ -13,11 +13,17 @@ export type Stroke = {
   room_id: string;
   user_id: string;
   name: string;
-  mode: "pen" | "erase";   // 'erase' = area eraser
-  style: PenStyle;         // only meaningful when mode === 'pen'
+  mode: "pen" | "erase" | "image";
+  style: PenStyle;
   color: string;
   width: number;
   points: Point[];
+  // image-stroke fields (mode === "image" only)
+  url?: string;
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
   created_at: string;
 };
 

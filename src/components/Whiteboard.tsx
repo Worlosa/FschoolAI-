@@ -18,6 +18,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Point, Stroke, PenStyle } from "../api/whiteboard";
+import { uploadWhiteboardImage } from "../api/chat";
 
 export const BOARD_W = 1000;
 export const BOARD_H = 600;
@@ -59,7 +60,8 @@ function dist(a: Point, b: Point) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-function drawStroke(ctx: CanvasRenderingContext2D, s: { mode: "pen" | "erase"; style: PenStyle; color: string; width: number; points: Point[] }, bgColor: string) {
+type PenOnlyStroke = { mode: "pen" | "erase"; style: PenStyle; color: string; width: number; points: Point[] };
+function drawStroke(ctx: CanvasRenderingContext2D, s: PenOnlyStroke, bgColor: string) {
   const pts = s.points;
   if (!pts || pts.length === 0) return;
   ctx.save();
@@ -271,6 +273,11 @@ function strokeBounds(s: { style: PenStyle; points: Point[] }): { x1: number; y1
 }
 
 function hitForSelect(p: Point, s: Stroke): boolean {
+  if (s.mode === "image") {
+    const pad = 8;
+    return p.x >= (s.x ?? 0) - pad && p.x <= (s.x ?? 0) + (s.w ?? 0) + pad &&
+           p.y >= (s.y ?? 0) - pad && p.y <= (s.y ?? 0) + (s.h ?? 0) + pad;
+  }
   if (SHAPE_STYLES.includes(s.style)) {
     const b = strokeBounds(s);
     if (!b) return false;
@@ -280,13 +287,30 @@ function hitForSelect(p: Point, s: Stroke): boolean {
   return hitStroke(p, s, 12);
 }
 
+const IMG_HANDLE_R = 10; // board-px hit radius for corner handles
+
+function hitImageHandle(pt: Point, s: Stroke): "nw" | "ne" | "sw" | "se" | null {
+  if (s.mode !== "image") return null;
+  const x = s.x ?? 0, y = s.y ?? 0, w = s.w ?? 0, h = s.h ?? 0;
+  const corners: Array<["nw" | "ne" | "sw" | "se", number, number]> = [
+    ["nw", x, y], ["ne", x + w, y], ["sw", x, y + h], ["se", x + w, y + h],
+  ];
+  for (const [name, cx, cy] of corners) {
+    if (Math.abs(pt.x - cx) <= IMG_HANDLE_R && Math.abs(pt.y - cy) <= IMG_HANDLE_R) return name;
+  }
+  return null;
+}
+
+type ImageStroke = { mode: "image"; url: string; x: number; y: number; w: number; h: number };
+type PenStroke   = { mode: "pen" | "erase"; style: PenStyle; color: string; width: number; points: Point[] };
+
 export default function Whiteboard({
   strokes, liveStrokes, tool, style, color, penWidth, eraserSize, bg,
   onToolChange, onStyleChange, onColorChange, onPenWidthChange, onEraserSizeChange, onBgChange,
-  onStrokeComplete, onEraseStroke, onMoveStroke, onLiveStroke, onClear,
+  onStrokeComplete, onEraseStroke, onMoveStroke, onReplaceImageStroke, onLiveStroke, onClear,
   canUndo, canRedo, onUndo, onRedo,
   peerCursors, laserPositions, onCursorMove, onLaserMove,
-  onClose, activeSpeaker,
+  onClose, activeSpeaker, roomId,
 }: {
   strokes: Stroke[];
   liveStrokes?: Record<string, { mode: "pen" | "erase"; style: PenStyle; color: string; width: number; points: Point[] }>;
@@ -297,10 +321,11 @@ export default function Whiteboard({
   onPenWidthChange: (w: number) => void;
   onEraserSizeChange: (w: number) => void;
   onBgChange: (c: string) => void;
-  onStrokeComplete: (s: { mode: "pen" | "erase"; style: PenStyle; color: string; width: number; points: Point[] }) => void;
+  onStrokeComplete: (s: PenStroke | ImageStroke) => void;
   onEraseStroke: (strokeId: string) => void;
   onMoveStroke?: (strokeId: string, dx: number, dy: number) => void;
-  onLiveStroke?: (s: { mode: "pen" | "erase"; style: PenStyle; color: string; width: number; points: Point[] } | null) => void;
+  onReplaceImageStroke?: (oldId: string, newData: ImageStroke) => void;
+  onLiveStroke?: (s: PenStroke | null) => void;
   onClear: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
@@ -313,19 +338,28 @@ export default function Whiteboard({
   onClose: () => void;
   /** Name of the currently speaking voice participant — shown as a pill in the header. */
   activeSpeaker?: string | null;
+  /** Room ID — required to upload images to the correct storage path. */
+  roomId?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef(false);
   const currentRef = useRef<Point[]>([]);
   const [localLaser, setLocalLaser] = useState<{ x: number; y: number } | null>(null);
   const [textInput, setTextInput] = useState<{ x: number; y: number } | null>(null);
-  const [showGrid, setShowGrid]   = useState(false);
-  const [showHelp, setShowHelp]   = useState(false);
+  const [showGrid, setShowGrid]     = useState(false);
+  const [showHelp, setShowHelp]     = useState(false);
   const showGridRef = useRef(false);
+  const [imgUploading, setImgUploading] = useState(false);
+  const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const imgOffsetRef = useRef(0); // cycles 0→30→60→...→150→0 to stagger placements
   const erasedThisDragRef = useRef<Set<string>>(new Set());
   const selectedRef = useRef<string | null>(null);
   const selectDragStartRef = useRef<Point | null>(null);
   const selectDragDeltaRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
+  const resizeHandleRef = useRef<"nw" | "ne" | "sw" | "se" | null>(null);
+  const resizeStartRef = useRef<{ bx: number; by: number; bw: number; bh: number; px: number; py: number } | null>(null);
+  const resizeRectRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
   // Snapshot of the canvas at the start of each stroke. Restored on every
   // pointermove before drawing the in-progress stroke so committed strokes
   // are preserved regardless of React render timing.
@@ -393,19 +427,73 @@ export default function Whiteboard({
     const hasDelta = delta.dx !== 0 || delta.dy !== 0;
 
     for (const s of strokesRef.current) {
-      if (selId && s.id === selId && hasDelta) {
-        const moved = { ...s, points: s.points.map(p => ({ ...p, x: p.x + delta.dx, y: p.y + delta.dy })) };
-        drawStroke(ctx, moved, bg);
+      if (s.mode === "image") {
+        // Ensure the image is loading; draw once it arrives.
+        if (s.url && !imageCacheRef.current.has(s.url)) {
+          const img = new window.Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => render();
+          img.src = s.url;
+          imageCacheRef.current.set(s.url, img);
+        }
+        const isSelected = selId === s.id && toolRef.current === "select";
+        // Live resize rect takes priority; otherwise apply move delta.
+        const liveRect = isSelected && resizeRectRef.current;
+        const rx = liveRect ? liveRect.x : (s.x ?? 0);
+        const ry = liveRect ? liveRect.y : (s.y ?? 0);
+        const rw = liveRect ? liveRect.w : (s.w ?? 0);
+        const rh = liveRect ? liveRect.h : (s.h ?? 0);
+        const moveX = (isSelected && hasDelta && !resizeRectRef.current) ? delta.dx : 0;
+        const moveY = (isSelected && hasDelta && !resizeRectRef.current) ? delta.dy : 0;
+
+        const img = s.url ? imageCacheRef.current.get(s.url) : undefined;
+        if (img && img.complete && img.naturalWidth > 0) {
+          ctx.drawImage(img, rx + moveX, ry + moveY, rw, rh);
+        } else {
+          // Placeholder while loading.
+          ctx.save();
+          ctx.strokeStyle = "rgba(150,150,150,0.5)";
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 4]);
+          ctx.strokeRect(rx + moveX, ry + moveY, rw, rh);
+          ctx.restore();
+        }
+
+        // Selection border + corner resize handles.
+        if (isSelected) {
+          ctx.save();
+          ctx.strokeStyle = "#4f86d9";
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([5, 4]);
+          ctx.globalAlpha = 0.9;
+          ctx.strokeRect(rx + moveX, ry + moveY, rw, rh);
+          ctx.setLineDash([]);
+          ctx.fillStyle = "#ffffff";
+          ctx.strokeStyle = "#4f86d9";
+          ctx.lineWidth = 1.5;
+          const H = 6;
+          for (const [hx, hy] of [
+            [rx + moveX, ry + moveY], [rx + moveX + rw, ry + moveY],
+            [rx + moveX, ry + moveY + rh], [rx + moveX + rw, ry + moveY + rh],
+          ]) {
+            ctx.fillRect(hx - H, hy - H, H * 2, H * 2);
+            ctx.strokeRect(hx - H, hy - H, H * 2, H * 2);
+          }
+          ctx.restore();
+        }
+      } else if (selId && s.id === selId && hasDelta) {
+        const moved = { ...s, points: (s.points ?? []).map(p => ({ ...p, x: p.x + delta.dx, y: p.y + delta.dy })) };
+        drawStroke(ctx, moved as PenOnlyStroke, bg);
       } else {
-        drawStroke(ctx, s, bg);
+        drawStroke(ctx, s as PenOnlyStroke, bg);
       }
     }
 
-    // Selection bounding box overlay
+    // Selection bounding box overlay (pen strokes only — images draw their own)
     if (selId && toolRef.current === "select") {
       const s = strokesRef.current.find(s => s.id === selId);
-      if (s) {
-        const effPts = hasDelta ? s.points.map(p => ({ ...p, x: p.x + delta.dx, y: p.y + delta.dy })) : s.points;
+      if (s && s.mode !== "image") {
+        const effPts = hasDelta ? (s.points ?? []).map(p => ({ ...p, x: p.x + delta.dx, y: p.y + delta.dy })) : (s.points ?? []);
         const b = strokeBounds({ style: s.style, points: effPts });
         if (b) {
           ctx.save();
@@ -498,6 +586,50 @@ export default function Whiteboard({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onToolChange, onUndo, onRedo, onEraseStroke]); // eslint-disable-line
+
+  // Paste (Ctrl+V) and drag-and-drop image upload.
+  useEffect(() => {
+    if (!roomId) return;
+
+    async function handleImageFile(file: File, boardX: number, boardY: number) {
+      if (!file.type.startsWith("image/")) return;
+      setImgUploading(true);
+      try {
+        const url = await uploadWhiteboardImage(roomId!, file);
+        // Measure natural dimensions so we can preserve aspect ratio.
+        const img = new window.Image();
+        img.src = url;
+        await new Promise(res => { img.onload = res; img.onerror = res; });
+        const aspect = img.naturalWidth / (img.naturalHeight || 1);
+        const maxW = 400, maxH = 300;
+        let w = maxW, h = maxW / aspect;
+        if (h > maxH) { h = maxH; w = maxH * aspect; }
+        // Stagger so pasted images don't all stack at the exact same position.
+        const off = imgOffsetRef.current;
+        imgOffsetRef.current = (off + 40) % 200;
+        const x = Math.max(0, Math.min(BOARD_W - Math.round(w), Math.round(boardX - w / 2) + off));
+        const y = Math.max(0, Math.min(BOARD_H - Math.round(h), Math.round(boardY - h / 2) + off));
+        onStrokeComplete({ mode: "image", url, x, y, w: Math.round(w), h: Math.round(h) });
+      } catch (err: any) {
+        alert("Image upload failed: " + (err?.message ?? "unknown error"));
+      } finally {
+        setImgUploading(false);
+      }
+    }
+
+    async function onPaste(e: ClipboardEvent) {
+      const item = Array.from(e.clipboardData?.items ?? []).find(i => i.type.startsWith("image/"));
+      if (!item) return;
+      e.preventDefault();
+      const file = item.getAsFile();
+      if (!file) return;
+      // Place at centre of the visible board area.
+      await handleImageFile(file, BOARD_W / 2, BOARD_H / 2);
+    }
+
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [roomId, onStrokeComplete]); // eslint-disable-line
 
   // Convert a pointer-event client position → board coordinate space (0–BOARD_W × 0–BOARD_H).
   // The canvas element is CSS-scaled via `zoom`, so we divide the CSS pixel offset by
@@ -605,7 +737,10 @@ export default function Whiteboard({
     for (let i = list.length - 1; i >= 0; i--) {
       const s = list[i];
       if (erasedThisDragRef.current.has(s.id)) continue;
-      if (hitStroke(p, s, 20)) {
+      const hit = s.mode === "image"
+        ? p.x >= (s.x ?? 0) && p.x <= (s.x ?? 0) + (s.w ?? 0) && p.y >= (s.y ?? 0) && p.y <= (s.y ?? 0) + (s.h ?? 0)
+        : hitStroke(p, s, 20);
+      if (hit) {
         erasedThisDragRef.current.add(s.id);
         onEraseStroke(s.id);
         return; // one per move tick keeps it predictable
@@ -639,6 +774,22 @@ export default function Whiteboard({
       return;
     }
     if (toolRef.current === "select") {
+      // Check if pointer lands on a resize handle of the currently selected image.
+      const selStroke = strokesRef.current.find(s => s.id === selectedRef.current);
+      if (selStroke?.mode === "image") {
+        const handle = hitImageHandle(pt, selStroke);
+        if (handle) {
+          resizeHandleRef.current = handle;
+          resizeStartRef.current = {
+            bx: selStroke.x ?? 0, by: selStroke.y ?? 0,
+            bw: selStroke.w ?? 0, bh: selStroke.h ?? 0,
+            px: pt.x, py: pt.y,
+          };
+          resizeRectRef.current = { x: selStroke.x ?? 0, y: selStroke.y ?? 0, w: selStroke.w ?? 0, h: selStroke.h ?? 0 };
+          drawingRef.current = true;
+          return;
+        }
+      }
       const list = strokesRef.current;
       let found: Stroke | null = null;
       for (let i = list.length - 1; i >= 0; i--) {
@@ -647,6 +798,9 @@ export default function Whiteboard({
       selectedRef.current = found?.id ?? null;
       selectDragStartRef.current = found ? pt : null;
       selectDragDeltaRef.current = { dx: 0, dy: 0 };
+      resizeHandleRef.current = null;
+      resizeStartRef.current = null;
+      resizeRectRef.current = null;
       if (found) drawingRef.current = true;
       render();
       return;
@@ -706,11 +860,34 @@ export default function Whiteboard({
     // Always broadcast cursor position for live-cursor feature (throttled in parent).
     onCursorMove?.(pt.x, pt.y);
 
-    // Select tool: handle drag-to-move (before drawingRef guard)
+    // Select tool: resize or move
     if (toolRef.current === "select") {
-      if (drawingRef.current && selectedRef.current && selectDragStartRef.current) {
-        selectDragDeltaRef.current = { dx: pt.x - selectDragStartRef.current.x, dy: pt.y - selectDragStartRef.current.y };
-        render();
+      if (drawingRef.current && selectedRef.current) {
+        if (resizeHandleRef.current && resizeStartRef.current) {
+          // Live resize: compute new rect from the dragged corner.
+          const { bx, by, bw, bh, px, py } = resizeStartRef.current;
+          const dx = pt.x - px, dy = pt.y - py;
+          const MIN = 20;
+          let nx = bx, ny = by, nw = bw, nh = bh;
+          const h = resizeHandleRef.current;
+          if (h === "se") {
+            nw = Math.max(MIN, bw + dx); nh = Math.max(MIN, bh + dy);
+          } else if (h === "ne") {
+            nw = Math.max(MIN, bw + dx);
+            nh = Math.max(MIN, bh - dy); ny = nh === MIN ? by + bh - MIN : by + dy;
+          } else if (h === "sw") {
+            nw = Math.max(MIN, bw - dx); nx = nw === MIN ? bx + bw - MIN : bx + dx;
+            nh = Math.max(MIN, bh + dy);
+          } else {
+            nw = Math.max(MIN, bw - dx); nx = nw === MIN ? bx + bw - MIN : bx + dx;
+            nh = Math.max(MIN, bh - dy); ny = nh === MIN ? by + bh - MIN : by + dy;
+          }
+          resizeRectRef.current = { x: Math.round(nx), y: Math.round(ny), w: Math.round(nw), h: Math.round(nh) };
+          render();
+        } else if (selectDragStartRef.current) {
+          selectDragDeltaRef.current = { dx: pt.x - selectDragStartRef.current.x, dy: pt.y - selectDragStartRef.current.y };
+          render();
+        }
       }
       return;
     }
@@ -789,6 +966,23 @@ export default function Whiteboard({
     drawingRef.current = false;
     snapshotRef.current = null;
     if (toolRef.current === "select") {
+      // Resize complete: replace the stroke with new dimensions.
+      if (resizeHandleRef.current && resizeRectRef.current && selectedRef.current) {
+        const oldId = selectedRef.current;
+        const old = strokesRef.current.find(s => s.id === oldId);
+        const newRect = resizeRectRef.current;
+        if (old?.mode === "image" && old.url) {
+          onReplaceImageStroke?.(oldId, { mode: "image", url: old.url, ...newRect });
+        }
+        resizeHandleRef.current = null;
+        resizeStartRef.current = null;
+        resizeRectRef.current = null;
+        selectedRef.current = null;
+        selectDragDeltaRef.current = { dx: 0, dy: 0 };
+        render();
+        return;
+      }
+      // Move complete.
       const delta = selectDragDeltaRef.current;
       if (selectedRef.current && (Math.abs(delta.dx) > 3 || Math.abs(delta.dy) > 3)) {
         onMoveStroke?.(selectedRef.current, delta.dx, delta.dy);
@@ -846,6 +1040,70 @@ export default function Whiteboard({
   function handlePointerLeave() {
     finishStroke();
     onCursorMove?.(null, null);
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    if (!roomId) return;
+    if (Array.from(e.dataTransfer.items).some(i => i.type.startsWith("image/"))) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+    }
+  }
+
+  async function handleDrop(e: React.DragEvent) {
+    if (!roomId) return;
+    const file = Array.from(e.dataTransfer.files).find(f => f.type.startsWith("image/"));
+    if (!file) return;
+    e.preventDefault();
+    // Convert drop position to board coordinates.
+    const canvas = canvasRef.current;
+    const r = canvas?.getBoundingClientRect();
+    const boardX = r ? Math.round(((e.clientX - r.left) / r.width)  * BOARD_W) : BOARD_W / 2;
+    const boardY = r ? Math.round(((e.clientY - r.top)  / r.height) * BOARD_H) : BOARD_H / 2;
+    setImgUploading(true);
+    try {
+      const url = await uploadWhiteboardImage(roomId, file);
+      const img = new window.Image();
+      img.src = url;
+      await new Promise(res => { img.onload = res; img.onerror = res; });
+      const aspect = img.naturalWidth / (img.naturalHeight || 1);
+      const maxW = 400, maxH = 300;
+      let w = maxW, h = maxW / aspect;
+      if (h > maxH) { h = maxH; w = maxH * aspect; }
+      const x = Math.round(boardX - w / 2);
+      const y = Math.round(boardY - h / 2);
+      onStrokeComplete({ mode: "image", url, x, y, w: Math.round(w), h: Math.round(h) });
+    } catch (err: any) {
+      alert("Image upload failed: " + (err?.message ?? "unknown error"));
+    } finally {
+      setImgUploading(false);
+    }
+  }
+
+  async function handleFilePickerChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !roomId) return;
+    e.target.value = "";
+    setImgUploading(true);
+    try {
+      const url = await uploadWhiteboardImage(roomId, file);
+      const img = new window.Image();
+      img.crossOrigin = "anonymous";
+      await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = rej; img.src = url; });
+      const aspect = img.naturalWidth / (img.naturalHeight || 1);
+      const w = Math.min(300, BOARD_W * 0.4);
+      const h = Math.round(w / aspect);
+      const off = imgOffsetRef.current;
+      imgOffsetRef.current = (off + 40) % 200;
+      const x = Math.max(0, Math.min(BOARD_W - w, Math.round((BOARD_W - w) / 2) + off));
+      const y = Math.max(0, Math.min(BOARD_H - h, Math.round((BOARD_H - h) / 2) + off));
+      imageCacheRef.current.set(url, img);
+      onStrokeComplete({ mode: "image", url, x, y, w, h });
+    } catch (err: any) {
+      alert("Image upload failed: " + (err?.message ?? "unknown error"));
+    } finally {
+      setImgUploading(false);
+    }
   }
 
   // ── Small UI helpers ────────────────────────────────────────────────────────
@@ -945,6 +1203,21 @@ export default function Whiteboard({
         <button style={chip(tool === "laser")}        onClick={() => onToolChange("laser")}        title="Laser pointer">🔴 Laser</button>
         <button style={chip(tool === "text")}         onClick={() => onToolChange("text")}         title="Place text on the board">📝 Text</button>
         <button style={chip(tool === "select", "#4f86d9")} onClick={() => onToolChange("select")} title="Select and move a stroke">↖ Select</button>
+        <button
+          style={{ ...chip(false, "#7c9edc"), opacity: imgUploading ? 0.5 : 1 }}
+          onClick={() => !imgUploading && fileInputRef.current?.click()}
+          title="Upload image (or paste / drag-and-drop)"
+          disabled={imgUploading || !roomId}
+        >
+          🖼 Image
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: "none" }}
+          onChange={handleFilePickerChange}
+        />
 
         {/* Shapes — one button in the rail; sub-type picker appears in the contextual row below */}
         <button
@@ -1165,12 +1438,27 @@ export default function Whiteboard({
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerUp}
             onPointerLeave={handlePointerLeave}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
             style={{
               width: "100%", aspectRatio: `${BOARD_W} / ${BOARD_H}`,
               background: bg, borderRadius: "10px", border: "1px solid rgba(255,255,255,0.08)",
               touchAction: "none", cursor, display: "block",
             }}
           />
+          {/* Image uploading overlay */}
+          {imgUploading && (
+            <div style={{
+              position: "absolute", inset: 0, borderRadius: "10px",
+              background: "rgba(0,0,0,0.45)", display: "flex",
+              alignItems: "center", justifyContent: "center",
+              zIndex: 20, pointerEvents: "none",
+            }}>
+              <span style={{ color: "#fff", fontSize: 15, fontWeight: 600, letterSpacing: 0.3 }}>
+                Uploading image…
+              </span>
+            </div>
+          )}
           {/* Text input overlay */}
           {textInput && (
             <input
