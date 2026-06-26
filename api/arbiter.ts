@@ -128,6 +128,12 @@ async function recentDelivery(userId: string): Promise<{ dayCount: number; lastH
   return { dayCount: rows.length, lastHour: rows.some(r => r.created_at >= hourAgo) };
 }
 
+/** Learned best channel for this user (effectiveness feedback §3.5.4); null = use candidate hint. */
+async function userChannelPref(userId: string): Promise<string | null> {
+  const { data } = await db.from("intervention_tuning").select("channel_pref").eq("user_id", userId).maybeSingle();
+  return ((data ?? {}) as { channel_pref?: string | null }).channel_pref ?? null;
+}
+
 async function userQuietPrefs(userId: string): Promise<{ tz: string; start: number; end: number }> {
   const { data } = await db
     .from("users").select("timezone,quiet_hours_start,quiet_hours_end").eq("id", userId).maybeSingle();
@@ -206,8 +212,13 @@ async function deliver(c: Candidate): Promise<boolean> {
 
   const delivered = inAppId !== null || discordOk;
   if (delivered) {
+    // Record the channel that ACTUALLY delivered, not the one requested. If a Discord DM
+    // silently fails (user not linked / DM closed) but the in-app insert succeeds, label it
+    // 'in_app' — otherwise the feedback loop would credit in-app engagement to a Discord
+    // message that never arrived and skew channel-learning toward a dead channel.
+    const actualChannel = discordOk ? "discord" : "in_app";
     const { error: stampErr } = await db.from("notification_queue")
-      .update({ delivered_at: new Date().toISOString() }).eq("id", queueId);
+      .update({ delivered_at: new Date().toISOString(), channel: actualChannel }).eq("id", queueId);
     if (stampErr) console.error("[arbiter] delivered_at stamp failed:", stampErr.message, queueId);
   } else {
     // Nothing went out — drop the reservation so it doesn't consume the rate budget or leak.
@@ -269,6 +280,13 @@ export default async function handler(req: any, res: any) {
 
         // Atomically claim, then deliver. Release the claim if delivery itself fails.
         if (!(await claim(top.id))) { out.deferred++; continue; }
+        // Learned channel overrides the candidate hint. KNOWN LIMITATION: no exploration —
+        // once a channel is learned the other stops accruing samples, so a stale preference
+        // can lock in; and engagement is only measured via the in-app surface (opened_at/
+        // action_taken come from the bell), biasing channel-learning toward in_app. Revisit
+        // (e.g. ε-greedy exploration) once Discord has its own engagement signal.
+        const pref = await userChannelPref(userId);
+        if (pref === "in_app" || pref === "discord") top.channel_hint = pref;
         const ok = await deliver(top);
         if (ok) { await setStatus([top.id], "delivered"); out.delivered++; }
         else    { await release(top.id); out.errors++; }  // re-pend so a transient failure retries

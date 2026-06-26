@@ -23,6 +23,7 @@
  *      CRON_SECRET (fail-closed). Optional: CAMPUS_WELLBEING_URL.
  */
 import { proposeProactive } from "./_notify";
+import { computeTuning, labelOf, type Tuning } from "./_tuning";
 
 const BRAIN_URL  = process.env.BRAIN_SUPABASE_URL;
 const BRAIN_KEY  = process.env.BRAIN_SUPABASE_KEY;
@@ -64,6 +65,14 @@ async function fsGet(path: string): Promise<any[]> {
   if (!res.ok) throw new Error(`FS GET ${path} failed ${res.status}: ${await res.text().catch(() => "")}`);
   return res.json();
 }
+async function fsPost(path: string, body: unknown, upsert = false): Promise<void> {
+  const res = await fetch(`${FS_URL}/rest/v1/${path}`, {
+    method:  "POST",
+    headers: { ...fsHeaders, Prefer: upsert ? "resolution=merge-duplicates,return=minimal" : "return=minimal" } as any,
+    body:    JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`FS POST ${path} failed ${res.status}: ${await res.text().catch(() => "")}`);
+}
 
 // ── Message composer ──────────────────────────────────────────────────────────
 function composeMessage(person: any, ctx: any): string {
@@ -104,11 +113,11 @@ function composeWellbeing(person: any): string {
 }
 
 // ── Eligibility + scoring ──────────────────────────────────────────────────────
-function needsIntervention(ctx: any): { reason: string; stress: number; urgency: number; value: number } | null {
+function needsIntervention(ctx: any, stressThreshold = 7): { reason: string; stress: number; urgency: number; value: number } | null {
   const stress   = ctx.stress_level ?? 0;
   const momentum = ctx.momentum_state ?? "steady";
   const stale    = ctx.expires_at ? new Date(ctx.expires_at) < new Date() : false;
-  if (stress >= 7)              return { reason: "high_stress",         stress, urgency: 0.7, value: 0.8 };
+  if (stress >= stressThreshold) return { reason: "high_stress",        stress, urgency: 0.7, value: 0.8 };
   if (momentum === "stalled")   return { reason: "stalled",             stress, urgency: 0.5, value: 0.6 };
   if (momentum === "declining") return { reason: "declining_momentum",  stress, urgency: 0.4, value: 0.6 };
   if (stale && stress >= 5)     return { reason: "stale_context",       stress, urgency: 0.4, value: 0.5 };
@@ -145,10 +154,21 @@ export default async function handler(req: any, res: any) {
       const person = ctx.persons;
       if (!person) { results.skipped++; continue; }
 
-      const trigger = needsIntervention(ctx);
-      if (!trigger) { results.skipped++; continue; }
-
       const userId = person.fschool_user_id;
+
+      // Effectiveness feedback (§3.5.4): read this student's tuned stress threshold (default 7).
+      let tuning: Tuning = { stressThreshold: 7, channelPref: null, labelCount: 0 };
+      if (userId) {
+        const t = await fsGet(`intervention_tuning?user_id=eq.${encodeURIComponent(userId)}&select=*`).catch(() => []);
+        if (t[0]) tuning = {
+          stressThreshold: t[0].stress_threshold ?? 7,
+          channelPref:     t[0].channel_pref ?? null,
+          labelCount:      t[0].label_count ?? 0,
+        };
+      }
+
+      const trigger = needsIntervention(ctx, tuning.stressThreshold);
+      if (!trigger) { results.skipped++; continue; }
       if (!userId) {
         results.skipped++;
         await brainPost("interventions", {
@@ -175,18 +195,35 @@ export default async function handler(req: any, res: any) {
           h.status === "escalation_pause" &&
           now - new Date(h.created_at).getTime() < THREE_DAYS_MS);
 
-        // Trip the cap on persistent NON-ENGAGEMENT: messages that were actually DELIVERED
-        // (notification_queue.delivered_at) yet never opened/acted on — counts deliveries, NOT
-        // proposals, so a student who only ever saw deferred/quiet-houred candidates is not escalated.
-        let deliveredUnengaged = 0;
-        if (trigger.stress >= ESCALATION_STRESS && !escalatedRecently) {
-          const since = new Date(now - THREE_DAYS_MS).toISOString();
-          const q = await fsGet(
-            `notification_queue?user_id=eq.${encodeURIComponent(userId)}&type=eq.intervention` +
-            `&delivered_at=gte.${since}&opened_at=is.null&action_taken=is.false&select=id`
-          ).catch(() => []);
-          deliveredUnengaged = q.length;
+        // Pull this student's recent delivered interventions ONCE — used for both the
+        // effectiveness feedback loop (§3.5.4) and the escalation non-engagement count.
+        const nq: any[] = await fsGet(
+          `notification_queue?user_id=eq.${encodeURIComponent(userId)}&type=eq.intervention` +
+          `&select=delivered_at,opened_at,action_taken,channel,created_at&order=created_at.desc&limit=200`
+        ).catch(() => []);
+
+        // Recompute + persist tuning from the labels (raise/lower stress threshold, learn channel).
+        const tuned = computeTuning(nq, tuning, now);
+        if (tuned.stressThreshold !== tuning.stressThreshold ||
+            tuned.channelPref     !== tuning.channelPref ||
+            tuned.labelCount      !== tuning.labelCount) {
+          await fsPost("intervention_tuning", {
+            user_id: userId, stress_threshold: tuned.stressThreshold,
+            channel_pref: tuned.channelPref, label_count: tuned.labelCount,
+            updated_at: new Date().toISOString(),
+          }, true).catch(() => {});
         }
+
+        // Escalation cap: count GENUINELY ignored interventions in the last 3 days. Reuse
+        // labelOf so this honours the same 2h grace as the tuning loop — a nudge delivered
+        // minutes ago that the student simply hasn't opened yet is 'pending', NOT a failure,
+        // and must not trip the wellbeing escalation + 48h pause prematurely.
+        const threeDaysAgo = now - THREE_DAYS_MS;
+        const deliveredUnengaged = (trigger.stress >= ESCALATION_STRESS && !escalatedRecently)
+          ? nq.filter(r => r.delivered_at &&
+                           new Date(r.delivered_at).getTime() >= threeDaysAgo &&
+                           labelOf(r as any, now) === "negative").length
+          : 0;
 
         if (trigger.stress >= ESCALATION_STRESS && !escalatedRecently && deliveredUnengaged >= ESCALATION_COUNT) {
           await proposeProactive(userId, {
