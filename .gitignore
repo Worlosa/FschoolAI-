@@ -4,9 +4,8 @@ node_modules/
 .pnp.js
 
 # Environment
-.env
-.env.local
-.env.*.local
+.env*
+!.env.example
 
 # IDE
 .vscode/
@@ -33,3 +32,6 @@ yarn-error.log*
 # Supabase
 .supabase/
 supabase/.env.local
+
+# Vercel
+.vercel
