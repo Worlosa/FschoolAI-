@@ -10,7 +10,7 @@ vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({ from: () => ({}), channel: () => ({}) }),
 }));
 
-import { score, isUrgent, dedupe, rank, localHour, isQuietHours, type Candidate } from "../api/arbiter";
+import { score, isUrgent, chooseChannel, dedupe, rank, localHour, isQuietHours, type Candidate } from "../api/arbiter";
 
 const mk = (over: Partial<Candidate>): Candidate => ({
   id: Math.random().toString(36).slice(2),
@@ -26,6 +26,21 @@ const mk = (over: Partial<Candidate>): Candidate => ({
 describe("score", () => {
   it("is urgency × value", () => {
     expect(score({ urgency_score: 0.8, value_score: 0.5 })).toBeCloseTo(0.4);
+  });
+});
+
+describe("chooseChannel", () => {
+  it("uses the candidate hint when there is no valid learned pref", () => {
+    expect(chooseChannel("in_app", null)).toBe("in_app");
+    expect(chooseChannel("discord", "bogus" as any)).toBe("discord");
+  });
+  it("exploits the learned pref by default (rand ≥ exploreRate)", () => {
+    expect(chooseChannel("in_app", "discord", () => 0.99)).toBe("discord");
+    expect(chooseChannel("discord", "in_app", () => 0.5)).toBe("in_app");
+  });
+  it("ε-greedily probes the OTHER channel a fraction of the time (rand < exploreRate)", () => {
+    expect(chooseChannel("in_app", "discord", () => 0.0)).toBe("in_app");   // other(discord) = in_app
+    expect(chooseChannel("in_app", "in_app",  () => 0.0)).toBe("discord");  // other(in_app) = discord
   });
 });
 

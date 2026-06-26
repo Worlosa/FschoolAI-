@@ -76,4 +76,22 @@ describe("NotificationPanel — effectiveness feedback wiring", () => {
     await waitFor(() => expect(notifs.markNotificationsRead).toHaveBeenCalled());
     expect(notifs.markProactiveOpened).not.toHaveBeenCalled();
   });
+
+  it("does NOT stamp opened_at for a proactive notif that never scrolls into view", async () => {
+    // Simulate an off-screen item: an IntersectionObserver that never reports intersecting.
+    const realIO = (globalThis as any).IntersectionObserver;
+    (globalThis as any).IntersectionObserver = class {
+      observe() {} unobserve() {} disconnect() {} takeRecords() { return []; }
+    };
+    try {
+      (notifs.fetchNotifications as any).mockResolvedValue([
+        notif({ id: "n5", type: "intervention", title: "Hidden nudge", read: false, data: { queue_id: "q5" } }),
+      ]);
+      renderPanel();
+      await waitFor(() => expect(notifs.markNotificationsRead).toHaveBeenCalled());  // panel loaded
+      expect(notifs.markProactiveOpened).not.toHaveBeenCalled();                     // never seen → not stamped
+    } finally {
+      (globalThis as any).IntersectionObserver = realIO;
+    }
+  });
 });

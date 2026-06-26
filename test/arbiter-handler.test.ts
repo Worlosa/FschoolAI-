@@ -91,6 +91,7 @@ describe("arbiter handler", () => {
 
   it("delivers on the LEARNED channel — channel_pref=discord overrides an in_app hint", async () => {
     process.env.DISCORD_BOT_TOKEN = "bot";   // so deliverDiscord actually attempts a DM
+    const rnd = vi.spyOn(Math, "random").mockReturnValue(0.99);  // ≥ EXPLORE_RATE → exploit the learned pref
     const { handler, calls } = await loadArbiter(router({
       pending: [cand({ channel_hint: "in_app" })],          // candidate asked for in_app …
       tuning:  { channel_pref: "discord" },                  // … but the student learned-prefers discord
@@ -102,6 +103,7 @@ describe("arbiter handler", () => {
     expect(res.body.delivered).toBe(1);
     // queue row stamped with the channel that actually delivered → discord (proves the override fired)
     expect(had(calls, "notification_queue", "update", c => c.payload?.channel === "discord")).toBe(true);
+    rnd.mockRestore();
   });
 
   it("defers (no delivery) when the student already got one in the last hour", async () => {
