@@ -9,7 +9,12 @@ import {
   markNotificationsRead,
   markAllNotificationsRead,
   updateNotificationAction,
+  markProactiveOpened,
+  markProactiveActioned,
 } from "../api/notifications";
+
+// Effectiveness feedback (§3.5.4): proactive notifications carry data.queue_id.
+const queueId = (n: AppNotification): string | undefined => n.data?.queue_id as string | undefined;
 
 // ── Relative time (concise, iOS-style) ───────────────────────────────────────
 function relativeTime(iso: string): string {
@@ -43,6 +48,7 @@ const TYPE_CFG: Record<string, { icon: string; defaultTitle: string; useAvatar: 
   assignment_due:   { icon: "📋", defaultTitle: "Assignment due soon", useAvatar: false },
   milestone:        { icon: "🏆", defaultTitle: "Milestone reached",   useAvatar: false },
   ranking:          { icon: "📈", defaultTitle: "Leaderboard update",  useAvatar: false },
+  intervention:     { icon: "🧠", defaultTitle: "A nudge from Reggie",  useAvatar: false },
 };
 
 // ── Friends API adapter ───────────────────────────────────────────────────────
@@ -282,9 +288,15 @@ export default function NotificationPanel({
     fetchNotifications(userId).then(data => {
       setItems(data);
       setLoading(false);
-      const unreadIds = data.filter(n => !n.read).map(n => n.id);
-      if (unreadIds.length) {
-        markNotificationsRead(unreadIds).then(() => {
+      const unread = data.filter(n => !n.read);
+      // Effectiveness feedback: opening the panel marks unread proactive items as SEEN.
+      // KNOWN LIMITATION: panel-open granularity, not per-item viewport visibility — items
+      // below the fold count as seen. Acceptable because proactive notifications are
+      // rate-limited (≤3/day) + deduped, so a below-the-fold backlog is rare; switch to a
+      // per-item IntersectionObserver if that assumption ever breaks.
+      unread.forEach(n => { const q = queueId(n); if (q) markProactiveOpened(q); });
+      if (unread.length) {
+        markNotificationsRead(unread.map(n => n.id)).then(() => {
           onUnreadChange(0);
           setItems(prev => prev.map(n => ({ ...n, read: true })));
         });
@@ -300,6 +312,7 @@ export default function NotificationPanel({
       const fresh = liveNotifs.filter(n => !existing.has(n.id));
       if (!fresh.length) return prev;
       markNotificationsRead(fresh.map(n => n.id));
+      fresh.forEach(n => { const q = queueId(n); if (q) markProactiveOpened(q); });  // seen live
       return [...fresh.map(n => ({ ...n, read: true })), ...prev];
     });
   }, [liveNotifs]);
@@ -322,6 +335,8 @@ export default function NotificationPanel({
   }
 
   async function handleAction(action: string, n: AppNotification) {
+    const q = queueId(n);
+    if (q) markProactiveActioned(q);   // any tapped action = engagement (§3.5.4)
     if (action === "accept_friend" && n.data?.from_user_id) {
       // 1. Optimistic update — hides buttons immediately, prevents double-tap
       setItems(prev => prev.map(item =>

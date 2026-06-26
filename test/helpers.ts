@@ -12,7 +12,7 @@ import { resolve } from "path";
 export function makeSupabaseMock(router: (ctx: any) => any = () => ({ data: null, error: null })) {
   const calls: any[] = [];
   const TERMINALS = ["insert", "upsert", "update", "delete", "select"];
-  const FILTERS = ["eq", "neq", "is", "in", "limit", "order", "match", "range", "gte", "lte", "maybeSingle", "single", "filter"];
+  const FILTERS = ["eq", "neq", "is", "in", "gt", "lt", "gte", "lte", "not", "limit", "order", "match", "range", "maybeSingle", "single", "filter"];
 
   function builder(ctx: any) {
     const b: any = {};
