@@ -65,6 +65,22 @@ export const score = (c: Pick<Candidate, "urgency_score" | "value_score">) =>
 export const isUrgent = (c: Pick<Candidate, "urgency_score">) =>
   c.urgency_score >= URGENT_AT - URGENT_EPS;
 
+export const EXPLORE_RATE = 0.15;   // ε-greedy: share of deliveries that probe the non-preferred channel
+const otherChannel = (ch: string) => (ch === "discord" ? "in_app" : "discord");
+
+/** Pick the delivery channel. Honors the learned preference, but ε-greedily probes the
+ *  OTHER channel a fraction of the time so a learned pref can't permanently starve the
+ *  alternative of samples (anti-lock-in). No valid pref → use the candidate's own hint. */
+export function chooseChannel(
+  hint: string,
+  pref: string | null,
+  rand: () => number = Math.random,
+  exploreRate = EXPLORE_RATE,
+): string {
+  if (pref !== "in_app" && pref !== "discord") return hint;
+  return rand() < exploreRate ? otherChannel(pref) : pref;
+}
+
 /** Collapse candidates that share a (non-null) dedup_key, keeping the highest-scored.
  *  Returns the survivors and the dropped duplicates (to be marked 'rejected'). */
 export function dedupe(cands: Candidate[]): { kept: Candidate[]; dropped: Candidate[] } {
@@ -280,13 +296,13 @@ export default async function handler(req: any, res: any) {
 
         // Atomically claim, then deliver. Release the claim if delivery itself fails.
         if (!(await claim(top.id))) { out.deferred++; continue; }
-        // Learned channel overrides the candidate hint. KNOWN LIMITATION: no exploration —
-        // once a channel is learned the other stops accruing samples, so a stale preference
-        // can lock in; and engagement is only measured via the in-app surface (opened_at/
-        // action_taken come from the bell), biasing channel-learning toward in_app. Revisit
-        // (e.g. ε-greedy exploration) once Discord has its own engagement signal.
+        // Deliver on the LEARNED channel, ε-greedily probing the other channel so a learned
+        // pref can't lock in (chooseChannel). REMAINING LIMITATION: engagement (opened_at/
+        // action_taken) is only observed via the in-app bell — Discord reads aren't visible —
+        // so a genuine "Discord is better" preference can't yet be learned; that needs a
+        // Discord interaction webhook (future feature, not polish).
         const pref = await userChannelPref(userId);
-        if (pref === "in_app" || pref === "discord") top.channel_hint = pref;
+        top.channel_hint = chooseChannel(top.channel_hint as string, pref);
         const ok = await deliver(top);
         if (ok) { await setStatus([top.id], "delivered"); out.delivered++; }
         else    { await release(top.id); out.errors++; }  // re-pend so a transient failure retries

@@ -1,7 +1,7 @@
 // NotificationPanel.tsx — iOS-quality notification dropdown.
 // Framer Motion spring enter/exit, staggered items, solid ink surface.
 // BUG FIX: accept/decline persists via data.actioned field in DB (survives reopen).
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
   AppNotification,
@@ -84,13 +84,18 @@ function NotificationItem({
   index,
   isLast,
   onAction,
+  seenKey,
+  onSeen,
 }: {
   n: AppNotification;
   index: number;
   isLast: boolean;
   onAction: (action: string, n: AppNotification) => void;
+  seenKey?: string;                       // notification_queue id, if this is a proactive notif
+  onSeen?: (key: string) => void;         // called once the row is actually scrolled into view
 }) {
   const reduced = useReducedMotion();
+  const itemRef = useRef<HTMLDivElement>(null);
   const cfg = TYPE_CFG[n.type] ?? { icon: "🔔", defaultTitle: "Notification", useAvatar: false };
   const title = n.title ?? cfg.defaultTitle;
   const isUnread = !n.read;
@@ -99,8 +104,24 @@ function NotificationItem({
   const col = avatarColor(fromName ?? n.data?.from_user_id as string ?? n.id);
   const initial = (fromName?.[0] ?? "?").toUpperCase();
 
+  // Effectiveness feedback: report a proactive notif as SEEN only once it actually
+  // intersects the viewport — so items below the fold aren't counted as opened. Falls
+  // back to an immediate report where IntersectionObserver is unavailable.
+  useEffect(() => {
+    if (!seenKey || !onSeen) return;
+    const el = itemRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") { onSeen(seenKey); return; }
+    const io = new IntersectionObserver(
+      entries => { if (entries.some(e => e.isIntersecting)) { onSeen(seenKey); io.disconnect(); } },
+      { threshold: 0.5 }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [seenKey, onSeen]);
+
   return (
     <motion.div
+      ref={itemRef}
       initial={{ opacity: 0, y: reduced ? 0 : 4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={reduced ? { duration: 0.01 } : { delay: index * 0.025, duration: 0.18, ease: [0, 0, 0.2, 1] }}
@@ -283,18 +304,24 @@ export default function NotificationPanel({
   const panelRef = useRef<HTMLDivElement>(null);
   const reduced = useReducedMotion();
 
+  // Effectiveness feedback: stamp each proactive notification's opened_at exactly once,
+  // when it scrolls into view (NotificationItem reports via onSeen). markNotificationsRead
+  // (the bell badge) stays panel-open-based; only the "seen" signal is viewport-gated.
+  const seen = useRef<Set<string>>(new Set());
+  const markSeen = useCallback((q: string) => {
+    if (seen.current.has(q)) return;
+    seen.current.add(q);
+    markProactiveOpened(q);
+  }, []);
+
   // Load on open
   useEffect(() => {
     fetchNotifications(userId).then(data => {
       setItems(data);
       setLoading(false);
       const unread = data.filter(n => !n.read);
-      // Effectiveness feedback: opening the panel marks unread proactive items as SEEN.
-      // KNOWN LIMITATION: panel-open granularity, not per-item viewport visibility — items
-      // below the fold count as seen. Acceptable because proactive notifications are
-      // rate-limited (≤3/day) + deduped, so a below-the-fold backlog is rare; switch to a
-      // per-item IntersectionObserver if that assumption ever breaks.
-      unread.forEach(n => { const q = queueId(n); if (q) markProactiveOpened(q); });
+      // opened_at is now stamped per-item when each row scrolls into view (see
+      // NotificationItem + markSeen); read-state below stays panel-open-based.
       if (unread.length) {
         markNotificationsRead(unread.map(n => n.id)).then(() => {
           onUnreadChange(0);
@@ -311,8 +338,7 @@ export default function NotificationPanel({
       const existing = new Set(prev.map(n => n.id));
       const fresh = liveNotifs.filter(n => !existing.has(n.id));
       if (!fresh.length) return prev;
-      markNotificationsRead(fresh.map(n => n.id));
-      fresh.forEach(n => { const q = queueId(n); if (q) markProactiveOpened(q); });  // seen live
+      markNotificationsRead(fresh.map(n => n.id));   // opened_at handled per-item on view
       return [...fresh.map(n => ({ ...n, read: true })), ...prev];
     });
   }, [liveNotifs]);
@@ -488,6 +514,8 @@ export default function NotificationPanel({
                 index={i}
                 isLast={i === unread.length - 1 && !showSections}
                 onAction={handleAction}
+                seenKey={queueId(n)}
+                onSeen={markSeen}
               />
             ))}
 
@@ -504,6 +532,8 @@ export default function NotificationPanel({
                 index={unread.length + i}
                 isLast={i === read.length - 1}
                 onAction={handleAction}
+                seenKey={queueId(n)}
+                onSeen={markSeen}
               />
             ))}
           </>
