@@ -1,5 +1,15 @@
 // @vitest-environment node
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+// arbiter.ts → _notify.ts call createClient() at module load. On Node 20 (CI) the
+// real supabase-js eagerly inits a realtime WebSocket client and throws ("Node.js 20
+// detected without native WebSocket support"). These tests only exercise pure
+// functions, so stub createClient — no real client is needed. (Matches the mock
+// convention used by the other suites.)
+vi.mock("@supabase/supabase-js", () => ({
+  createClient: () => ({ from: () => ({}), channel: () => ({}) }),
+}));
+
 import { score, isUrgent, dedupe, rank, localHour, isQuietHours, type Candidate } from "../api/arbiter";
 
 const mk = (over: Partial<Candidate>): Candidate => ({
