@@ -562,8 +562,11 @@ const summarizeProxyPlugin = {
 // that otherwise only exist on Vercel (so `npm run dev` doesn't 404 on them). Injects the
 // listed env keys (only when present — never sets the string "undefined"), parses the JSON
 // body, shims the Vercel-style res.status().json(), and dynamically imports the handler.
+// `importer` MUST be a thunk wrapping a LITERAL dynamic import — `() => import("./api/x.js")`
+// — not a variable path. Vite/esbuild can only resolve literal dynamic-import specifiers; a
+// variable `import(path)` fails to resolve at runtime (502). This mirrors the other proxies.
 const HANDLER_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_KEY", "SUPABASE_ANON_KEY", "ANTHROPIC_API_KEY", "BRAIN_SUPABASE_URL", "BRAIN_SUPABASE_KEY"];
-function handlerProxy(route, importPath, envKeys = HANDLER_ENV) {
+function handlerProxy(route, importer, envKeys = HANDLER_ENV) {
   return {
     name: `${route.replace(/\W+/g, "-")}-proxy`,
     configureServer(server) {
@@ -580,7 +583,7 @@ function handlerProxy(route, importPath, envKeys = HANDLER_ENV) {
           res.status = (code) => { res.statusCode = code; return res; };
           res.json   = (obj)  => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(obj)); };
           try {
-            const { default: handler } = await import(importPath);
+            const { default: handler } = await importer();
             await handler(req, res);
           } catch (err) {
             res.statusCode = 502; res.setHeader("Content-Type", "application/json");
@@ -594,9 +597,9 @@ function handlerProxy(route, importPath, envKeys = HANDLER_ENV) {
 
 export default defineConfig({
   plugins: [react(), canvasProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin, fileUrlProxyPlugin, authMigrateProxyPlugin, ragProxyPlugin, tokenEngineProxyPlugin, nudgeProxyPlugin, flashcardsProxyPlugin, transcribeProxyPlugin, dailyRoomProxyPlugin, summarizeProxyPlugin,
-    handlerProxy("/api/tutor-impression", "./api/tutor-impression.js"),
-    handlerProxy("/api/session-close",    "./api/session-close.js"),
-    handlerProxy("/api/brain-person-link","./api/brain-person-link.js")],
+    handlerProxy("/api/tutor-impression", () => import("./api/tutor-impression.js")),
+    handlerProxy("/api/session-close",    () => import("./api/session-close.js")),
+    handlerProxy("/api/brain-person-link",() => import("./api/brain-person-link.js"))],
   server:  { port: 5173, host: "0.0.0.0", allowedHosts: true },
   build: {
     // The default 500 kB threshold assumes no compression. Our heaviest chunk (the
