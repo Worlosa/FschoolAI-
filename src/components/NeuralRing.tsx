@@ -1732,7 +1732,7 @@ export default function NeuralRing() {
 
   /** Ensure a conversation row exists (creating on the first message) and bump
    *  its updated_at so it sorts to the top. Returns the conversation id. */
-  const ensureConversation = useCallback((firstMessage) => {
+  const ensureConversation = useCallback(async (firstMessage) => {
     const nowIso = new Date().toISOString();
     let id = currentConvIdRef.current;
     if (!id) {
@@ -1741,9 +1741,11 @@ export default function NeuralRing() {
       setCurrentConversationId(id);
       const title = ((firstMessage || "").trim().slice(0, 48)) || "New chat";
       setConversations(prev => [{ id, title, updated_at: nowIso }, ...prev]);
-      supabase.from("chat_conversations")
-        .insert({ id, user_id: userId, title, created_at: nowIso, updated_at: nowIso })
-        .then(() => {}, () => {});
+      // Await the insert so the conversation row exists BEFORE chat_logs references it —
+      // otherwise the chat_logs.conversation_id foreign key fails with a 409 on the first
+      // message of a new conversation (the insert and the log were racing).
+      await supabase.from("chat_conversations")
+        .insert({ id, user_id: userId, title, created_at: nowIso, updated_at: nowIso });
     } else {
       setConversations(prev => {
         const found = prev.find(c => c.id === id);
@@ -2165,7 +2167,7 @@ export default function NeuralRing() {
     setMessages(m => [...m, userMsg]);
     setInput("");
     setLoading(true);
-    const convId = ensureConversation(userMsg.content);
+    const convId = await ensureConversation(userMsg.content);
     logChat(userId, "user", userMsg.content, null, convId);
 
     // ── Brain behavioral signal (fire-and-forget) ─────────────────────────────
