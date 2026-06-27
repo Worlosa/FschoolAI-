@@ -1039,7 +1039,7 @@ export default function NeuralRing() {
 
   // Refs — always hold latest prefs without stale closure in speakAndType
   const voiceIdRef     = useRef(userData?.preferred_voice_id ?? null);
-  const speedRef       = useRef(userData?.preferred_speed ?? 1.1);
+  const speedRef       = useRef(userData?.preferred_speed ?? 1.2);
   const toneRef        = useRef(userData?.preferred_tone  ?? "neutral");
 
   // Voice mode state
@@ -1156,7 +1156,7 @@ export default function NeuralRing() {
 
   // Keep preference + mode refs current
   useEffect(() => { voiceIdRef.current   = userData?.preferred_voice_id ?? null;      }, [userData?.preferred_voice_id]);
-  useEffect(() => { speedRef.current     = userData?.preferred_speed    ?? 1.1;       }, [userData?.preferred_speed]);
+  useEffect(() => { speedRef.current     = userData?.preferred_speed    ?? 1.2;       }, [userData?.preferred_speed]);
   useEffect(() => { toneRef.current      = userData?.preferred_tone     ?? "neutral"; }, [userData?.preferred_tone]);
   useEffect(() => {
     // Secondary sync — fires after paint. Direct assignments below are the primary.
@@ -2227,7 +2227,7 @@ export default function NeuralRing() {
       const ragFetch = fetch("/api/rag?action=query", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, query: userMsg.content }),
+        body: JSON.stringify({ userId, query: userMsg.content, rerank: false }),
       })
         .then(r => r.ok ? r.json() : null)
         .then(d => {
@@ -2240,11 +2240,11 @@ export default function NeuralRing() {
         })
         .catch(() => {});
 
-      // Voice mode prioritizes responsiveness — NEVER block a spoken turn on retrieval.
-      // (This wait was adding up to 3s of dead air before the first audio.) RAG still
-      // fires in the background; text chat keeps the brief grounding wait.
+      // Never block a spoken turn on retrieval. For text chat, wait only briefly so the
+      // reply isn't gated on RAG — retrieval is fast now (reranker disabled above), so a
+      // short cap usually still lands grounding while cutting most of the dead air.
       if (!voiceModeRef.current) {
-        await Promise.race([ragFetch, new Promise(r => setTimeout(r, 3000))]);
+        await Promise.race([ragFetch, new Promise(r => setTimeout(r, 1500))]);
       }
 
       const system = voiceModeRef.current
