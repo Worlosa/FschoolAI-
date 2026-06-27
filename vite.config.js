@@ -558,8 +558,48 @@ const summarizeProxyPlugin = {
   },
 };
 
+// Generic "run the real serverless handler under the dev server" proxy, for endpoints
+// that otherwise only exist on Vercel (so `npm run dev` doesn't 404 on them). Injects the
+// listed env keys (only when present — never sets the string "undefined"), parses the JSON
+// body, shims the Vercel-style res.status().json(), and dynamically imports the handler.
+// `importer` MUST be a thunk wrapping a LITERAL dynamic import — `() => import("./api/x.js")`
+// — not a variable path. Vite/esbuild can only resolve literal dynamic-import specifiers; a
+// variable `import(path)` fails to resolve at runtime (502). This mirrors the other proxies.
+const HANDLER_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_KEY", "SUPABASE_ANON_KEY", "ANTHROPIC_API_KEY", "BRAIN_SUPABASE_URL", "BRAIN_SUPABASE_KEY"];
+function handlerProxy(route, importer, envKeys = HANDLER_ENV) {
+  return {
+    name: `${route.replace(/\W+/g, "-")}-proxy`,
+    configureServer(server) {
+      server.middlewares.use(route, async (req, res) => {
+        res.setHeader("Access-Control-Allow-Origin", "*");
+        if (req.method === "OPTIONS") { res.statusCode = 204; res.end(); return; }
+        for (const k of envKeys) { const v = loadEnvKey(k); if (v) process.env[k] = v; }
+        const url = new URL(req.url, "http://localhost");
+        req.query = Object.fromEntries(url.searchParams.entries());
+        let body = "";
+        req.on("data", c => { body += c; });
+        req.on("end", async () => {
+          try { req.body = body ? JSON.parse(body) : {}; } catch { req.body = {}; }
+          res.status = (code) => { res.statusCode = code; return res; };
+          res.json   = (obj)  => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(obj)); };
+          try {
+            const { default: handler } = await importer();
+            await handler(req, res);
+          } catch (err) {
+            res.statusCode = 502; res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({ error: err.message }));
+          }
+        });
+      });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), canvasProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin, fileUrlProxyPlugin, authMigrateProxyPlugin, ragProxyPlugin, tokenEngineProxyPlugin, nudgeProxyPlugin, flashcardsProxyPlugin, transcribeProxyPlugin, dailyRoomProxyPlugin, summarizeProxyPlugin],
+  plugins: [react(), canvasProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin, fileUrlProxyPlugin, authMigrateProxyPlugin, ragProxyPlugin, tokenEngineProxyPlugin, nudgeProxyPlugin, flashcardsProxyPlugin, transcribeProxyPlugin, dailyRoomProxyPlugin, summarizeProxyPlugin,
+    handlerProxy("/api/tutor-impression", () => import("./api/tutor-impression.js")),
+    handlerProxy("/api/session-close",    () => import("./api/session-close.js")),
+    handlerProxy("/api/brain-person-link",() => import("./api/brain-person-link.js"))],
   server:  { port: 5173, host: "0.0.0.0", allowedHosts: true },
   build: {
     // The default 500 kB threshold assumes no compression. Our heaviest chunk (the

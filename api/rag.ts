@@ -305,7 +305,35 @@ async function query(body) {
     p_match_count:     12,
   });
   if (error) return { status: 500, json: { error: `search: ${error.message}` } };
-  if (!hits?.length) return { status: 200, json: { passages: [], used: 0 } };
+  if (!hits?.length) {
+    // No hybrid hit — typical for meta/vague queries ("summarize my notes") whose words
+    // aren't in the documents, or briefly while a doc's chunks are still being embedded
+    // (vector search needs embeddings; without them only literal keyword matches work).
+    // Fall back to the user's most recent document so those queries still ground — but
+    // only when the corpus is small enough that surfacing a whole doc is sensible.
+    const { data: docs } = await supabase
+      .from("rag_documents").select("id, title")
+      .eq("user_id", userId).order("created_at", { ascending: false }).limit(6);
+    if (!docs?.length || docs.length > 5) return { status: 200, json: { passages: [], used: 0 } };
+    const { data: secs } = await supabase
+      .from("rag_sections").select("heading, loc_start, loc_end, full_text")
+      .eq("document_id", docs[0].id).order("ordinal", { ascending: true }).limit(5);
+    const passages = [];
+    let total = 0;
+    for (const s of secs ?? []) {
+      let t = s.full_text ?? "";
+      if (total + t.length > MAX_CONTEXT_CHARS) t = t.slice(0, Math.max(0, MAX_CONTEXT_CHARS - total));
+      if (!t) break;
+      passages.push({
+        title: docs[0].title ?? "Document", heading: s.heading ?? null,
+        loc: s.loc_start != null ? `p.${s.loc_start}${s.loc_end && s.loc_end !== s.loc_start ? `-${s.loc_end}` : ""}` : null,
+        text: t,
+      });
+      total += t.length;
+      if (total >= MAX_CONTEXT_CHARS) break;
+    }
+    return { status: 200, json: { passages, used: passages.length, fallback: true } };
+  }
 
   // Rerank candidate chunks by query relevance (precision boost over RRF) before choosing
   // which parent sections to inject. Falls back to the RRF order on any failure.
@@ -353,6 +381,73 @@ async function query(body) {
   return { status: 200, json: { passages, used: passages.length } };
 }
 
+// ── Backfill ──────────────────────────────────────────────────────────────────
+// Index already-uploaded files that predate RAG auto-ingest (or whose fire-and-forget
+// ingest never completed) so the tutor can find old materials WITHOUT re-uploading.
+// Idempotent (skips anything already indexed, deduped by title) and paginated (a bounded
+// number of files per call) so it never times out — the client loops until { done: true }.
+// Nothing is deleted: this only ADDS missing index rows for content that's already in `files`.
+async function backfill(body) {
+  const { userId, limit = 3 } = body ?? {};
+  if (!userId) return { status: 400, json: { error: "userId required" } };
+
+  // Files the user has uploaded/synced that carry extracted text.
+  const { data: files, error: fErr } = await supabase
+    .from("files")
+    .select("id, name, course_id, content_text, source_url")
+    .eq("user_id", userId)
+    .not("content_text", "is", null)
+    .limit(500);
+  if (fErr) return { status: 500, json: { error: `files read: ${fErr.message}` } };
+  if (!files?.length) return { status: 200, json: { indexed: 0, done: true } };
+
+  // Skip anything already in the index (dedup by title) → safe to run repeatedly.
+  const { data: existing } = await supabase
+    .from("rag_documents").select("title").eq("user_id", userId);
+  const have = new Set((existing ?? []).map(d => d.title));
+
+  const pendingFiles = files.filter(f => String(f.content_text ?? "").trim() && !have.has(f.name));
+
+  // ── Phase 1: index files that have text but aren't in the index yet ──
+  let indexed = 0;
+  for (const f of pendingFiles.slice(0, limit)) {
+    const result = await ingest({
+      userId, courseId: f.course_id ?? null, title: f.name, kind: "document",
+      text: f.content_text, sourceUrl: f.source_url ?? null,
+    });
+    if (result.status === 200 && result.json?.documentId) {
+      for (let i = 0; i < 3; i++) {
+        const eb = await embedBatch({ userId, documentId: result.json.documentId });
+        if (eb.json?.done) break;
+      }
+      indexed++;
+    }
+  }
+  if (pendingFiles.length > indexed) {
+    // More files to index — keep looping (progressed iff we indexed at least one).
+    return { status: 200, json: { phase: "index", indexed, progressed: indexed > 0, done: false } };
+  }
+
+  // ── Phase 2: finish embedding any chunks left un-embedded (e.g. by the old
+  // fire-and-forget ingest that got cut off on serverless). Without embeddings,
+  // vector search is dead and only literal keyword matches work — so semantic/meta
+  // queries ("summarize my notes") return nothing. This re-embeds them. ──
+  const { data: pendingChunk } = await supabase
+    .from("rag_chunks").select("document_id")
+    .eq("user_id", userId).is("embedding", null).limit(1);
+  if (pendingChunk?.length) {
+    let embedded = 0;
+    for (let i = 0; i < 4; i++) {
+      const eb = await embedBatch({ userId, documentId: pendingChunk[0].document_id });
+      embedded += eb.json?.embedded ?? 0;
+      if (eb.json?.done) break;
+    }
+    return { status: 200, json: { phase: "embed", embedded, progressed: embedded > 0, done: false } };
+  }
+
+  return { status: 200, json: { indexed, done: true, progressed: false } };
+}
+
 // ── Handler ───────────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -366,10 +461,11 @@ export default async function handler(req, res) {
 
   const action = req.query?.action;
   try {
-    const result = action === "ingest" ? await ingest(req.body)
-                 : action === "embed"  ? await embedBatch(req.body)
-                 : action === "query"  ? await query(req.body)
-                 : { status: 400, json: { error: "Unknown action. Use ?action=ingest|embed|query" } };
+    const result = action === "ingest"   ? await ingest(req.body)
+                 : action === "embed"    ? await embedBatch(req.body)
+                 : action === "query"    ? await query(req.body)
+                 : action === "backfill" ? await backfill(req.body)
+                 : { status: 400, json: { error: "Unknown action. Use ?action=ingest|embed|query|backfill" } };
     return res.status(result.status).json(result.json);
   } catch (err) {
     console.error("[rag] error:", err?.message ?? err);

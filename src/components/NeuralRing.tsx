@@ -1039,7 +1039,7 @@ export default function NeuralRing() {
 
   // Refs — always hold latest prefs without stale closure in speakAndType
   const voiceIdRef     = useRef(userData?.preferred_voice_id ?? null);
-  const speedRef       = useRef(userData?.preferred_speed ?? 1.1);
+  const speedRef       = useRef(userData?.preferred_speed ?? 1.2);
   const toneRef        = useRef(userData?.preferred_tone  ?? "neutral");
 
   // Voice mode state
@@ -1156,7 +1156,7 @@ export default function NeuralRing() {
 
   // Keep preference + mode refs current
   useEffect(() => { voiceIdRef.current   = userData?.preferred_voice_id ?? null;      }, [userData?.preferred_voice_id]);
-  useEffect(() => { speedRef.current     = userData?.preferred_speed    ?? 1.1;       }, [userData?.preferred_speed]);
+  useEffect(() => { speedRef.current     = userData?.preferred_speed    ?? 1.2;       }, [userData?.preferred_speed]);
   useEffect(() => { toneRef.current      = userData?.preferred_tone     ?? "neutral"; }, [userData?.preferred_tone]);
   useEffect(() => {
     // Secondary sync — fires after paint. Direct assignments below are the primary.
@@ -1266,6 +1266,32 @@ export default function NeuralRing() {
       } catch { /* non-fatal */ }
     }
     loadMemory();
+  }, [userId]);
+
+  // Backfill the RAG index for any previously-uploaded files that aren't indexed yet,
+  // so the tutor can find OLD materials without re-uploading. Runs in the background on
+  // load; idempotent + paginated server-side, so it's cheap when nothing's pending and
+  // converges when there is. Never deletes anything — only adds missing index rows.
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        for (let guard = 0; guard < 300 && !cancelled; guard++) {
+          const r = await fetch("/api/rag?action=backfill", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId }),
+          });
+          if (!r.ok) break;
+          const d = await r.json().catch(() => ({}));
+          if (d.done || !d.progressed) break; // finished, or no progress this pass → stop
+          // Be gentle between batches so background indexing doesn't contend with a live
+          // chat query's embedding call (contention there slows/drops its grounding).
+          await new Promise(res => setTimeout(res, 1500));
+        }
+      } catch { /* non-fatal — files still index on their next upload */ }
+    })();
+    return () => { cancelled = true; };
   }, [userId]);
 
   const toggleMute = useCallback(() => {
@@ -1706,7 +1732,7 @@ export default function NeuralRing() {
 
   /** Ensure a conversation row exists (creating on the first message) and bump
    *  its updated_at so it sorts to the top. Returns the conversation id. */
-  const ensureConversation = useCallback((firstMessage) => {
+  const ensureConversation = useCallback(async (firstMessage) => {
     const nowIso = new Date().toISOString();
     let id = currentConvIdRef.current;
     if (!id) {
@@ -1715,9 +1741,11 @@ export default function NeuralRing() {
       setCurrentConversationId(id);
       const title = ((firstMessage || "").trim().slice(0, 48)) || "New chat";
       setConversations(prev => [{ id, title, updated_at: nowIso }, ...prev]);
-      supabase.from("chat_conversations")
-        .insert({ id, user_id: userId, title, created_at: nowIso, updated_at: nowIso })
-        .then(() => {}, () => {});
+      // Await the insert so the conversation row exists BEFORE chat_logs references it —
+      // otherwise the chat_logs.conversation_id foreign key fails with a 409 on the first
+      // message of a new conversation (the insert and the log were racing).
+      await supabase.from("chat_conversations")
+        .insert({ id, user_id: userId, title, created_at: nowIso, updated_at: nowIso });
     } else {
       setConversations(prev => {
         const found = prev.find(c => c.id === id);
@@ -2139,7 +2167,7 @@ export default function NeuralRing() {
     setMessages(m => [...m, userMsg]);
     setInput("");
     setLoading(true);
-    const convId = ensureConversation(userMsg.content);
+    const convId = await ensureConversation(userMsg.content);
     logChat(userId, "user", userMsg.content, null, convId);
 
     // ── Brain behavioral signal (fire-and-forget) ─────────────────────────────
@@ -2227,7 +2255,7 @@ export default function NeuralRing() {
       const ragFetch = fetch("/api/rag?action=query", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, query: userMsg.content }),
+        body: JSON.stringify({ userId, query: userMsg.content, rerank: false }),
       })
         .then(r => r.ok ? r.json() : null)
         .then(d => {
@@ -2240,11 +2268,14 @@ export default function NeuralRing() {
         })
         .catch(() => {});
 
-      // Voice mode prioritizes responsiveness — NEVER block a spoken turn on retrieval.
-      // (This wait was adding up to 3s of dead air before the first audio.) RAG still
-      // fires in the background; text chat keeps the brief grounding wait.
+      // Never block a spoken turn on retrieval. For text chat, this is a Promise.race —
+      // it resolves the INSTANT RAG returns (~1s now that the reranker is disabled), NOT
+      // after the full cap. The cap is only a safety ceiling for a stalled request, so
+      // keeping it generous costs nothing in the normal (fast) case but stops a
+      // slightly-slow query from dropping the file's grounding (the "no SOURCE MATERIAL"
+      // bug). Lower caps trade reliable grounding for a worst-case bound that rarely helps.
       if (!voiceModeRef.current) {
-        await Promise.race([ragFetch, new Promise(r => setTimeout(r, 3000))]);
+        await Promise.race([ragFetch, new Promise(r => setTimeout(r, 4000))]);
       }
 
       const system = voiceModeRef.current
