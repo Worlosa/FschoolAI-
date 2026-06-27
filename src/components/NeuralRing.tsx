@@ -1268,6 +1268,29 @@ export default function NeuralRing() {
     loadMemory();
   }, [userId]);
 
+  // Backfill the RAG index for any previously-uploaded files that aren't indexed yet,
+  // so the tutor can find OLD materials without re-uploading. Runs in the background on
+  // load; idempotent + paginated server-side, so it's cheap when nothing's pending and
+  // converges when there is. Never deletes anything — only adds missing index rows.
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        for (let guard = 0; guard < 300 && !cancelled; guard++) {
+          const r = await fetch("/api/rag?action=backfill", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId }),
+          });
+          if (!r.ok) break;
+          const d = await r.json().catch(() => ({}));
+          if (d.done || !d.indexed) break; // finished, or no progress this pass → stop
+        }
+      } catch { /* non-fatal — files still index on their next upload */ }
+    })();
+    return () => { cancelled = true; };
+  }, [userId]);
+
   const toggleMute = useCallback(() => {
     setMuted(m => {
       const next = !m;

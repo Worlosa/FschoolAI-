@@ -353,6 +353,53 @@ async function query(body) {
   return { status: 200, json: { passages, used: passages.length } };
 }
 
+// ── Backfill ──────────────────────────────────────────────────────────────────
+// Index already-uploaded files that predate RAG auto-ingest (or whose fire-and-forget
+// ingest never completed) so the tutor can find old materials WITHOUT re-uploading.
+// Idempotent (skips anything already indexed, deduped by title) and paginated (a bounded
+// number of files per call) so it never times out — the client loops until { done: true }.
+// Nothing is deleted: this only ADDS missing index rows for content that's already in `files`.
+async function backfill(body) {
+  const { userId, limit = 3 } = body ?? {};
+  if (!userId) return { status: 400, json: { error: "userId required" } };
+
+  // Files the user has uploaded/synced that carry extracted text.
+  const { data: files, error: fErr } = await supabase
+    .from("files")
+    .select("id, name, course_id, content_text, source_url")
+    .eq("user_id", userId)
+    .not("content_text", "is", null)
+    .limit(500);
+  if (fErr) return { status: 500, json: { error: `files read: ${fErr.message}` } };
+  if (!files?.length) return { status: 200, json: { indexed: 0, done: true } };
+
+  // Skip anything already in the index (dedup by title) → safe to run repeatedly.
+  const { data: existing } = await supabase
+    .from("rag_documents").select("title").eq("user_id", userId);
+  const have = new Set((existing ?? []).map(d => d.title));
+
+  const pending = files.filter(f => String(f.content_text ?? "").trim() && !have.has(f.name));
+  if (!pending.length) return { status: 200, json: { indexed: 0, done: true } };
+
+  let indexed = 0;
+  for (const f of pending.slice(0, limit)) {
+    const result = await ingest({
+      userId, courseId: f.course_id ?? null, title: f.name, kind: "document",
+      text: f.content_text, sourceUrl: f.source_url ?? null,
+    });
+    if (result.status === 200 && result.json?.documentId) {
+      for (let i = 0; i < 3; i++) {
+        const eb = await embedBatch({ userId, documentId: result.json.documentId });
+        if (eb.json?.done) break;
+      }
+      indexed++;
+    }
+  }
+  // done once the remaining backlog fits in a single pass (so the loop terminates even
+  // if a file fails to ingest — it isn't retried forever).
+  return { status: 200, json: { indexed, remaining: Math.max(0, pending.length - indexed), done: pending.length <= limit } };
+}
+
 // ── Handler ───────────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -366,10 +413,11 @@ export default async function handler(req, res) {
 
   const action = req.query?.action;
   try {
-    const result = action === "ingest" ? await ingest(req.body)
-                 : action === "embed"  ? await embedBatch(req.body)
-                 : action === "query"  ? await query(req.body)
-                 : { status: 400, json: { error: "Unknown action. Use ?action=ingest|embed|query" } };
+    const result = action === "ingest"   ? await ingest(req.body)
+                 : action === "embed"    ? await embedBatch(req.body)
+                 : action === "query"    ? await query(req.body)
+                 : action === "backfill" ? await backfill(req.body)
+                 : { status: 400, json: { error: "Unknown action. Use ?action=ingest|embed|query|backfill" } };
     return res.status(result.status).json(result.json);
   } catch (err) {
     console.error("[rag] error:", err?.message ?? err);
