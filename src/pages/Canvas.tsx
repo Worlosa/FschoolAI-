@@ -568,7 +568,7 @@ function PastCoursesSection({ pastCourses, addedIds, adding, onAdd, onAddManual 
         <button onClick={() => setOpen(o => !o)}
           style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "6px" }}>
           <span style={{ color: "#E3E2E2", fontSize: "13px", fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-            🗂 Past Courses
+            Past Courses
           </span>
           <span style={{ color: "rgba(200,197,203,0.4)", fontSize: "12px" }}>
             {pastCourses.length} {open ? "▲" : "▼"}

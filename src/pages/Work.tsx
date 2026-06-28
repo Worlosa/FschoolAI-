@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useApp } from "../context/AppContext";
+import { Flame } from "lucide-react";
 
 
 function formatDue(dateStr) {
@@ -638,7 +639,7 @@ export default function Work() {
                   justifyContent: "center", alignItems: "center",
                   padding: "16px", boxSizing: "border-box" as const,
                 }}>
-                  <span style={{ fontSize: "16px", lineHeight: 1 }}>🔥</span>
+                  <Flame size={16} color="#C49A3C" style={{ flexShrink: 0 }} />
                   <p style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 400, fontSize: "18px", lineHeight: "40px", color: "#E3E2E2", margin: 0 }}>
                     {STATS[1].value}
                   </p>
@@ -814,7 +815,7 @@ export default function Work() {
                 display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: "28px", flexShrink: 0,
               }}>
-                🔥
+                <Flame size={26} color="#C49A3C" />
               </div>
             </div>
 

@@ -23,6 +23,7 @@ import {
   searchUsersByName,
 } from "../api/friends";
 import { createNotification } from "../api/notifications";
+import { Search } from "lucide-react";
 
 // ── Local cache helpers ───────────────────────────────────────────────────────
 // Keyed by userId so multiple accounts on the same device don't bleed into each other.
@@ -301,7 +302,7 @@ export default function FriendsSection({ userId, ownName }: { userId: string; ow
           <span style={{
             position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)",
             fontSize: "15px", opacity: 0.4, pointerEvents: "none",
-          }}>🔍</span>
+          }}><Search size={15} /></span>
           <input
             ref={inputRef}
             type="text"

@@ -6,6 +6,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { groq }          from "../api/groq";
+import { Target }        from "lucide-react";
 import { buildStudentContext } from "../data/mockData";
 import { useApp }        from "../context/AppContext";
 import { awardTokens }   from "../api/tokens";
@@ -304,7 +305,7 @@ export default function Assignment() {
             alignItems: "flex-start",
             gap: "10px",
           }}>
-            <span style={{ fontSize: "15px", flexShrink: 0, marginTop: "1px" }}>🎯</span>
+            <Target size={15} style={{ flexShrink: 0, marginTop: "2px", color: "var(--color-accent)" }} />
             <p style={{
               flex: 1,
               color: "rgba(255,255,255,0.75)",
