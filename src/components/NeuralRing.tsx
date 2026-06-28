@@ -19,6 +19,7 @@ import { useApp }      from "../context/AppContext";
 import { supabase }    from "../api/supabase";
 import { awardTokens } from "../api/tokens";
 import { sanitizeApiMessages } from "../lib/chatMessages";
+import { Mail, Square, Plus } from "lucide-react";
 import ArtifactPanel   from "./ArtifactPanel";
 
 // ── Claude proxy helper (tutor brain — better quality than Groq for conversation) ──
@@ -2189,7 +2190,7 @@ export default function NeuralRing() {
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d.text) throw new Error(d.error || "Couldn't read that file.");
       setAttachStatus(null);
-      setMessages(m => [...m, { role: "assistant", content: `📎 Indexed **${file.name}** — ask me anything about it.` }]);
+      setMessages(m => [...m, { role: "assistant", content: `Indexed **${file.name}** — ask me anything about it.` }]);
     } catch {
       setAttachStatus(`Couldn't attach ${file.name}.`);
       setTimeout(() => setAttachStatus(null), 5000);
@@ -3115,7 +3116,7 @@ export default function NeuralRing() {
                   }}
                   onMouseEnter={e => e.currentTarget.style.color = "#C49A3C"}
                   onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,0.4)"}
-                >+</button>
+                ><Plus size={20} strokeWidth={2.2} /></button>
                 {/* Subtle waveform glyph — enters voice mode */}
                 <button
                   onClick={() => { getAudioContext(); voiceModeRef.current = true; setVoiceMode(true); startAutoListen(); }}
@@ -3154,13 +3155,13 @@ export default function NeuralRing() {
                   onBlur={e  => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.09)")}
                 />
                 {(loading || speaking) ? (
-                  <button onClick={stopResponse} title="Stop" aria-label="Stop" style={{ background: "rgba(255,80,80,0.15)", border: "1px solid rgba(255,80,80,0.25)", borderRadius: "var(--radius-btn)", padding: "8px 13px", fontSize: "19px", lineHeight: 1, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
-                    ⏹️
+                  <button onClick={stopResponse} title="Stop" aria-label="Stop" style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,80,80,0.15)", color: "rgba(255,120,100,0.95)", border: "1px solid rgba(255,80,80,0.25)", borderRadius: "var(--radius-btn)", padding: "10px 13px", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+                    <Square size={16} fill="currentColor" strokeWidth={0} />
                   </button>
                 ) : (
                   <button onClick={() => { getAudioContext(); sendMessage(); }} disabled={!input.trim()} title="Send" aria-label="Send"
-                    style={{ background: !input.trim() ? "rgba(255,255,255,0.18)" : "var(--color-accent)", border: "none", borderRadius: "var(--radius-btn)", padding: "8px 13px", fontSize: "19px", lineHeight: 1, cursor: !input.trim() ? "not-allowed" : "pointer", fontFamily: "inherit", flexShrink: 0, opacity: !input.trim() ? 0.5 : 1, transition: "background var(--dur-base) var(--ease-apple)" }}>
-                    ✉️
+                    style={{ display: "flex", alignItems: "center", justifyContent: "center", background: !input.trim() ? "rgba(255,255,255,0.18)" : "var(--color-accent)", color: "#111", border: "none", borderRadius: "var(--radius-btn)", padding: "10px 13px", cursor: !input.trim() ? "not-allowed" : "pointer", fontFamily: "inherit", flexShrink: 0, opacity: !input.trim() ? 0.5 : 1, transition: "background var(--dur-base) var(--ease-apple)" }}>
+                    <Mail size={18} />
                   </button>
                 )}
               </div>
