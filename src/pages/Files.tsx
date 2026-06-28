@@ -259,11 +259,13 @@ function AddMaterialCard({ onProcessed }: { onProcessed: (f: any) => void }) {
           color:"var(--text-primary)", fontSize:13,
           outline:"none", fontFamily:"inherit",
           opacity: busy ? 0.5 : 1, cursor: busy ? "default" : "pointer",
+          // Render the native popup in dark mode so the option list isn't white-on-white.
+          colorScheme: "dark",
         }}
       >
-        <option value="">General library (no course)</option>
+        <option value="" style={{ background:"#1a1a1e", color:"#f5f5f5" }}>General library (no course)</option>
         {linkableCourses.map((c: any) => (
-          <option key={c.dbId} value={c.dbId}>
+          <option key={c.dbId} value={c.dbId} style={{ background:"#1a1a1e", color:"#f5f5f5" }}>
             {c.courseCode ? `${c.courseCode} — ${c.name}` : c.name}
           </option>
         ))}
