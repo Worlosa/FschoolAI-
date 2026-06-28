@@ -7,6 +7,7 @@ import { useApp }        from "../context/AppContext";
 import { supabase }      from "../api/supabase";
 import { awardTokens }   from "../api/tokens";
 import { Check, X, AlertTriangle, Sparkles } from "lucide-react";
+import { groundingToast } from "../lib/studyGrounding";
 
 
 const SYSTEM =
@@ -957,12 +958,8 @@ export default function Study() {
               body: JSON.stringify({ action: "load", userId, courseId: dbId }),
             }).then(r => r.json()).catch(() => ({ cards: [] }));
             setFlashcards(reloaded?.cards?.length > 0 ? reloaded.cards : [...cards, ...existingCards]);
-            showToast(
-              grounded
-                ? `${cards.length} new flashcards added!`
-                : `Added ${cards.length} cards from general knowledge — upload this course's notes or slides for cards based on your actual material.`,
-              grounded ? "ok" : "warn"
-            );
+            const t = groundingToast("flashcards", grounded, cards.length);
+            showToast(t.message, t.kind);
             awardTokens("flashcards_generated", { courseId: String(dbId) }).catch(() => {});
           }
         }
@@ -978,12 +975,8 @@ export default function Study() {
           if (saveErr) {
             showToast("Guide generated but couldn't save: " + saveErr.message, "warn");
           } else {
-            showToast(
-              grounded
-                ? "Study guide saved!"
-                : "Heads up — this guide is from general knowledge, not your uploaded materials. Upload notes or slides for a guide tied to your actual course.",
-              grounded ? "ok" : "warn"
-            );
+            const t = groundingToast("guide", grounded);
+            showToast(t.message, t.kind);
           }
         }
       }
