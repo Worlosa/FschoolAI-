@@ -23,7 +23,7 @@ import {
   searchUsersByName,
 } from "../api/friends";
 import { createNotification } from "../api/notifications";
-import { Search } from "lucide-react";
+import { Search, Check } from "lucide-react";
 
 // ── Local cache helpers ───────────────────────────────────────────────────────
 // Keyed by userId so multiple accounts on the same device don't bleed into each other.
@@ -368,7 +368,7 @@ export default function FriendsSection({ userId, ownName }: { userId: string; ow
                       </p>
                     </div>
                     {rel === "friend" && (
-                      <span style={{ fontSize: "12px", color: "rgba(52,199,89,0.8)", fontWeight: 500 }}>✓ Friend</span>
+                      <span style={{ fontSize: "12px", color: "rgba(52,199,89,0.8)", fontWeight: 500, display:"inline-flex", alignItems:"center", gap:4 }}><Check size={12} />Friend</span>
                     )}
                     {rel === "pending" && (
                       <span style={{ fontSize: "12px", color: "var(--text-dim)" }}>Pending</span>

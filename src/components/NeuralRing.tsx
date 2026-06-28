@@ -19,7 +19,7 @@ import { useApp }      from "../context/AppContext";
 import { supabase }    from "../api/supabase";
 import { awardTokens } from "../api/tokens";
 import { sanitizeApiMessages } from "../lib/chatMessages";
-import { Mail, Square, Plus, ThumbsUp, ThumbsDown } from "lucide-react";
+import { Mail, Square, Plus, ThumbsUp, ThumbsDown, Check } from "lucide-react";
 import ArtifactPanel   from "./ArtifactPanel";
 
 // ── Claude proxy helper (tutor brain — better quality than Groq for conversation) ──
@@ -863,7 +863,7 @@ function InlineQuiz({ cards, userId, courseId }) {
               style={{ background: "rgba(196,154,60,0.12)", border: "1px solid rgba(196,154,60,0.28)", borderRadius: "8px", padding: "7px 14px", color: "#C49A3C", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
               {saving ? "Saving…" : "Save to flashcards"}
             </button>
-          : <p style={{ color: "#C49A3C", fontSize: "12px" }}>✓ Saved to flashcards</p>
+          : <p style={{ color: "#C49A3C", fontSize: "12px", display:"flex", alignItems:"center", gap:5 }}><Check size={13} />Saved to flashcards</p>
         }
       </div>
     );

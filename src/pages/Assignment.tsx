@@ -6,7 +6,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { groq }          from "../api/groq";
-import { Target }        from "lucide-react";
+import { Target, Check } from "lucide-react";
 import { buildStudentContext } from "../data/mockData";
 import { useApp }        from "../context/AppContext";
 import { awardTokens }   from "../api/tokens";
@@ -407,7 +407,7 @@ export default function Assignment() {
               disabled={markedDone}
               style={{ width: "100%", marginTop: "10px", background: markedDone ? "rgba(52,199,89,0.1)" : "transparent", border: `1px solid ${markedDone ? "rgba(52,199,89,0.3)" : "rgba(255,255,255,0.1)"}`, borderRadius: "var(--radius-btn)", padding: "11px", color: markedDone ? "rgba(100,220,130,0.85)" : "rgba(255,255,255,0.35)", fontSize: "13px", cursor: markedDone ? "default" : "pointer", fontFamily: "inherit", transition: "all 0.2s" }}
             >
-              {markedDone ? "✓ Marked as done" : "Mark as done"}
+              {markedDone ? <span style={{ display:"inline-flex", alignItems:"center", gap:6 }}><Check size={14} />Marked as done</span> : "Mark as done"}
             </button>
           </>
         )}

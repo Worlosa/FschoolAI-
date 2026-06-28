@@ -2,6 +2,7 @@
 // All data logic (fetchAssignments, fetchModules, addManualCourse, etc.) unchanged.
 
 import { useState, useEffect } from "react";
+import { Check } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import ManualUploadSheet from "../components/ManualUploadSheet";
 import { fetchAssignments, fetchModules } from "../../canvas-module/canvasApi";
@@ -620,7 +621,7 @@ function PastCoursesSection({ pastCourses, addedIds, adding, onAdd, onAddManual 
                     </div>
                     <button onClick={() => onAdd(c)} disabled={added || adding}
                       style={{ background: added ? "rgba(100,220,130,0.1)" : "rgba(255,255,255,0.07)", border: `1px solid ${added ? "rgba(100,220,130,0.25)" : "rgba(255,255,255,0.12)"}`, borderRadius: "8px", padding: "5px 12px", color: added ? "rgba(100,220,130,0.8)" : "rgba(255,255,255,0.6)", fontSize: "11px", fontWeight: 500, cursor: added || adding ? "default" : "pointer", fontFamily: "inherit", flexShrink: 0, marginLeft: "10px", transition: "all 0.15s" }}>
-                      {added ? "Added ✓" : adding ? "Adding…" : "+ Add"}
+                      {added ? <span style={{ display:"inline-flex", alignItems:"center", gap:4 }}>Added<Check size={12} /></span> : adding ? "Adding…" : "+ Add"}
                     </button>
                   </div>
                 );

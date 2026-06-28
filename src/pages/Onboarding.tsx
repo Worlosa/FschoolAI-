@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { Check } from "lucide-react";
 import { supabase } from "../api/supabase";
 
 /* ─── Supabase school search ───────────────────────────────────────────────── */
@@ -786,7 +787,7 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
                           <span style={{ fontSize: "17px", fontWeight: 650, color: on ? "#F5F5F5" : "rgba(255,255,255,0.6)" }}>
                             {opt.title}
                           </span>
-                          {on && <span style={{ color: "#F5F5F5", fontSize: "15px" }}>✓</span>}
+                          {on && <Check size={15} style={{ color: "#F5F5F5" }} />}
                         </div>
                         <span style={{ fontSize: "13px", color: "rgba(255,255,255,0.4)", lineHeight: 1.5 }}>{opt.desc}</span>
                       </button>

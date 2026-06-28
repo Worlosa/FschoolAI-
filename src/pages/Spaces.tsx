@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../api/supabase";
 import { useApp }   from "../context/AppContext";
 import DocReader    from "../components/DocReader";
-import { FileText, Image as ImageIcon, StickyNote, FolderOpen, FolderArchive } from "lucide-react";
+import { FileText, Image as ImageIcon, StickyNote, FolderOpen, FolderArchive, Sparkles, Hexagon } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import SpaceExams   from "../components/SpaceExams";
 
@@ -584,8 +584,8 @@ function SpaceChat({
               background: "rgba(255,255,255,0.04)",
               border: "1px solid rgba(255,255,255,0.08)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 22, marginBottom: 14,
-            }}>✦</div>
+              marginBottom: 14,
+            }}><Sparkles size={22} /></div>
             <p style={{ fontSize: 14, color: "var(--text-secondary)", marginBottom: 6, fontWeight: 500 }}>
               Space Chat
             </p>
@@ -1246,9 +1246,9 @@ export default function Spaces() {
                   background: "rgba(255,255,255,0.04)",
                   border: "1px solid rgba(255,255,255,0.08)",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 38, margin: "0 auto 22px",
+                  margin: "0 auto 22px",
                   boxShadow: "0 0 40px rgba(0,0,0,0.3)",
-                }}>⬡</div>
+                }}><Hexagon size={38} /></div>
 
                 <p style={{
                   fontSize: 18, fontWeight: 700,

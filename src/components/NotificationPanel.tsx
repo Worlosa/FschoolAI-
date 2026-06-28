@@ -233,7 +233,7 @@ function NotificationItem({
         {/* Resolved states — shown after accept/decline, survive reopen via DB */}
         {n.type === "friend_request" && actioned === "accepted" && (
           <p style={{ marginTop: "6px", fontSize: "11px", color: "rgba(127,174,110,0.75)", fontWeight: "500", letterSpacing: "0.1px" }}>
-            ✓ Accepted
+            <Check size={12} style={{ verticalAlign:"-2px", marginRight:4 }} />Accepted
           </p>
         )}
         {n.type === "friend_request" && actioned === "declined" && (

@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useApp }    from "../context/AppContext";
 import { supabase }  from "../api/supabase";
 import DocReader     from "../components/DocReader";
-import { FileText, Presentation, Music, Film, Play, Image as ImageIcon, StickyNote, Paperclip, BookOpen } from "lucide-react";
+import { FileText, Presentation, Music, Film, Play, Image as ImageIcon, StickyNote, Paperclip, BookOpen, Check } from "lucide-react";
 
 // ── Design tokens ─────────────────────────────────────────────────────────
 
@@ -441,7 +441,7 @@ function AddToSpaceModal({ file, userId, onClose }: {
                 {s.name}
               </span>
               <span style={{ fontSize:13, color: isAdded ? "#4ade80" : "var(--text-dim)" }}>
-                {isAdding ? "Adding…" : isAdded ? "✓ Added" : "Add →"}
+                {isAdding ? "Adding…" : isAdded ? <span style={{ display:"inline-flex", alignItems:"center", gap:4 }}><Check size={13} />Added</span> : "Add →"}
               </span>
             </button>
           );
