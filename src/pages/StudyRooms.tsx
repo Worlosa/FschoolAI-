@@ -22,15 +22,21 @@ import Whiteboard, { PEN_COLORS, PEN_WIDTHS, ERASER_SIZES, DEFAULT_BG } from "..
 import type { Tool } from "../components/Whiteboard";
 import StudyOrb from "../components/StudyOrb";
 import VoiceRoom from "../components/VoiceRoom";
+import {
+  School, Users, Link2, BookOpen, Check, KeyRound, Lock, Globe, Mail, Bot,
+  MessageCircle, Pen, Mic, Settings, X, Plus, MoreHorizontal, Target, Flame,
+  Timer, Coins, ThumbsUp, ThumbsDown, Image as ImageIcon, Hand, Zap, Hourglass,
+  RefreshCw, LogOut,
+} from "lucide-react";
 
 // ── Access filters ────────────────────────────────────────────────────────────
 // Which eligibility rules an owner can put on a room. Server enforces these via
 // the join_room / list_accessible_rooms RPCs; this is just the UI vocabulary.
-const ACCESS_OPTIONS: { key: keyof AccessFilters; icon: string; label: string; desc: string; needsCourse?: boolean }[] = [
-  { key: "university", icon: "🏫", label: "Same university",   desc: "Only students at your school" },
-  { key: "friends",    icon: "👥", label: "Friends only",       desc: "Only your friends" },
-  { key: "fof",        icon: "🔗", label: "Friends of friends", desc: "Friends and their friends" },
-  { key: "course",     icon: "📚", label: "Course-mates",       desc: "Students taking the linked course", needsCourse: true },
+const ACCESS_OPTIONS: { key: keyof AccessFilters; icon: any; label: string; desc: string; needsCourse?: boolean }[] = [
+  { key: "university", icon: School,   label: "Same university",   desc: "Only students at your school" },
+  { key: "friends",    icon: Users,    label: "Friends only",       desc: "Only your friends" },
+  { key: "fof",        icon: Link2,    label: "Friends of friends", desc: "Friends and their friends" },
+  { key: "course",     icon: BookOpen, label: "Course-mates",       desc: "Students taking the linked course", needsCourse: true },
 ];
 
 function activeFilterKeys(filters?: AccessFilters | null): (keyof AccessFilters)[] {
@@ -54,7 +60,7 @@ function FilterBadges({ filters, small = false }: { filters?: AccessFilters | nu
             background: "rgba(196,154,60,0.08)", color: "var(--color-accent)",
             border: "1px solid rgba(196,154,60,0.18)", whiteSpace: "nowrap",
           }}>
-            {meta.icon} {meta.label}
+            <meta.icon size={small ? 12 : 13} /> {meta.label}
           </span>
         );
       })}
@@ -86,7 +92,7 @@ function AccessToggles({ value, onChange, hasCourse }: {
               opacity: disabled ? 0.4 : 1, transition: "all 0.15s",
             }}
           >
-            <span style={{ fontSize: "17px", flexShrink: 0 }}>{opt.icon}</span>
+            <span style={{ display: "flex", flexShrink: 0 }}><opt.icon size={17} /></span>
             <span style={{ flex: 1, minWidth: 0 }}>
               <span style={{ display: "block", fontSize: "13px", fontWeight: 600, color: on ? "var(--color-accent)" : "var(--text-primary)" }}>
                 {opt.label}
@@ -101,7 +107,7 @@ function AccessToggles({ value, onChange, hasCourse }: {
               background: on ? "var(--color-accent)" : "transparent",
               display: "flex", alignItems: "center", justifyContent: "center",
             }}>
-              {on && <span style={{ color: "#111", fontSize: "11px", fontWeight: 700, lineHeight: 1 }}>✓</span>}
+              {on && <Check size={12} color="#111" strokeWidth={3} />}
             </span>
           </button>
         );
@@ -547,7 +553,7 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
           onFocusCapture={e => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(196,154,60,0.45)"; (e.currentTarget as HTMLDivElement).style.boxShadow = "0 0 0 3px rgba(196,154,60,0.08)"; }}
           onBlurCapture={e  => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(196,154,60,0.18)"; (e.currentTarget as HTMLDivElement).style.boxShadow = "none"; }}
         >
-          <span style={{ fontSize:"18px", flexShrink:0 }}>🔑</span>
+          <span style={{ display:"flex", flexShrink:0, color:"var(--color-accent)" }}><KeyRound size={18} /></span>
           <input
             value={codeInput}
             onChange={e => { setCodeInput(e.target.value.toUpperCase().slice(0, 6)); setCodeError(""); }}
@@ -578,7 +584,7 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
           borderRadius:"12px", padding:"11px 16px", margin:"4px 0 10px",
           fontSize:"13px", color:"rgba(255,120,110,0.95)",
         }}>
-          🔒 {joinError}
+          <Lock size={14} style={{ verticalAlign:"-2px", marginRight:6 }} />{joinError}
         </div>
       )}
 
@@ -592,7 +598,7 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
               display:"flex", alignItems:"center", justifyContent:"space-between", gap:"12px",
             }}>
               <p style={{ fontSize:"13px", color:"var(--text-secondary)", flex:1, minWidth:0 }}>
-                📩 <b style={{ color:"var(--text-primary)" }}>{inv.fromName || "Someone"}</b> invited you to their study room
+                <Mail size={14} style={{ verticalAlign:"-2px", marginRight:6 }} /><b style={{ color:"var(--text-primary)" }}>{inv.fromName || "Someone"}</b> invited you to their study room
               </p>
               <div style={{ display:"flex", gap:"8px", flexShrink:0 }}>
                 <button onClick={() => acceptInvite(inv)} style={{ ...S.accentBtn, padding:"6px 14px", fontSize:"12px" }}>Join</button>
@@ -639,7 +645,7 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
                       ...(nudgedDone ? { background:"rgba(74,222,128,0.1)", border:"1px solid rgba(74,222,128,0.3)", color:"#4ade80", opacity:1 } : { opacity: st ? 0.5 : 1 }),
                     }}
                   >
-                    {st === "sent" ? "Nudged ✓" : st === "limited" ? "Limit reached" : st === "sending" ? "…" : "Nudge"}
+                    {st === "sent" ? <span style={{ display:"inline-flex", alignItems:"center", gap:4 }}>Nudged<Check size={13} /></span> : st === "limited" ? "Limit reached" : st === "sending" ? "…" : "Nudge"}
                   </button>
                 </div>
               );
@@ -669,7 +675,7 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
             </button>
           ))}
         </div>
-        <button onClick={fetchRooms} style={{ ...S.ghostBtn, marginTop:0, padding:"5px 10px", fontSize:"13px" }}>↻</button>
+        <button onClick={fetchRooms} title="Refresh" style={{ ...S.ghostBtn, marginTop:0, padding:"5px 10px", fontSize:"13px", display:"inline-flex", alignItems:"center" }}><RefreshCw size={13} /></button>
       </div>
 
       {/* ── Room grid ───────────────────────────────────────────── */}
@@ -873,7 +879,9 @@ function CreateRoomModal({ courses, onCreate, onClose }) {
               border: `1px solid ${roomType===t ? "rgba(196,154,60,0.3)" : "rgba(255,255,255,0.08)"}`,
               transition:"all 0.15s",
             }}>
-              {t==="public" ? "🌐 Public" : "🔒 Invite only"}
+              {t==="public"
+                ? <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Globe size={13} />Public</span>
+                : <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Lock size={13} />Invite only</span>}
             </button>
           ))}
         </div>
@@ -1805,7 +1813,9 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           <p style={S.sectionLabel}>Study Room</p>
           <h1 style={{ ...S.pageTitle, fontSize:"22px" }}>{room.name}</h1>
           <p style={{ fontSize:"12px", color:"var(--text-dim)", marginTop:"3px" }}>
-            {room.room_type === "invite" ? "🔒 Invite only" : "🌐 Public"}
+            {room.room_type === "invite"
+              ? <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Lock size={12} />Invite only</span>
+              : <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Globe size={12} />Public</span>}
             {members.length > 0 && (
               <span style={{ marginLeft:"10px", color:"var(--color-accent)" }}>
                 · {members.length} focusing now
@@ -1820,11 +1830,11 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
         </div>
         <div style={{ display:"flex", gap:"6px", alignItems:"center", flexWrap:"wrap" }}>
           {/* Panel toggles */}
-          <button onClick={() => setShowBuddy(b => !b)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showBuddy ? "rgba(111,179,196,0.1)" : "none", borderColor: showBuddy ? "rgba(111,179,196,0.3)" : "rgba(255,255,255,0.09)", color: showBuddy ? "#6fb3c4" : "var(--text-dim)" }}>🤖 AI</button>
-          <button onClick={() => showChat ? setShowChat(false) : handleOpenChat()} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showChat ? "rgba(127,174,110,0.1)" : "none", borderColor: showChat ? "rgba(127,174,110,0.3)" : "rgba(255,255,255,0.09)", color: showChat ? "#7fae6e" : "var(--text-dim)" }}>💬 Chat</button>
-          <button onClick={() => showBoard ? setShowBoard(false) : handleOpenBoard()} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showBoard ? "rgba(196,154,60,0.1)" : "none", borderColor: showBoard ? "rgba(196,154,60,0.3)" : "rgba(255,255,255,0.09)", color: showBoard ? "#c49a3c" : "var(--text-dim)" }}>🖊 Board</button>
-          <button onClick={() => setShowVoice(v => !v)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showVoice ? "rgba(96,165,250,0.1)" : "none", borderColor: showVoice ? "rgba(96,165,250,0.3)" : "rgba(255,255,255,0.09)", color: showVoice ? "#60a5fa" : "var(--text-dim)" }}>🎙 Voice</button>
-          <button onClick={() => setShowInvite(true)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px" }}>+ Invite</button>
+          <button onClick={() => setShowBuddy(b => !b)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showBuddy ? "rgba(111,179,196,0.1)" : "none", borderColor: showBuddy ? "rgba(111,179,196,0.3)" : "rgba(255,255,255,0.09)", color: showBuddy ? "#6fb3c4" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Bot size={13} />AI</span></button>
+          <button onClick={() => showChat ? setShowChat(false) : handleOpenChat()} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showChat ? "rgba(127,174,110,0.1)" : "none", borderColor: showChat ? "rgba(127,174,110,0.3)" : "rgba(255,255,255,0.09)", color: showChat ? "#7fae6e" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><MessageCircle size={13} />Chat</span></button>
+          <button onClick={() => showBoard ? setShowBoard(false) : handleOpenBoard()} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showBoard ? "rgba(196,154,60,0.1)" : "none", borderColor: showBoard ? "rgba(196,154,60,0.3)" : "rgba(255,255,255,0.09)", color: showBoard ? "#c49a3c" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Pen size={13} />Board</span></button>
+          <button onClick={() => setShowVoice(v => !v)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px", background: showVoice ? "rgba(96,165,250,0.1)" : "none", borderColor: showVoice ? "rgba(96,165,250,0.3)" : "rgba(255,255,255,0.09)", color: showVoice ? "#60a5fa" : "var(--text-dim)" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Mic size={13} />Voice</span></button>
+          <button onClick={() => setShowInvite(true)} style={{ ...S.ghostBtn, marginTop:0, padding:"7px 10px", fontSize:"12px" }}><span style={{ display:"inline-flex", alignItems:"center", gap:5 }}><Plus size={13} />Invite</span></button>
 
           {/* ⋯ overflow — admin actions + leave */}
           <div ref={roomMenuRef} style={{ position:"relative" }}>
@@ -1833,7 +1843,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
               style={{ ...S.ghostBtn, marginTop:0, padding:"8px 12px", fontSize:"14px", letterSpacing:"1px", background: showRoomMenu ? "rgba(255,255,255,0.07)" : "none" }}
               title="More options"
             >
-              ⋯
+              <MoreHorizontal size={16} />
             </button>
             {showRoomMenu && (
               <div style={{
@@ -1846,19 +1856,19 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
                   <button onClick={() => { setShowAccess(true); setShowRoomMenu(false); }} style={{ display:"block", width:"100%", textAlign:"left", background:"none", border:"none", borderRadius:"8px", padding:"9px 12px", fontSize:"13px", color:"var(--text-secondary)", cursor:"pointer", fontFamily:"inherit" }}
                     onMouseEnter={e => (e.currentTarget.style.background="rgba(255,255,255,0.06)")}
                     onMouseLeave={e => (e.currentTarget.style.background="none")}
-                  >⚙ Access settings</button>
+                  ><span style={{ display:"inline-flex", alignItems:"center", gap:6 }}><Settings size={14} />Access settings</span></button>
                 )}
                 {isHost && (
                   <button onClick={() => { handleCloseRoom(); setShowRoomMenu(false); }} style={{ display:"block", width:"100%", textAlign:"left", background:"none", border:"none", borderRadius:"8px", padding:"9px 12px", fontSize:"13px", color:"rgba(255,100,90,0.8)", cursor:"pointer", fontFamily:"inherit" }}
                     onMouseEnter={e => (e.currentTarget.style.background="rgba(255,59,48,0.07)")}
                     onMouseLeave={e => (e.currentTarget.style.background="none")}
-                  >✕ Close room</button>
+                  ><span style={{ display:"inline-flex", alignItems:"center", gap:6 }}><X size={14} />Close room</span></button>
                 )}
                 <div style={{ height:"1px", background:"var(--color-border)", margin:"4px 0" }} />
                 <button onClick={() => { handleLeave(); setShowRoomMenu(false); }} style={{ display:"block", width:"100%", textAlign:"left", background:"none", border:"none", borderRadius:"8px", padding:"9px 12px", fontSize:"13px", color:"rgba(255,100,90,0.8)", cursor:"pointer", fontFamily:"inherit" }}
                   onMouseEnter={e => (e.currentTarget.style.background="rgba(255,59,48,0.07)")}
                   onMouseLeave={e => (e.currentTarget.style.background="none")}
-                >↩ Leave room</button>
+                ><span style={{ display:"inline-flex", alignItems:"center", gap:6 }}><LogOut size={14} />Leave room</span></button>
               </div>
             )}
           </div>
@@ -1896,7 +1906,7 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
           <span style={{ fontSize:"12px", color:"var(--text-secondary)" }}>
             Focus pact · {members.length} people, {totalFocusMins} min total this session
           </span>
-          <span style={{ fontSize:"12px", fontWeight:"600", color:"var(--color-accent)" }}>Together 💪</span>
+          <span style={{ fontSize:"12px", fontWeight:"600", color:"var(--color-accent)" }}>Together</span>
         </div>
       )}
 
@@ -2125,7 +2135,7 @@ function FocusSprintPanel({ pomo, remaining, isHost, sprintDuration, onDurationC
     }}>
       <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:"10px" }}>
         <span style={{ fontSize:"11px", letterSpacing:"2px", textTransform:"uppercase", color: isFocus ? "#C49A3C" : "var(--text-dim)", fontWeight:"600" }}>
-          📚 Focus Sprint{isPaused ? " · Paused" : ""}
+          <BookOpen size={12} style={{ verticalAlign:"-2px", marginRight:6 }} />Focus Sprint{isPaused ? " · Paused" : ""}
         </span>
         <span style={{ fontSize:"11px", color:"var(--text-dim)" }}>
           {isFocus ? "Study, discuss, or go mute — together" : "Choose your sprint length"}
@@ -2208,7 +2218,7 @@ function GoalPromptModal({ onSet, onSkip }) {
     <div style={S.modalOverlay}>
       <div style={{ ...S.modalCard, maxWidth:"360px" }}>
         <div style={{ textAlign:"center", marginBottom:"20px" }}>
-          <p style={{ fontSize:"30px", marginBottom:"10px" }}>🎯</p>
+          <p style={{ marginBottom:"10px", display:"flex", justifyContent:"center" }}><Target size={30} style={{ color:"var(--color-accent)" }} /></p>
           <h2 style={{ fontSize:"18px", fontWeight:"700", color:"var(--text-primary)", marginBottom:"6px" }}>
             Set your session goal
           </h2>
@@ -2261,13 +2271,13 @@ function SessionSummaryModal({ durationSecs, goal, onConfirm, onBack }) {
         <button
           onClick={onBack}
           title="Back to room"
-          style={{ position:"absolute", top:"14px", right:"18px", background:"none", border:"none", color:"var(--text-dim)", fontSize:"20px", cursor:"pointer", lineHeight:1, padding:"2px 4px" }}
+          style={{ position:"absolute", top:"14px", right:"18px", background:"none", border:"none", color:"var(--text-dim)", cursor:"pointer", lineHeight:1, padding:"2px 4px", display:"flex" }}
         >
-          ×
+          <X size={20} />
         </button>
 
-        <p style={{ fontSize:"34px", marginBottom:"8px" }}>
-          {durationSecs >= 1200 ? "🔥" : "⏱"}
+        <p style={{ marginBottom:"8px", display:"flex", justifyContent:"center" }}>
+          {durationSecs >= 1200 ? <Flame size={34} style={{ color:"#f59e0b" }} /> : <Timer size={34} style={{ color:"var(--color-accent)" }} />}
         </p>
         <h2 style={{ fontSize:"19px", fontWeight:"700", color:"var(--text-primary)", marginBottom:"6px" }}>
           {durationSecs >= 1200 ? "Great session!" : "Session complete"}
@@ -2283,7 +2293,7 @@ function SessionSummaryModal({ durationSecs, goal, onConfirm, onBack }) {
           </div>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: goal ? "10px" : 0 }}>
             <span style={{ fontSize:"12px", color:"var(--text-dim)" }}>Tokens earned</span>
-            <span style={{ fontSize:"14px", fontWeight:"700", color:"var(--color-accent)" }}>🪙 {tokensEarned}</span>
+            <span style={{ fontSize:"14px", fontWeight:"700", color:"var(--color-accent)", display:"inline-flex", alignItems:"center", gap:4 }}><Coins size={14} />{tokensEarned}</span>
           </div>
           {goal && (
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:"12px" }}>
@@ -2306,7 +2316,7 @@ function SessionSummaryModal({ durationSecs, goal, onConfirm, onBack }) {
               cursor:"pointer", fontFamily:"inherit", color:"var(--text-dim)",
             }}
           >
-            👎 Not quite
+            <span style={{ display:"inline-flex", alignItems:"center", gap:6 }}><ThumbsDown size={15} />Not quite</span>
           </button>
           <button
             onClick={() => onConfirm(true)}
@@ -2316,7 +2326,7 @@ function SessionSummaryModal({ durationSecs, goal, onConfirm, onBack }) {
               cursor:"pointer", fontFamily:"inherit", color:"var(--color-accent)",
             }}
           >
-            👍 Got it!
+            <span style={{ display:"inline-flex", alignItems:"center", gap:6 }}><ThumbsUp size={15} />Got it!</span>
           </button>
         </div>
       </div>
@@ -2359,7 +2369,7 @@ function BuddyPanel({ qaItems, streaming, callsLeft, onAsk, onClose }) {
         borderBottom: "1px solid rgba(111,179,196,0.12)",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <span style={{ fontSize: "15px" }}>🤖</span>
+          <span style={{ display: "flex", color: "#6fb3c4" }}><Bot size={15} /></span>
           <span style={{ fontSize: "13px", fontWeight: "600", color: "#6fb3c4" }}>AI Study Buddy</span>
           <span style={{ fontSize: "11px", color: "var(--text-dim)", background: "rgba(255,255,255,0.05)", borderRadius: "6px", padding: "2px 7px" }}>
             shared with room
@@ -2565,7 +2575,7 @@ function InviteModal({ room, userId, userData, onlineIds = [], onClose }) {
                     disabled={!!status}
                     style={{ ...S.accentBtn, padding:"6px 14px", fontSize:"12px", opacity: status ? 0.5 : 1, cursor: status ? "default" : "pointer" }}
                   >
-                    {status === "sent" ? "Invited ✓" : status === "limited" ? "Limit reached" : status === "sending" ? "…" : "Invite"}
+                    {status === "sent" ? <span style={{ display:"inline-flex", alignItems:"center", gap:4 }}>Invited<Check size={13} /></span> : status === "limited" ? "Limit reached" : status === "sending" ? "…" : "Invite"}
                   </button>
                 </div>
               );
@@ -2611,7 +2621,7 @@ function ChatPanel({ messages, myUserId, input, sending, imageUploading, onInput
         borderBottom: "1px solid rgba(127,174,110,0.12)",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <span style={{ fontSize: "15px" }}>💬</span>
+          <span style={{ display: "flex", color: "#7fae6e" }}><MessageCircle size={15} /></span>
           <span style={{ fontSize: "13px", fontWeight: "600", color: "#7fae6e" }}>Room Chat</span>
           <span style={{ fontSize: "11px", color: "var(--text-dim)", background: "rgba(255,255,255,0.05)", borderRadius: "6px", padding: "2px 7px" }}>
             persists across refresh
@@ -2697,7 +2707,7 @@ function ChatPanel({ messages, myUserId, input, sending, imageUploading, onInput
             opacity: imageUploading ? 0.5 : 0.8, transition: "opacity 0.15s",
           }}
         >
-          {imageUploading ? "⏳" : "🖼"}
+          {imageUploading ? <Hourglass size={15} /> : <ImageIcon size={15} />}
         </button>
         <input
           value={input}
@@ -2789,7 +2799,7 @@ function MemberCard({ member, isMe, isSpeaking = false, handRaised = false }) {
             </span>
           )}
           {handRaised && (
-            <span title="Hand raised" style={{ fontSize:"14px", marginLeft:"2px" }}>✋</span>
+            <span title="Hand raised" style={{ display:"inline-flex", marginLeft:"2px" }}><Hand size={14} /></span>
           )}
         </div>
         <p style={{
@@ -2804,7 +2814,11 @@ function MemberCard({ member, isMe, isSpeaking = false, handRaised = false }) {
       <div style={{ textAlign:"right", flexShrink:0 }}>
         <p style={{ fontSize:"14px", fontWeight:"700", color: elapsed >= 3600 ? "#f59e0b" : elapsed >= 1800 ? "#c49a3c" : "var(--color-accent)", fontVariantNumeric:"tabular-nums" }}>{time}</p>
         <p style={{ fontSize:"10px", color:"var(--text-dim)", marginTop:"2px" }}>
-          {elapsed >= 3600 ? "🔥 focused" : elapsed >= 1800 ? "⚡ focused" : "focused"}
+          {elapsed >= 3600
+            ? <span style={{ display:"inline-flex", alignItems:"center", gap:4 }}><Flame size={11} />focused</span>
+            : elapsed >= 1800
+            ? <span style={{ display:"inline-flex", alignItems:"center", gap:4 }}><Zap size={11} />focused</span>
+            : "focused"}
         </p>
       </div>
     </div>

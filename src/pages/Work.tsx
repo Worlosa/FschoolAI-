@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useApp } from "../context/AppContext";
+import { Flame } from "lucide-react";
 
 
 function formatDue(dateStr) {
@@ -214,7 +215,7 @@ function EmptyState({ syncStatus, hasToken }) {
   return (
     <div style={glass}>
       <p style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: "18px", color: "#E3E2E2", margin: "0 0 4px" }}>
-        You're all caught up 🎉
+        You're all caught up
       </p>
       <p style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", color: "rgba(200,197,203,0.6)", margin: 0 }}>
         No upcoming assignments
@@ -638,7 +639,7 @@ export default function Work() {
                   justifyContent: "center", alignItems: "center",
                   padding: "16px", boxSizing: "border-box" as const,
                 }}>
-                  <span style={{ fontSize: "16px", lineHeight: 1 }}>🔥</span>
+                  <Flame size={16} color="#C49A3C" style={{ flexShrink: 0 }} />
                   <p style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 400, fontSize: "18px", lineHeight: "40px", color: "#E3E2E2", margin: 0 }}>
                     {STATS[1].value}
                   </p>
@@ -814,7 +815,7 @@ export default function Work() {
                 display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: "28px", flexShrink: 0,
               }}>
-                🔥
+                <Flame size={26} color="#C49A3C" />
               </div>
             </div>
 

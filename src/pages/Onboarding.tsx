@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { Check } from "lucide-react";
 import { supabase } from "../api/supabase";
 
 /* ─── Supabase school search ───────────────────────────────────────────────── */
@@ -394,7 +395,7 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
           </div>
 
           <h1 style={{ fontSize: "24px", fontWeight: "700", color: "var(--text-primary, #f5f5f5)", letterSpacing: "-0.4px", marginBottom: "10px" }}>
-            You're in{draft.preferredName ? `, ${draft.preferredName}` : ""}. 🎉
+            You're in{draft.preferredName ? `, ${draft.preferredName}` : ""}.
           </h1>
           <p style={{ fontSize: "14px", color: "var(--text-dim, rgba(255,255,255,0.45))", lineHeight: 1.65, marginBottom: "28px" }}>
             Join the beta community on Discord — get your free-month perks, drop feedback with <strong style={{ color: "#a6b0ff", fontWeight: 600 }}>/feedback</strong> to earn points, and help shape what we build next.
@@ -786,7 +787,7 @@ export default function Onboarding({ email, preferredName: initName, onComplete 
                           <span style={{ fontSize: "17px", fontWeight: 650, color: on ? "#F5F5F5" : "rgba(255,255,255,0.6)" }}>
                             {opt.title}
                           </span>
-                          {on && <span style={{ color: "#F5F5F5", fontSize: "15px" }}>✓</span>}
+                          {on && <Check size={15} style={{ color: "#F5F5F5" }} />}
                         </div>
                         <span style={{ fontSize: "13px", color: "rgba(255,255,255,0.4)", lineHeight: 1.5 }}>{opt.desc}</span>
                       </button>

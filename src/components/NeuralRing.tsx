@@ -19,6 +19,7 @@ import { useApp }      from "../context/AppContext";
 import { supabase }    from "../api/supabase";
 import { awardTokens } from "../api/tokens";
 import { sanitizeApiMessages } from "../lib/chatMessages";
+import { Send, Square, Plus, ThumbsUp, ThumbsDown, Check, RotateCcw, Play } from "lucide-react";
 import ArtifactPanel   from "./ArtifactPanel";
 
 // ── Claude proxy helper (tutor brain — better quality than Groq for conversation) ──
@@ -746,7 +747,7 @@ function buildSmartChips(assignments, courses, userData) {
 
   if ((userData?.streak || 0) >= 3) {
     chips.push({
-      label:   `${userData.streak}🔥 Keep streak`,
+      label:   `Keep your ${userData.streak}-day streak`,
       message: "What should I study today to keep my streak going?",
     });
   }
@@ -862,7 +863,7 @@ function InlineQuiz({ cards, userId, courseId }) {
               style={{ background: "rgba(196,154,60,0.12)", border: "1px solid rgba(196,154,60,0.28)", borderRadius: "8px", padding: "7px 14px", color: "#C49A3C", fontSize: "12px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit" }}>
               {saving ? "Saving…" : "Save to flashcards"}
             </button>
-          : <p style={{ color: "#C49A3C", fontSize: "12px" }}>✓ Saved to flashcards</p>
+          : <p style={{ color: "#C49A3C", fontSize: "12px", display:"flex", alignItems:"center", gap:5 }}><Check size={13} />Saved to flashcards</p>
         }
       </div>
     );
@@ -1107,6 +1108,8 @@ export default function NeuralRing() {
   const [reasonPicker, setReasonPicker] = useState(null); // msgIndex | null
   const messagesEndRef          = useRef(null);
   const inputRef                = useRef(null);
+  const attachInputRef          = useRef(null);
+  const [attachStatus, setAttachStatus] = useState<string | null>(null);
 
   // Voice intelligence state
   const [activeVoiceId,      setActiveVoiceId]      = useState(null); // drives instant chip highlight
@@ -2160,6 +2163,40 @@ export default function NeuralRing() {
   }
 
   // ── Chat ──────────────────────────────────────────────────────────────────────────
+  // Attach a file from the chat: extract its text and ingest it into RAG (api/extract
+  // auto-ingests when given userId), so the tutor can answer about it — same pipeline as
+  // "Add study material", no re-upload. Stays in rag_* (searchable), not the Files library.
+  const handleAttachFile = async (file) => {
+    if (!file) return;
+    if (!userId) { setAttachStatus("Sign in to attach files."); setTimeout(() => setAttachStatus(null), 3000); return; }
+    if (file.size > 4 * 1024 * 1024) {
+      setAttachStatus(`"${file.name}" is too large here — add big files via Study materials.`);
+      setTimeout(() => setAttachStatus(null), 5000);
+      return;
+    }
+    setAttachStatus(`Reading ${file.name}…`);
+    try {
+      const base64 = await new Promise<string>((res, rej) => {
+        const fr = new FileReader();
+        fr.onload  = () => res(String(fr.result).split(",")[1] ?? "");
+        fr.onerror = () => rej(fr.error);
+        fr.readAsDataURL(file);
+      });
+      setAttachStatus(`Indexing ${file.name}…`);
+      const r = await fetch("/api/extract", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ base64, file_type: file.type, name: file.name, userId }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.text) throw new Error(d.error || "Couldn't read that file.");
+      setAttachStatus(null);
+      setMessages(m => [...m, { role: "assistant", content: `Indexed **${file.name}** — ask me anything about it.` }]);
+    } catch {
+      setAttachStatus(`Couldn't attach ${file.name}.`);
+      setTimeout(() => setAttachStatus(null), 5000);
+    }
+  };
+
   const sendMessage = async (overrideText?) => {
     const text = overrideText ?? input.trim();
     if (!text || loading) return;
@@ -2945,8 +2982,9 @@ export default function NeuralRing() {
                               borderRadius: "6px", fontSize: "13px", cursor: reactions[i] === "up" ? "default" : "pointer",
                               padding: "2px 5px", transition: "all 0.15s",
                               transform: reactions[i] === "up" ? "scale(1.2)" : "scale(1)",
+                              display: "inline-flex", alignItems: "center", color: reactions[i] === "up" ? "rgba(72,210,110,0.95)" : "rgba(255,255,255,0.4)",
                             }}
-                          >👍</button>
+                          ><ThumbsUp size={14} /></button>
 
                           {/* Thumbs down */}
                           <button
@@ -2960,8 +2998,9 @@ export default function NeuralRing() {
                               borderRadius: "6px", fontSize: "13px", cursor: "pointer",
                               padding: "2px 5px", transition: "all 0.15s",
                               transform: reactions[i] === "down" ? "scale(1.1)" : "scale(1)",
+                              display: "inline-flex", alignItems: "center", color: reactions[i] === "down" ? "rgba(255,120,100,0.95)" : "rgba(255,255,255,0.4)",
                             }}
-                          >👎</button>
+                          ><ThumbsDown size={14} /></button>
                         </div>
 
                         {/* Reason picker — slides in below thumbs down */}
@@ -3025,7 +3064,7 @@ export default function NeuralRing() {
                               }}
                               onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.1)"; e.currentTarget.style.color = "rgba(255,255,255,0.85)"; }}
                               onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "rgba(255,255,255,0.5)"; }}
-                            >↺ Try again</button>
+                            ><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><RotateCcw size={12} />Try again</span></button>
                           </div>
                         )}
                       </div>
@@ -3058,7 +3097,28 @@ export default function NeuralRing() {
 
             {/* Input row (text mode) */}
             {!voiceMode && (
+              <>
+                {attachStatus && (
+                  <div style={{ padding: "0 16px 6px", fontSize: "12px", color: "rgba(255,255,255,0.55)", flexShrink: 0 }}>{attachStatus}</div>
+                )}
               <div style={{ display: "flex", gap: "10px", padding: "12px 14px 28px", borderTop: "1px solid rgba(255,255,255,0.07)", flexShrink: 0, alignItems: "flex-end" }}>
+                {/* Hidden file input + "+" attach button — ingests the file so the tutor can use it */}
+                <input
+                  ref={attachInputRef} type="file" style={{ display: "none" }}
+                  accept=".pdf,.txt,.md,.docx,.pptx,.png,.jpg,.jpeg,.webp"
+                  onChange={e => { const f = e.target.files?.[0]; e.currentTarget.value = ""; handleAttachFile(f); }}
+                />
+                <button
+                  onClick={() => attachInputRef.current?.click()}
+                  title="Attach a file"
+                  style={{
+                    background: "none", border: "none", padding: "6px 4px",
+                    cursor: "pointer", flexShrink: 0, color: "rgba(255,255,255,0.4)",
+                    fontSize: "24px", lineHeight: 1, outline: "none", transition: "color 0.15s",
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.color = "#C49A3C"}
+                  onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,0.4)"}
+                ><Plus size={20} strokeWidth={2.2} /></button>
                 {/* Subtle waveform glyph — enters voice mode */}
                 <button
                   onClick={() => { getAudioContext(); voiceModeRef.current = true; setVoiceMode(true); startAutoListen(); }}
@@ -3097,16 +3157,17 @@ export default function NeuralRing() {
                   onBlur={e  => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.09)")}
                 />
                 {(loading || speaking) ? (
-                  <button onClick={stopResponse} style={{ background: "rgba(255,80,80,0.15)", color: "rgba(255,120,100,0.9)", border: "1px solid rgba(255,80,80,0.25)", borderRadius: "var(--radius-btn)", padding: "11px 16px", fontSize: "14px", fontWeight: "600", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
-                    Stop
+                  <button onClick={stopResponse} title="Stop" aria-label="Stop" style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,80,80,0.15)", color: "rgba(255,120,100,0.95)", border: "1px solid rgba(255,80,80,0.25)", borderRadius: "var(--radius-btn)", padding: "10px 13px", cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>
+                    <Square size={16} fill="currentColor" strokeWidth={0} />
                   </button>
                 ) : (
-                  <button onClick={() => { getAudioContext(); sendMessage(); }} disabled={!input.trim()}
-                    style={{ background: !input.trim() ? "rgba(255,255,255,0.18)" : "var(--color-accent)", color: "#111", border: "none", borderRadius: "var(--radius-btn)", padding: "11px 18px", fontSize: "14px", fontWeight: "600", cursor: !input.trim() ? "not-allowed" : "pointer", fontFamily: "inherit", flexShrink: 0, transition: "background var(--dur-base) var(--ease-apple)" }}>
-                    Send
+                  <button onClick={() => { getAudioContext(); sendMessage(); }} disabled={!input.trim()} title="Send" aria-label="Send"
+                    style={{ display: "flex", alignItems: "center", justifyContent: "center", background: !input.trim() ? "rgba(255,255,255,0.18)" : "var(--color-accent)", color: "#111", border: "none", borderRadius: "var(--radius-btn)", padding: "10px 13px", cursor: !input.trim() ? "not-allowed" : "pointer", fontFamily: "inherit", flexShrink: 0, opacity: !input.trim() ? 0.5 : 1, transition: "background var(--dur-base) var(--ease-apple)" }}>
+                    <Send size={18} />
                   </button>
                 )}
               </div>
+              </>
             )}
 
             {/* ── Voice mode overlay: centered sphere hero ── */}
@@ -3242,7 +3303,7 @@ export default function NeuralRing() {
                             }}
                             style={{ opacity: 0.45, cursor: "pointer", fontSize: "10px" }}
                             title="Preview"
-                          >▶</span>
+                          ><Play size={10} fill="currentColor" strokeWidth={0} /></span>
                         </button>
                       );
                     })}

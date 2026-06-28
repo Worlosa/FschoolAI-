@@ -5,6 +5,7 @@
 
 import { useState, useCallback, useRef, useEffect, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Check } from "lucide-react";
 import { NAV, LABEL }       from "./navigation/navConfig";
 import { useSwipe }         from "./navigation/useSwipe";
 import PageDots             from "./components/PageDots";
@@ -563,7 +564,7 @@ export default function App() {
               disabled={resendSent}
               style={{ width:"100%", background:"transparent", color: resendSent ? "rgba(48,209,88,0.75)" : "rgba(255,255,255,0.4)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:"13px", padding:"13px", fontSize:"14px", fontWeight:"500", cursor: resendSent ? "default" : "pointer", fontFamily:"inherit", transition:"color .2s" }}
             >
-              {resendSent ? "Verification email sent ✓" : "Resend verification email"}
+              {resendSent ? <span style={{ display:"inline-flex", alignItems:"center", gap:5 }}>Verification email sent<Check size={14} /></span> : "Resend verification email"}
             </button>
             <p style={{ marginTop:"22px", fontSize:"12px", color:"rgba(255,255,255,0.22)" }}>
               Wrong account?{" "}

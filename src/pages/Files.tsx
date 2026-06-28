@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useApp }    from "../context/AppContext";
 import { supabase }  from "../api/supabase";
 import DocReader     from "../components/DocReader";
+import { FileText, Presentation, Music, Film, Play, Image as ImageIcon, StickyNote, Paperclip, BookOpen, Check } from "lucide-react";
 
 // ── Design tokens ─────────────────────────────────────────────────────────
 
@@ -254,7 +255,7 @@ function AddMaterialCard({ onProcessed }: { onProcessed: (f: any) => void }) {
           marginBottom:12,
         }}
       >
-        <div style={{ fontSize:24, marginBottom:6, opacity:0.5 }}>📎</div>
+        <div style={{ marginBottom:6, opacity:0.5, display:"flex", justifyContent:"center" }}><Paperclip size={22} /></div>
         <p style={{ fontSize:13, color:"var(--text-secondary)", margin:0 }}>
           {busy ? state.message : "Drag & drop or tap to choose a file"}
         </p>
@@ -440,7 +441,7 @@ function AddToSpaceModal({ file, userId, onClose }: {
                 {s.name}
               </span>
               <span style={{ fontSize:13, color: isAdded ? "#4ade80" : "var(--text-dim)" }}>
-                {isAdding ? "Adding…" : isAdded ? "✓ Added" : "Add →"}
+                {isAdding ? "Adding…" : isAdded ? <span style={{ display:"inline-flex", alignItems:"center", gap:4 }}><Check size={13} />Added</span> : "Add →"}
               </span>
             </button>
           );
@@ -464,13 +465,13 @@ function DocCard({ file, color, onOpen, userId }: {
   const hasReader = !!file.processedAt && (isPdf || isYoutube);
   const ago       = timeAgo(file.processedAt);
 
-  const typeIcon = isYoutube       ? "▶"
-                 : isPdf           ? "📄"
-                 : ["pptx","ppt"].includes(file.fileType ?? "") ? "📊"
-                 : ["png","jpg","jpeg","webp"].includes(file.fileType ?? "") ? "🖼"
-                 : ["mp3","wav","m4a"].includes(file.fileType ?? "") ? "🎵"
-                 : ["mp4","mov","webm"].includes(file.fileType ?? "") ? "🎬"
-                 : "📝";
+  const TypeIcon = isYoutube       ? Play
+                 : isPdf           ? FileText
+                 : ["pptx","ppt"].includes(file.fileType ?? "") ? Presentation
+                 : ["png","jpg","jpeg","webp"].includes(file.fileType ?? "") ? ImageIcon
+                 : ["mp3","wav","m4a"].includes(file.fileType ?? "") ? Music
+                 : ["mp4","mov","webm"].includes(file.fileType ?? "") ? Film
+                 : StickyNote;
 
   function handleCardClick() {
     if (hasReader) onOpen(file);
@@ -507,7 +508,7 @@ function DocCard({ file, color, onOpen, userId }: {
         <div style={{ padding:"14px 14px 12px" }}>
           {/* Icon + type */}
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
-            <span style={{ fontSize:22, lineHeight:1 }}>{typeIcon}</span>
+            <TypeIcon size={20} style={{ color: "var(--text-secondary)" }} />
             {file.fileType && (
               <span style={{
                 fontSize:9, fontWeight:700, letterSpacing:"0.5px",
@@ -724,7 +725,7 @@ export default function Files() {
           transition={{ duration:0.3, ease:EASE }}
           style={{ ...surface, padding:32, textAlign:"center" }}
         >
-          <div style={{ fontSize:36, marginBottom:12, opacity:0.35 }}>📚</div>
+          <div style={{ marginBottom:12, opacity:0.35, display:"flex", justifyContent:"center" }}><BookOpen size={32} /></div>
           <p style={{ color:"var(--text-secondary)", fontSize:15, fontWeight:600, marginBottom:6 }}>
             Your library is empty
           </p>

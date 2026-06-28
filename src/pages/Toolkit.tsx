@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useApp } from "../context/AppContext";
 import { groq }   from "../api/groq";
+import { Sparkles, Check, ArrowUp, Hourglass, ChevronUp, ChevronDown, Circle } from "lucide-react";
 
 // FALLBACK_NODES removed — real data or empty state only. No fake courses shown.
 const NODE_POSITIONS = [
@@ -294,7 +295,7 @@ Generate a concise rubric to evaluate current student progress. Return ONLY JSON
                 >
                   + Upload
                 </button>
-                <span style={{ color: "var(--text-dim)", fontSize: "16px" }}>{open ? "↑" : "↓"}</span>
+                <span style={{ color: "var(--text-dim)", display: "flex" }}>{open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</span>
               </div>
             </div>
 
@@ -361,7 +362,9 @@ Generate a concise rubric to evaluate current student progress. Return ONLY JSON
                       disabled={rubricLoading[cid]}
                       style={{ background: "rgba(190,130,255,0.1)", border: "1px solid rgba(190,130,255,0.25)", borderRadius: "8px", color: rubricLoading[cid] ? "rgba(190,130,255,0.4)" : "rgba(190,130,255,0.8)", fontSize: "11px", padding: "5px 10px", cursor: rubricLoading[cid] ? "default" : "pointer", fontFamily: "inherit" }}
                     >
-                      {rubricLoading[cid] ? "Generating…" : rubric ? "Regenerate ✦" : "Generate ✦"}
+                      {rubricLoading[cid]
+                        ? "Generating…"
+                        : <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>{rubric ? "Regenerate" : "Generate"}<Sparkles size={12} /></span>}
                     </button>
                   </div>
 
@@ -377,8 +380,8 @@ Generate a concise rubric to evaluate current student progress. Return ONLY JSON
                             <span style={{ color: "rgba(190,130,255,0.9)", fontSize: "12px", fontWeight: "600" }}>{c.name}</span>
                             <span style={{ color: "var(--text-dim)", fontSize: "10px" }}>{c.weight}%</span>
                           </div>
-                          <p style={{ color: "rgba(100,220,155,0.7)", fontSize: "11px", marginBottom: "3px" }}>✓ {c.excellent}</p>
-                          <p style={{ color: "rgba(255,130,100,0.6)", fontSize: "11px" }}>↑ {c.needs_work}</p>
+                          <p style={{ color: "rgba(100,220,155,0.7)", fontSize: "11px", marginBottom: "3px" }}><Check size={11} style={{ verticalAlign: "-1px", marginRight: 4 }} />{c.excellent}</p>
+                          <p style={{ color: "rgba(255,130,100,0.6)", fontSize: "11px" }}><ArrowUp size={11} style={{ verticalAlign: "-1px", marginRight: 4 }} />{c.needs_work}</p>
                         </div>
                       ))}
                       {rubric.summary && (
@@ -442,7 +445,7 @@ function RecordingsTab() {
           <p style={{ color: "rgba(100,180,255,0.85)", fontSize: "12px", fontWeight: "500", marginBottom: "2px" }}>Wisprflow not connected</p>
           <p style={{ color: "var(--text-dim)", fontSize: "11px" }}>Audio recording + auto-transcription pending Vincent's API access</p>
         </div>
-        <span style={{ fontSize: "18px", color: "rgba(100,180,255,0.4)" }}>⏳</span>
+        <span style={{ color: "rgba(100,180,255,0.4)", display: "flex" }}><Hourglass size={18} /></span>
       </div>
 
       {courses.map((course) => {
@@ -465,7 +468,7 @@ function RecordingsTab() {
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
                 <span style={{ fontSize: "10px", color: "var(--text-dim)" }}>{items.length} transcript{items.length !== 1 ? "s" : ""}</span>
-                <span style={{ color: "var(--text-dim)", fontSize: "16px" }}>{open ? "↑" : "↓"}</span>
+                <span style={{ color: "var(--text-dim)", display: "flex" }}>{open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}</span>
               </div>
             </div>
 
@@ -473,7 +476,7 @@ function RecordingsTab() {
               <div style={{ borderTop: "1px solid rgba(255,255,255,0.05)", padding: "14px 18px 18px" }}>
                 {/* Record button — placeholder until Wisprflow */}
                 <button style={{ width: "100%", background: "rgba(255,100,90,0.08)", border: "1px solid rgba(255,100,90,0.2)", borderRadius: "10px", padding: "12px", color: "rgba(255,100,90,0.6)", fontSize: "13px", cursor: "not-allowed", fontFamily: "inherit", marginBottom: "14px" }}>
-                  ⏺ Record Lecture — requires Wisprflow
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Circle size={12} fill="currentColor" strokeWidth={0} />Record Lecture — requires Wisprflow</span>
                 </button>
 
                 {/* Manual transcript add */}
@@ -580,7 +583,7 @@ function TwilioTab() {
             onClick={savePhone}
             style={{ background: saved ? "rgba(100,220,155,0.12)" : "rgba(0,210,190,0.12)", border: `1px solid ${saved ? "rgba(100,220,155,0.25)" : "rgba(0,210,190,0.25)"}`, borderRadius: "8px", color: saved ? "rgba(100,220,155,0.8)" : "rgba(0,210,190,0.8)", fontSize: "11px", padding: "9px 14px", cursor: "pointer", fontFamily: "inherit" }}
           >
-            {saved ? "Saved ✓" : "Save"}
+            {saved ? <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>Saved<Check size={12} /></span> : "Save"}
           </button>
         </div>
         <p style={{ color: "var(--text-dim)", fontSize: "11px" }}>Include country code. Requires TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM in Vercel env vars.</p>
@@ -590,7 +593,7 @@ function TwilioTab() {
       <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-card)", padding: "18px" }}>
         <p style={{ fontSize: "10px", color: "var(--text-dim)", letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: "12px" }}>Due in 48 hours</p>
         {urgent.length === 0 ? (
-          <p style={{ color: "var(--text-dim)", fontSize: "12px" }}>Nothing urgent right now 🎉</p>
+          <p style={{ color: "var(--text-dim)", fontSize: "12px" }}>Nothing urgent right now</p>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "4px" }}>
             {urgent.map((a, i) => (
@@ -614,7 +617,7 @@ function TwilioTab() {
         {sending ? "Sending…" : "Send Assignment Reminder via SMS"}
       </button>
 
-      {lastSent && <p style={{ color: "rgba(100,220,155,0.7)", fontSize: "12px", textAlign: "center" }}>✓ Sent at {lastSent}</p>}
+      {lastSent && <p style={{ color: "rgba(100,220,155,0.7)", fontSize: "12px", textAlign: "center" }}><Check size={12} style={{ verticalAlign: "-2px", marginRight: 4 }} />Sent at {lastSent}</p>}
       {error    && <p style={{ color: "rgba(255,100,90,0.7)", fontSize: "12px", textAlign: "center" }}>Error: {error}</p>}
     </div>
   );

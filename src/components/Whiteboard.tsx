@@ -19,6 +19,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Point, Stroke, PenStyle } from "../api/whiteboard";
 import { uploadWhiteboardImage } from "../api/chat";
+import { Pen, Pencil, Highlighter, Feather, PenTool, Eraser, Circle, Crosshair, Type, Image as ImageIcon, Download, Trash2, MousePointer2, Square, Minus, MoveRight, Shapes, Undo2, Redo2, Grid3x3, X } from "lucide-react";
 
 export const BOARD_W = 1000;
 export const BOARD_H = 600;
@@ -47,12 +48,12 @@ export const PEN_COLORS = [
 export const PEN_WIDTHS   = [2, 4, 7, 11, 16];
 export const ERASER_SIZES = [16, 28, 44, 64, 90];
 
-export const PEN_STYLES: { value: PenStyle; label: string; icon: string }[] = [
-  { value: "normal",      label: "Pen",         icon: "🖊" },
-  { value: "highlighter", label: "Highlighter", icon: "🖍" },
-  { value: "pencil",      label: "Pencil",      icon: "✏️" },
-  { value: "ink",         label: "Ink",         icon: "🪶" },
-  { value: "marker",      label: "Marker",      icon: "🟠" },
+export const PEN_STYLES: { value: PenStyle; label: string; icon: any }[] = [
+  { value: "normal",      label: "Pen",         icon: Pen },
+  { value: "highlighter", label: "Highlighter", icon: Highlighter },
+  { value: "pencil",      label: "Pencil",      icon: Pencil },
+  { value: "ink",         label: "Ink",         icon: Feather },
+  { value: "marker",      label: "Marker",      icon: PenTool },
 ];
 
 // ── Stroke rendering ──────────────────────────────────────────────────────────
@@ -1172,7 +1173,7 @@ export default function Whiteboard({
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid rgba(196,154,60,0.12)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-          <span style={{ fontSize: "15px" }}>🖊</span>
+          <span style={{ display: "flex", color: "#c49a3c" }}><Pen size={15} /></span>
           <span style={{ fontSize: "13px", fontWeight: 600, color: "#c49a3c" }}>Whiteboard</span>
           <span style={{ fontSize: "11px", color: "var(--text-dim)", background: "rgba(255,255,255,0.05)", borderRadius: "6px", padding: "2px 7px" }}>
             clears when everyone leaves
@@ -1190,26 +1191,26 @@ export default function Whiteboard({
             </span>
           )}
         </div>
-        <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-dim)", fontSize: "18px", cursor: "pointer", lineHeight: 1, padding: "0 2px" }}>×</button>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", lineHeight: 1, padding: "0 2px", display: "flex" }}><X size={18} /></button>
       </div>
 
       {/* ── Primary tool rail ─────────────────────────────────────────────────
            8 core tools + Shapes group + Undo/Redo.
            Kept short so it never wraps even on a 320px mobile screen. */}
       <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", padding: "10px 16px", borderBottom: "1px solid rgba(196,154,60,0.08)" }}>
-        <button style={chip(tool === "pen")}          onClick={() => onToolChange("pen")}          title="Pen">✏️ Pen</button>
-        <button style={chip(tool === "stroke-erase")} onClick={() => onToolChange("stroke-erase")} title="Tap a line to delete the whole stroke">🧽 Erase</button>
-        <button style={chip(tool === "area-erase")}   onClick={() => onToolChange("area-erase")}   title="Drag to rub out an area">⭕ Area</button>
-        <button style={chip(tool === "laser")}        onClick={() => onToolChange("laser")}        title="Laser pointer">🔴 Laser</button>
-        <button style={chip(tool === "text")}         onClick={() => onToolChange("text")}         title="Place text on the board">📝 Text</button>
-        <button style={chip(tool === "select", "#4f86d9")} onClick={() => onToolChange("select")} title="Select and move a stroke">↖ Select</button>
+        <button style={chip(tool === "pen")}          onClick={() => onToolChange("pen")}          title="Pen"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Pencil size={14} />Pen</span></button>
+        <button style={chip(tool === "stroke-erase")} onClick={() => onToolChange("stroke-erase")} title="Tap a line to delete the whole stroke"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Eraser size={14} />Erase</span></button>
+        <button style={chip(tool === "area-erase")}   onClick={() => onToolChange("area-erase")}   title="Drag to rub out an area"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Circle size={14} />Area</span></button>
+        <button style={chip(tool === "laser")}        onClick={() => onToolChange("laser")}        title="Laser pointer"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Crosshair size={14} />Laser</span></button>
+        <button style={chip(tool === "text")}         onClick={() => onToolChange("text")}         title="Place text on the board"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Type size={14} />Text</span></button>
+        <button style={chip(tool === "select", "#4f86d9")} onClick={() => onToolChange("select")} title="Select and move a stroke"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><MousePointer2 size={14} />Select</span></button>
         <button
           style={{ ...chip(false, "#7c9edc"), opacity: imgUploading ? 0.5 : 1 }}
           onClick={() => !imgUploading && fileInputRef.current?.click()}
           title="Upload image (or paste / drag-and-drop)"
           disabled={imgUploading || !roomId}
         >
-          🖼 Image
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><ImageIcon size={14} />Image</span>
         </button>
         <input
           ref={fileInputRef}
@@ -1225,7 +1226,13 @@ export default function Whiteboard({
           onClick={() => onToolChange(isShape ? tool : "rect")}
           title="Shape tools: rect, circle, line, arrow"
         >
-          {tool === "rect" ? "▭ Rect" : tool === "circle" ? "○ Circle" : tool === "line" ? "╱ Line" : tool === "arrow" ? "→ Arrow" : "◻ Shapes"}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+            {tool === "rect"   ? <><Square size={14} />Rect</>
+             : tool === "circle" ? <><Circle size={14} />Circle</>
+             : tool === "line"   ? <><Minus size={14} />Line</>
+             : tool === "arrow"  ? <><MoveRight size={14} />Arrow</>
+             : <><Shapes size={14} />Shapes</>}
+          </span>
         </button>
 
         <span style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.1)", margin: "0 2px" }} />
@@ -1235,13 +1242,13 @@ export default function Whiteboard({
           onClick={() => canUndo && onUndo?.()}
           title="Undo (Ctrl+Z)"
           disabled={!canUndo}
-        >↩</button>
+        ><Undo2 size={14} /></button>
         <button
           style={{ ...chip(false), opacity: canRedo ? 1 : 0.35, cursor: canRedo ? "pointer" : "not-allowed" }}
           onClick={() => canRedo && onRedo?.()}
           title="Redo (Ctrl+Shift+Z)"
           disabled={!canRedo}
-        >↪</button>
+        ><Redo2 size={14} /></button>
       </div>
 
       {/* ── Secondary controls row — backgrounds + export/clear (always visible) ── */}
@@ -1271,7 +1278,7 @@ export default function Whiteboard({
           style={{ ...chip(showGrid), opacity: 0.85 }}
           onClick={() => setShowGrid(g => !g)}
           title="Toggle grid overlay"
-        >⊞ Grid</button>
+        ><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Grid3x3 size={14} />Grid</span></button>
         <button
           style={{ ...chip(showHelp), minWidth: "28px" }}
           onClick={() => setShowHelp(h => !h)}
@@ -1281,11 +1288,11 @@ export default function Whiteboard({
           style={{ ...chip(false), color: "rgba(100,210,120,0.9)", borderColor: "rgba(80,190,100,0.18)", background: "rgba(80,190,100,0.06)" }}
           onClick={handleExport}
           title="Save board as PNG"
-        >⬇ Export</button>
+        ><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Download size={14} />Export</span></button>
         <button
           style={{ ...chip(false), color: "rgba(255,100,90,0.85)", borderColor: "rgba(255,59,48,0.18)", background: "rgba(255,59,48,0.06)" }}
           onClick={() => { if (window.confirm("Clear the whiteboard for everyone in the room?")) onClear(); }}
-        >🗑 Clear</button>
+        ><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Trash2 size={14} />Clear</span></button>
       </div>
 
       {/* ── Contextual option rows — shown only for the active tool ───────────── */}
@@ -1295,7 +1302,7 @@ export default function Whiteboard({
         <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "10px 16px", borderBottom: "1px solid rgba(196,154,60,0.08)" }}>
           {PEN_STYLES.map(ps => (
             <button key={ps.value} style={chip(style === ps.value)} onClick={() => onStyleChange(ps.value)}>
-              {ps.icon} {ps.label}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><ps.icon size={14} />{ps.label}</span>
             </button>
           ))}
           <span style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.1)", margin: "0 2px" }} />
@@ -1355,10 +1362,10 @@ export default function Whiteboard({
       {/* Shapes: sub-type picker + thickness + colour */}
       {isShape && (
         <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "10px 16px", borderBottom: "1px solid rgba(196,154,60,0.08)" }}>
-          <button style={chip(tool === "rect")}   onClick={() => onToolChange("rect")}   title="Rectangle">▭ Rect</button>
-          <button style={chip(tool === "circle")} onClick={() => onToolChange("circle")} title="Circle / Ellipse">○ Circle</button>
-          <button style={chip(tool === "line")}   onClick={() => onToolChange("line")}   title="Straight line">╱ Line</button>
-          <button style={chip(tool === "arrow")}  onClick={() => onToolChange("arrow")}  title="Arrow">→ Arrow</button>
+          <button style={chip(tool === "rect")}   onClick={() => onToolChange("rect")}   title="Rectangle"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Square size={14} />Rect</span></button>
+          <button style={chip(tool === "circle")} onClick={() => onToolChange("circle")} title="Circle / Ellipse"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Circle size={14} />Circle</span></button>
+          <button style={chip(tool === "line")}   onClick={() => onToolChange("line")}   title="Straight line"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Minus size={14} />Line</span></button>
+          <button style={chip(tool === "arrow")}  onClick={() => onToolChange("arrow")}  title="Arrow"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><MoveRight size={14} />Arrow</span></button>
           <span style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.1)", margin: "0 2px" }} />
           <span style={{ fontSize: "11px", color: "var(--text-dim)" }}>Size</span>
           {PEN_WIDTHS.map((w, i) => (
