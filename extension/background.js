@@ -818,16 +818,27 @@ chrome.runtime.onInstalled.addListener(ensureSyncAlarm);
 chrome.runtime.onStartup.addListener(ensureSyncAlarm);
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name !== SYNC_ALARM) return;
-  const { neuroagi_user } = await chrome.storage.local.get("neuroagi_user");
-  if (!neuroagi_user?.id) return;                       // not logged in
-  const tabs = await chrome.tabs.query({});
-  const portalTab = tabs.find(t => looksLikePortal(t.url));
-  if (!portalTab) return;                               // no session context right now
-  try {
-    await autoSync(neuroagi_user.id, portalTab.id);
-    await chrome.storage.local.set({ neuroagi_last_autosync: Date.now() });
-  } catch (e) { console.warn("[NeuroAgi] periodic sync failed:", e.message); }
+  if (alarm.name === SYNC_ALARM) {
+    const { neuroagi_user } = await chrome.storage.local.get("neuroagi_user");
+    if (!neuroagi_user?.id) return;                       // not logged in
+    const tabs = await chrome.tabs.query({});
+    const portalTab = tabs.find(t => looksLikePortal(t.url));
+    if (!portalTab) return;                               // no session context right now
+    try {
+      await autoSync(neuroagi_user.id, portalTab.id);
+      await chrome.storage.local.set({ neuroagi_last_autosync: Date.now() });
+    } catch (e) { console.warn("[NeuroAgi] periodic sync failed:", e.message); }
+  }
+
+  if (alarm.name === "neuroagi_file_extract") {
+    try {
+      const { neuroagi_extract_pending } = await chrome.storage.local.get("neuroagi_extract_pending");
+      if (neuroagi_extract_pending) {
+        await chrome.storage.local.remove("neuroagi_extract_pending");
+        await extractFileContents(neuroagi_extract_pending.userId, neuroagi_extract_pending.files).catch(() => {});
+      }
+    } catch (e) { console.warn("[NeuroAgi] file extraction alarm failed:", e.message); }
+  }
 });
 
 // ── Message listener ──────────────────────────────────────────────────────────
@@ -858,10 +869,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === "NEUROAGI_API_INGEST") {
     (async () => {
       const counts = await ingestApiData(msg.userId, msg.data);
-      // Await so the service worker stays alive until extraction finishes (an
-      // unawaited promise is dropped when the worker is torn down post-response).
-      await extractFileContents(msg.userId, msg.data.files).catch(() => {});  // fill content_text
       const stats  = await getCurrentStats(msg.userId);
+      // Schedule file extraction via alarm so the popup response is not blocked by
+      // it — extraction can take minutes per file (fetch + upload + /api/extract).
+      if (msg.data.files?.length) {
+        await chrome.storage.local.set({
+          neuroagi_extract_pending: { userId: msg.userId, files: msg.data.files },
+        });
+        chrome.alarms.create("neuroagi_file_extract", { delayInMinutes: 0.1 });
+      }
       return { ok: true, counts, stats };
     })().then(sendResponse).catch(err => sendResponse({ ok: false, error: err.message }));
     return true;
