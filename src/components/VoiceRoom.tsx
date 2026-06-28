@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import DailyIframe from "@daily-co/daily-js";
+import { Mic, Headphones, Hand, Lightbulb, Circle } from "lucide-react";
 
 type Status = "loading" | "ready" | "unavailable" | "error";
 
@@ -270,7 +271,7 @@ export default function VoiceRoom({ roomId, userName, onClose, onSpeakingChange,
               animation: "vcPulse 1.8s ease-in-out infinite",
             }} />
           )}
-          <span style={{ fontSize: "14px", pointerEvents: "none" }}>🎙</span>
+          <span style={{ display: "flex", pointerEvents: "none", color: ACCENT }}><Mic size={14} /></span>
           <span style={{ fontSize: "13px", fontWeight: 600, color: ACCENT, pointerEvents: "none" }}>
             {isMinimized ? "Voice" : "Voice Chat"}
           </span>
@@ -307,7 +308,11 @@ export default function VoiceRoom({ roomId, userName, onClose, onSpeakingChange,
                 lineHeight: "20px",
               }}
             >
-              {pttActive ? "🔴 LIVE" : "🎙 Hold to talk"}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                {pttActive
+                  ? <><Circle size={9} fill="currentColor" strokeWidth={0} />LIVE</>
+                  : <><Mic size={12} />Hold to talk</>}
+              </span>
             </button>
           )}
           {status === "ready" && !isMinimized && (
@@ -329,7 +334,7 @@ export default function VoiceRoom({ roomId, userName, onClose, onSpeakingChange,
                 lineHeight: "20px",
               }}
             >
-              {ncEnabled ? "🎧 NC On" : "🎧 NC Off"}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Headphones size={12} />{ncEnabled ? "NC On" : "NC Off"}</span>
             </button>
           )}
           {status === "ready" && !isMinimized && (
@@ -351,7 +356,7 @@ export default function VoiceRoom({ roomId, userName, onClose, onSpeakingChange,
                 lineHeight: "20px",
               }}
             >
-              ✋ {handRaised ? "Raised" : "Raise"}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Hand size={12} />{handRaised ? "Raised" : "Raise"}</span>
             </button>
           )}
           {connectionQuality !== "unknown" && !isMinimized && (
@@ -444,7 +449,7 @@ export default function VoiceRoom({ roomId, userName, onClose, onSpeakingChange,
                 padding: "7px 18px", borderRadius: "20px", zIndex: 10, pointerEvents: "none",
                 boxShadow: "0 0 16px rgba(239,68,68,0.5)", letterSpacing: "0.04em",
               }}>
-                🎙 LIVE
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Mic size={13} />LIVE</span>
               </div>
             )}
             {showPttHint && !pttActive && (
@@ -456,7 +461,7 @@ export default function VoiceRoom({ roomId, userName, onClose, onSpeakingChange,
                 boxShadow: "0 4px 16px rgba(0,0,0,0.5)", whiteSpace: "nowrap",
                 animation: "vcPttHint 3.5s ease forwards",
               }}>
-                💡 Hold <kbd style={{ background: "rgba(255,255,255,0.12)", borderRadius: "4px", padding: "1px 6px", fontFamily: "inherit" }}>Space</kbd> to talk
+                <Lightbulb size={13} style={{ verticalAlign: "-2px", marginRight: 4 }} />Hold <kbd style={{ background: "rgba(255,255,255,0.12)", borderRadius: "4px", padding: "1px 6px", fontFamily: "inherit" }}>Space</kbd> to talk
               </div>
             )}
           </div>
