@@ -81,7 +81,7 @@ async function openExternalFile(file: any) {
 // ── processUpload — file → public.files (YouLearn pipeline) ──────────────
 
 async function processUpload(
-  file: File, userId: string, onStatus: (s: string) => void
+  file: File, userId: string, onStatus: (s: string) => void, courseId: string | null = null
 ): Promise<any> {
   onStatus("Uploading…");
   const ext  = file.name.split(".").pop() ?? "pdf";
@@ -95,7 +95,7 @@ async function processUpload(
   const exRes = await fetch("/api/extract", {
     method:"POST", headers:{"Content-Type":"application/json"},
     // bucket: where the file lives; keepFile: don't delete (permanent storage); userId: for RAG auto-ingest
-    body: JSON.stringify({ storagePath:path, bucket:"course-files", keepFile:true, file_type:file.type, name:file.name, userId }),
+    body: JSON.stringify({ storagePath:path, bucket:"course-files", keepFile:true, file_type:file.type, name:file.name, userId, courseId }),
   });
   const exData = await exRes.json().catch(() => ({}));
   if (!exRes.ok || !exData.text) throw new Error(exData.error || "Couldn't extract text.");
@@ -114,20 +114,20 @@ async function processUpload(
   const processedAt = new Date().toISOString();
   const { data: row, error: dbErr } = await supabase
     .from("files")
-    .insert({ user_id:userId, name:file.name, file_type:ext, size_bytes:file.size,
+    .insert({ user_id:userId, course_id:courseId, name:file.name, file_type:ext, size_bytes:file.size,
               storage_path:path, content_text:contentText, summary, highlights,
               processed_at:processedAt, status:"course_material" })
     .select("id").single();
   if (dbErr) throw new Error(`Couldn't save: ${dbErr.message}`);
 
   return { id:row.id, name:file.name, fileType:ext, storagePath:path,
-           summary, highlights, processedAt, sizeBytes:file.size };
+           summary, highlights, processedAt, sizeBytes:file.size, courseDbId:courseId };
 }
 
 // ── processYouTube — URL → transcript → public.files ─────────────────────
 
 async function processYouTube(
-  url: string, userId: string, onStatus: (s: string) => void
+  url: string, userId: string, onStatus: (s: string) => void, courseId: string | null = null
 ): Promise<any> {
   onStatus("Fetching transcript…");
 
@@ -135,7 +135,7 @@ async function processYouTube(
   // Pass userId so the transcript is auto-ingested into RAG (tutor can find it).
   const exRes = await fetch("/api/extract", {
     method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({ youtubeUrl: url, userId }),
+    body: JSON.stringify({ youtubeUrl: url, userId, courseId }),
   });
   const exData = await exRes.json().catch(() => ({}));
   if (!exRes.ok || !exData.text) {
@@ -171,14 +171,14 @@ async function processYouTube(
   const processedAt = new Date().toISOString();
   const { data: row, error: dbErr } = await supabase
     .from("files")
-    .insert({ user_id:userId, name:title, file_type:"youtube", source_url:url,
+    .insert({ user_id:userId, course_id:courseId, name:title, file_type:"youtube", source_url:url,
               content_text:contentText, summary, highlights,
               processed_at:processedAt, status:"course_material" })
     .select("id").single();
   if (dbErr) throw new Error(`Couldn't save: ${dbErr.message}`);
 
   return { id:row.id, name:title, fileType:"youtube", storagePath:null,
-           sourceUrl:url, summary, highlights, processedAt };
+           sourceUrl:url, summary, highlights, processedAt, courseDbId:courseId };
 }
 
 // ── AddMaterialCard — unified upload (Part A) ────────────────────────────
@@ -188,18 +188,22 @@ type ProcessState = { phase:"idle" }
   | { phase:"error";   message:string };
 
 function AddMaterialCard({ onProcessed }: { onProcessed: (f: any) => void }) {
-  const { userId } = useApp() as any;
+  const { userId, courses } = useApp() as any;
   const fileRef  = useRef<HTMLInputElement>(null);
   const [state,    setState]  = useState<ProcessState>({ phase:"idle" });
   const [ytUrl,    setYtUrl]  = useState("");
   const [dragging, setDragging] = useState(false);
+  const [courseId, setCourseId] = useState<string>(""); // "" = general library (no course)
   const busy = state.phase === "working";
+
+  // Only courses persisted to the DB can be linked (they have a dbId / UUID).
+  const linkableCourses = (courses ?? []).filter((c: any) => c?.dbId);
 
   async function handleFile(file: File | undefined) {
     if (!file || !userId) return;
     setState({ phase:"working", message:"Starting…" });
     try {
-      const result = await processUpload(file, userId, msg => setState({ phase:"working", message:msg }));
+      const result = await processUpload(file, userId, msg => setState({ phase:"working", message:msg }), courseId || null);
       setState({ phase:"idle" });
       onProcessed(result);
     } catch (e: any) {
@@ -216,7 +220,7 @@ function AddMaterialCard({ onProcessed }: { onProcessed: (f: any) => void }) {
     }
     setState({ phase:"working", message:"Starting…" });
     try {
-      const result = await processYouTube(url, userId, msg => setState({ phase:"working", message:msg }));
+      const result = await processYouTube(url, userId, msg => setState({ phase:"working", message:msg }), courseId || null);
       setState({ phase:"idle" });
       setYtUrl("");
       onProcessed(result);
@@ -237,9 +241,35 @@ function AddMaterialCard({ onProcessed }: { onProcessed: (f: any) => void }) {
       <p style={{ fontSize:14, fontWeight:600, color:"var(--text-primary)", marginBottom:3 }}>
         Add material
       </p>
-      <p style={{ fontSize:12, color:"var(--text-dim)", marginBottom:14 }}>
+      <p style={{ fontSize:12, color:"var(--text-dim)", marginBottom:12 }}>
         PDF, Word, slides, audio, video — or a YouTube link
       </p>
+
+      {/* Course picker — links the upload to a course so the tutor, flashcards, and
+          study guides can ground in it. "General library" leaves it unlinked. */}
+      <select
+        value={courseId}
+        onChange={e => setCourseId(e.target.value)}
+        disabled={busy}
+        style={{
+          width:"100%", marginBottom:14,
+          background:"rgba(255,255,255,0.05)",
+          border:"1px solid rgba(255,255,255,0.09)",
+          borderRadius:"var(--radius-btn)", padding:"9px 12px",
+          color:"var(--text-primary)", fontSize:13,
+          outline:"none", fontFamily:"inherit",
+          opacity: busy ? 0.5 : 1, cursor: busy ? "default" : "pointer",
+          // Render the native popup in dark mode so the option list isn't white-on-white.
+          colorScheme: "dark",
+        }}
+      >
+        <option value="" style={{ background:"#1a1a1e", color:"#f5f5f5" }}>General library (no course)</option>
+        {linkableCourses.map((c: any) => (
+          <option key={c.dbId} value={c.dbId} style={{ background:"#1a1a1e", color:"#f5f5f5" }}>
+            {c.courseCode ? `${c.courseCode} — ${c.name}` : c.name}
+          </option>
+        ))}
+      </select>
 
       {/* Drop zone */}
       <div
