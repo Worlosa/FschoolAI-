@@ -19,6 +19,7 @@ import { useApp }      from "../context/AppContext";
 import { supabase }    from "../api/supabase";
 import { awardTokens } from "../api/tokens";
 import { sanitizeApiMessages } from "../lib/chatMessages";
+import { ensureTutorReply } from "../lib/tutorReply";
 import { Send, Square, Plus, ThumbsUp, ThumbsDown, Check, RotateCcw, Play } from "lucide-react";
 import ArtifactPanel   from "./ArtifactPanel";
 
@@ -2528,7 +2529,12 @@ export default function NeuralRing() {
       }
 
       const { cmd, text: displayText } = parseNav(rawClean);
-      const cleanText = displayText.replace(/<[^>]+>/g, "").trim();
+      let cleanText = displayText.replace(/<[^>]+>/g, "").trim();
+
+      // Never ship an empty/filler-only reply (model stalling + stripped tool JSON left a
+      // blank/dangling bubble and silence). Guarded in tutorReply.ts; skipped when the
+      // model is navigating, where empty text is intentional.
+      cleanText = ensureTutorReply(cleanText, { isNav: !!cmd?.page, hasGrounding: !!ragContext });
 
       if (cmd?.page) {
         if (cmd.course || cmd.mode) setStudyConfig({ course: cmd.course ?? null, mode: cmd.mode ?? "flashcards" });
