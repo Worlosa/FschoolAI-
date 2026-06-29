@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useApp }    from "../context/AppContext";
 import { supabase }  from "../api/supabase";
 import DocReader     from "../components/DocReader";
+import ContentConnector from "../components/ContentConnector";
 import { FileText, Presentation, Music, Film, Play, Image as ImageIcon, StickyNote, Paperclip, BookOpen, Check } from "lucide-react";
 
 // ── Design tokens ─────────────────────────────────────────────────────────
@@ -748,6 +749,9 @@ export default function Files() {
 
       {/* Unified upload card (Part A) — replaces UploadCard + DocUpload */}
       <AddMaterialCard onProcessed={handleProcessed} />
+
+      {/* Content Connector — tie external content to the student's own coursework */}
+      <ContentConnector />
 
       {allFiles.length === 0 ? (
         <motion.div
