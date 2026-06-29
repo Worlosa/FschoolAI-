@@ -6,6 +6,7 @@ import { supabase }                  from "../api/supabase";
 import GradeGraph, { COURSE_COLORS } from "../components/GradeGraph";
 import ShareCard                     from "../components/ShareCard";
 import FriendsSection                from "../components/FriendsSection";
+import WritingTracker                from "../components/WritingTracker";
 import { LogIn, RefreshCw, Layers, CircleDot, Sparkles, Check, Hexagon, ArrowUp, Star, ChevronUp, ChevronDown, ArrowUpRight } from "lucide-react";
 import { coursesToGpa } from "../lib/gpa";
 
@@ -222,6 +223,9 @@ export default function Identity() {
           connected={courses.length > 0}
         />
       </div>
+
+      {/* Writing Evolution Tracker — profile a piece of writing + track growth over time */}
+      <WritingTracker />
 
       {/* Course performance bars — only shown when Canvas is connected */}
       {coursePerf.length > 0 && (
