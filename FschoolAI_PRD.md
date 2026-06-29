@@ -2100,6 +2100,45 @@ The catalog ships with an exhaustive edge taxonomy used as the eval-fixture sour
 - **SLO measurement spike:** the C1 per-stage budget, the ~600ms cross-project brain hop, and RAG latency are **not yet load-tested** — measure before treating §19.6 as final; `recall` has the least margin.
 - **Unbuilt product-side capabilities:** voice / multilingual STT routing (X8/X14), async media generation (G3.6 video/podcast), Canvas **OAuth** + syllabus ingest (S1/S3), and the long-tail not-built agents (`agents/remaining-agents.md`).
 
+### 19.11 Implementation status — `frontend/dev` vs this PRD (what's left)
+
+`frontend/dev` is the **TS / Vercel funding version**; the full PRD scenario set is **built in the Python v2** (§19.2). So most gaps below are *intentionally* the v2's job, not a `frontend/dev` deficiency. **Track** = where the work should land: **FS** = build on `frontend/dev` (cheap, demo-value, no v2 dependency); **v2** = the Python rebuild owns it; **X** = cross-cutting / structural (needed regardless of track). **Status on `frontend/dev`:** ✅ shipped · ◑ partial (exists, doesn't meet the contract) · ○ spec (not built).
+
+**Recently shipped (closed since the docs were written):** Leaderboard Agent (server-side ranking, merged), Content Connector and Writing Evolution Tracker (§14.3 Sprint-4 agents, PRs open).
+
+**Scenario catalog — outstanding (the live ones G1.2 / G4.3 omitted):**
+
+| Scenario | FS | Track | What's missing |
+|---|---|---|---|
+| G1.1 Daily Briefing | ○ | **FS** | "what to do today" aggregator over existing Canvas/brain data |
+| G1.3 Grades + **What-if** | ○ | **FS** | deterministic required-score calculator (client-pure, no LLM, offline) |
+| G2.1 Negative nudge | ◑ | X | broaden triggers beyond stress/momentum |
+| G2.2 Positive nudge | ○ | **FS** | opportunity-nudge path (absent in `brain-intervention`) |
+| G3.1 Exam prep | ◑ | v2 | multi-day plan + readiness score (SpaceExams is a one-shot quiz) |
+| G3.2 Start assignment | ○ | X | blank scaffold + **hard** integrity gate (feedback-only) |
+| G3.3 Weekly plan | ○ | v2/FS | Planner (Agent 4) + Calendar / Google–Apple sync (Agent 11) |
+| G3.4 Digest lecture | ◑ | FS | professor-emphasis detection; async long-audio path |
+| G3.5 Office Hours | ◑ | FS | gap-targeted question-gen (`monitor-agent` is a page nudge) |
+| G3.6 Studio (video/podcast) | ○ | v2 | Lesson Generator video (6b) + Podcast (15) render pipelines |
+| G4.1 Study Room AI | ○ | v2 | in-room orchestrator / Durable Objects (rooms UI exists) |
+| G4.2 Cohort / class status | ○ | v2 | k-anon aggregation + canonical concept IDs (Agent 14) |
+| S1 Onboarding | ◑ | X | Canvas **OAuth** + 5-Q → brain-create (PAT today) |
+| S2 Nightly reflection | ○ | brain | reflection + decay cron (not in FS crons; Agent 12) |
+| S3 Canvas sync | ◑ | X | real OAuth + syllabus ingest (client-side PAT today) |
+
+**Cross-cutting structural gaps (not scenario-specific):**
+
+| Gap | Track | What's missing |
+|---|---|---|
+| Agent Manager / `POST /api/agent-manager` (§15) | v2 | Reggie is prompt-routed, not a tool-use loop; no single contract on FS (FS calls ~40 endpoints directly) |
+| Hard integrity guards | X | the 3 red lines + k-anon are **prompt-only**, no code-level gate |
+| `person_id ↔ user_id` bridge + extension routes | X | the brain reads empty without it (§17 BACKEND_GAPS, gaps 1–2) |
+| Multilingual / voice STT routing | FS | zh-CN is a Phase-1 requirement (§9); no language-detect→STT routing |
+
+**Specialist sub-agents not built (§14.3):** Situation Synthesizer, Motivation Engine, Professor Intelligence, Social Intelligence, Knowledge Graph Builder, Focus Agent, Library Organizer, UI Preference Agent, Pattern Recognition. **Partial:** Assignment Agent, Voice Preference (close).
+
+**Highest-leverage `frontend/dev` next steps (cheap, no v2 dependency):** What-if calculator (G1.3) → Daily Briefing (G1.1) → Positive nudges (G2.2) → finish Voice Preference + the Assignment scaffold. Everything marked **v2** should not be re-built on `frontend/dev`; the **X** items (Canvas OAuth, brain pipeline, integrity guards) gate downstream work on both tracks.
+
 ---
 
 *This document is the source of truth for FschoolAI Phase 1 engineering. Any questions, contact Vincent Yang.*
