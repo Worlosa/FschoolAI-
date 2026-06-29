@@ -599,7 +599,8 @@ export default defineConfig({
   plugins: [react(), canvasProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin, fileUrlProxyPlugin, authMigrateProxyPlugin, ragProxyPlugin, tokenEngineProxyPlugin, nudgeProxyPlugin, flashcardsProxyPlugin, transcribeProxyPlugin, dailyRoomProxyPlugin, summarizeProxyPlugin,
     handlerProxy("/api/tutor-impression", () => import("./api/tutor-impression.js")),
     handlerProxy("/api/session-close",    () => import("./api/session-close.js")),
-    handlerProxy("/api/brain-person-link",() => import("./api/brain-person-link.js"))],
+    handlerProxy("/api/brain-person-link",() => import("./api/brain-person-link.js")),
+    handlerProxy("/api/content-connector",() => import("./api/content-connector.js"))],
   server:  { port: 5173, host: "0.0.0.0", allowedHosts: true },
   build: {
     // The default 500 kB threshold assumes no compression. Our heaviest chunk (the
