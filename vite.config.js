@@ -602,7 +602,10 @@ export default defineConfig({
     handlerProxy("/api/brain-person-link",() => import("./api/brain-person-link.js")),
     handlerProxy("/api/leaderboard",      () => import("./api/leaderboard.js")),
     handlerProxy("/api/content-connector",() => import("./api/content-connector.js")),
-    handlerProxy("/api/writing-tracker",  () => import("./api/writing-tracker.js"))],
+    handlerProxy("/api/writing-tracker",  () => import("./api/writing-tracker.js")),
+    handlerProxy("/api/weekly-plan",      () => import("./api/weekly-plan.js")),
+    handlerProxy("/api/calendar",         () => import("./api/calendar.js"),      [...HANDLER_ENV, "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI"]),
+    handlerProxy("/api/calendar-auth",    () => import("./api/calendar-auth.js"), [...HANDLER_ENV, "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI"])],
   server:  { port: 5173, host: "0.0.0.0", allowedHosts: true },
   build: {
     // The default 500 kB threshold assumes no compression. Our heaviest chunk (the

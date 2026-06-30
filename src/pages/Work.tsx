@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useApp } from "../context/AppContext";
 import { Flame } from "lucide-react";
 import { coursesToGpa } from "../lib/gpa";
+import WeeklyPlanner from "../components/WeeklyPlanner";
 
 
 function formatDue(dateStr) {
@@ -688,6 +689,9 @@ export default function Work() {
                 }
               </div>
             </div>
+
+            {/* Weekly study plan (G3.3) */}
+            <WeeklyPlanner />
 
             {/* Recent Activity — mobile only, only shown when real activity exists */}
             {isMobile && showActivity && (
