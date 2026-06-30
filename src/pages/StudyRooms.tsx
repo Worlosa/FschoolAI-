@@ -1392,7 +1392,8 @@ function RoomView({ room, onLeave, roomCounts, onlineIds = [] }) {
 
   async function enrichRequests(rows) {
     const ids = rows.map(r => r.user_id);
-    const { data: users } = await supabase.from("users").select("id, name").in("id", ids);
+    // users_public = safe-columns view (id, name, ...); keeps working once public.users RLS is strict
+    const { data: users } = await supabase.from("users_public").select("id, name").in("id", ids);
     const nameMap = {};
     (users || []).forEach(u => { nameMap[u.id] = u.name; });
     setRequests(prev => {
