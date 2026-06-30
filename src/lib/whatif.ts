@@ -1,12 +1,12 @@
 // Grade thresholds match gpa.ts / scoreToGpa — keep in sync.
 export const GRADE_TARGETS = [
-  { label: "A",  pct: 90 },
-  { label: "A-", pct: 85 },
-  { label: "B+", pct: 80 },
-  { label: "B",  pct: 75 },
-  { label: "B-", pct: 70 },
-  { label: "C+", pct: 65 },
-  { label: "C",  pct: 60 },
+  { label: "A",  pct: 90, gpa: 4.0 },
+  { label: "A-", pct: 85, gpa: 3.7 },
+  { label: "B+", pct: 80, gpa: 3.3 },
+  { label: "B",  pct: 75, gpa: 3.0 },
+  { label: "B-", pct: 70, gpa: 2.7 },
+  { label: "C+", pct: 65, gpa: 2.3 },
+  { label: "C",  pct: 60, gpa: 2.0 },
 ] as const;
 
 export interface GradeCalcInput {

@@ -5,6 +5,7 @@ import { calcRequiredScore, GRADE_TARGETS, AssignmentGroup } from "../lib/whatif
 
 function GradeDropdown({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   const [open, setOpen] = useState(false);
+  const [hovered, setHovered] = useState<number | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const selected = GRADE_TARGETS.find(g => g.pct === value) ?? GRADE_TARGETS[0];
 
@@ -34,24 +35,35 @@ function GradeDropdown({ value, onChange }: { value: number; onChange: (v: numbe
         <div style={{
           position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 100,
           background: "#1e1e2a", border: "1px solid rgba(255,255,255,0.12)",
-          borderRadius: "8px", overflow: "hidden", minWidth: "140px",
+          borderRadius: "8px", overflow: "hidden", minWidth: "200px",
           boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
         }}>
-          {GRADE_TARGETS.map(g => (
-            <div
-              key={g.label}
-              onClick={() => { onChange(g.pct); setOpen(false); }}
-              style={{
-                padding: "8px 14px", fontSize: "12px", cursor: "pointer",
-                color: g.pct === value ? "rgba(100,180,255,0.9)" : "var(--text-secondary)",
-                background: g.pct === value ? "rgba(100,180,255,0.08)" : "transparent",
-              }}
-              onMouseEnter={e => { if (g.pct !== value) (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,0.05)"; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = g.pct === value ? "rgba(100,180,255,0.08)" : "transparent"; }}
-            >
-              {g.label} (≥{g.pct}%)
-            </div>
-          ))}
+          {GRADE_TARGETS.map(g => {
+            const isSelected = g.pct === value;
+            const isHovered  = hovered === g.pct;
+            const bg = isSelected
+              ? "rgba(100,180,255,0.1)"
+              : isHovered ? "rgba(255,255,255,0.06)" : "transparent";
+            return (
+              <div
+                key={g.label}
+                onClick={() => { onChange(g.pct); setOpen(false); }}
+                onMouseEnter={() => setHovered(g.pct)}
+                onMouseLeave={() => setHovered(null)}
+                style={{
+                  padding: "8px 14px", fontSize: "12px", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", whiteSpace: "nowrap",
+                  color: isSelected ? "rgba(100,180,255,0.9)" : "var(--text-secondary)",
+                  background: bg,
+                }}
+              >
+                <span>{g.label} (≥{g.pct}%)</span>
+                <span style={{ opacity: 0.72, fontSize: "11px", color: isSelected ? "rgba(100,180,255,0.75)" : "rgba(255,255,255,0.5)" }}>
+                  GPA: {g.gpa.toFixed(1)}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -152,7 +164,7 @@ export default function WhatIfPanel() {
         }
 
         return (
-          <div key={cid} style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-card)", overflow: "hidden" }}>
+          <div key={cid} style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: "var(--radius-card)" }}>
 
             {/* ── Header ── */}
             <div
