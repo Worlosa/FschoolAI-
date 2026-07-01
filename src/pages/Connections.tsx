@@ -127,6 +127,7 @@ export default function Connections() {
   const [openImporter, setOpenImporter] = useState<"google" | "microsoft" | null>(null);
 
   const [importToast, setImportToast] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   // Clear ?lms= from URL after reading
   useEffect(() => {
@@ -160,6 +161,31 @@ export default function Connections() {
   async function connectGoogle() {
     if (!userId) return;
     window.location.href = `/api/drive-auth?action=auth&userId=${encodeURIComponent(userId)}`;
+  }
+
+  // Full Classroom sync: courses + assignments (with due dates) + auto-ingest all files.
+  async function syncGoogle() {
+    if (!userId || syncing) return;
+    setSyncing(true);
+    setImportToast("Syncing Classroom courses, assignments & files…");
+    try {
+      const r = await fetch("/api/drive-auth?action=sync", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ userId }),
+      });
+      const s = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setImportToast(s.error ? `Sync failed: ${s.error}` : "Sync failed");
+      } else {
+        const more = (s.errors?.length ? ` · ${s.errors.length} issue(s)` : "");
+        setImportToast(`Synced ${s.courses ?? 0} courses, ${s.assignments ?? 0} assignments, ${s.ingested ?? 0} files${s.skipped ? ` (${s.skipped} already had)` : ""}${more}`);
+      }
+    } catch (e: any) {
+      setImportToast(`Sync failed: ${e?.message ?? "network error"}`);
+    } finally {
+      setSyncing(false);
+    }
   }
 
   async function connectMicrosoft() {
@@ -270,6 +296,9 @@ export default function Connections() {
                 style={connectBtn("rgba(100,180,255,0.18)")}
               >
                 {openImporter === "google" ? "Hide files" : "Browse files"}
+              </button>
+              <button onClick={syncGoogle} disabled={syncing} style={connectBtn("rgba(48,209,88,0.18)")}>
+                {syncing ? "Syncing…" : "Sync all"}
               </button>
               <button onClick={disconnectGoogle} style={dangerBtn}>Disconnect</button>
             </>

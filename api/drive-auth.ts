@@ -20,6 +20,9 @@ function sb() {
   return _sb;
 }
 
+// Classroom sync ingests files inline (download → extract → embed), which is slow.
+export const config = { maxDuration: 300 };
+
 const clientId     = () => process.env.GOOGLE_CLIENT_ID ?? "";
 const clientSecret = () => process.env.GOOGLE_CLIENT_SECRET ?? "";
 const redirectUri  = () =>
@@ -107,6 +110,61 @@ async function listDriveFiles(accessToken: string): Promise<any[]> {
     mimeType:    f.mimeType ?? null,
     source:      "drive",
   }));
+}
+
+// ── Shared Drive byte-fetch + ingest (used by ?action=fetch and ?action=sync) ─
+function hashStr(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return h;
+}
+
+// Download a Drive file's bytes, exporting Google-native docs to Office formats.
+async function fetchDriveBytes(accessToken: string, driveFileId: string, mimeType?: string | null) {
+  let resolvedMime = mimeType ?? undefined;
+  if (!resolvedMime) {
+    const metaRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${driveFileId}?fields=id,name,mimeType`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    resolvedMime = metaRes.ok ? ((await metaRes.json()).mimeType ?? "application/octet-stream") : "application/octet-stream";
+  }
+  let downloadUrl: string;
+  let finalMime = resolvedMime as string;
+  if (resolvedMime && GOOGLE_EXPORT_MAP[resolvedMime]) {
+    finalMime   = GOOGLE_EXPORT_MAP[resolvedMime].mime;
+    downloadUrl = `https://www.googleapis.com/drive/v3/files/${driveFileId}/export?mimeType=${encodeURIComponent(finalMime)}`;
+  } else {
+    downloadUrl = `https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`;
+  }
+  const fileRes = await fetch(downloadUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!fileRes.ok) throw new Error(`Drive download failed (${fileRes.status})`);
+  const bytes = Buffer.from(await fileRes.arrayBuffer());
+  if (bytes.length > 50 * 1024 * 1024) throw new Error("File too large (max 50 MB)");
+  return { bytes, finalMime, sourceUrl: `https://drive.google.com/file/d/${driveFileId}` };
+}
+
+// Push bytes through the unified ingest pipeline (dedups on sourceUrl → { ok, documentId, skipped }).
+async function ingestBytes(userId: string, courseId: string | null, name: string, mimeType: string, bytes: Buffer, sourceUrl: string) {
+  const ingestRes = await fetch(`${selfBase()}/api/lms-ingest`, {
+    method:  "POST",
+    headers: { "Content-Type": "application/json" },
+    body:    JSON.stringify({
+      userId, courseId: courseId ?? null,
+      file: { name, mimeType, bytes: bytes.toString("base64"), sourceUrl, provider: "google" },
+    }),
+  });
+  const data = await ingestRes.json().catch(() => ({}));
+  if (!ingestRes.ok) throw new Error(data.error ?? "lms-ingest failed");
+  return data;
+}
+
+// Build a due_at ISO string from Classroom's split {dueDate,dueTime}. Classroom omits
+// dueTime for all-day due dates → default to end-of-day so it isn't treated as midnight-past.
+function classroomDueAt(cw: any): string | null {
+  if (!cw?.dueDate?.year) return null;
+  const d = cw.dueDate, t = cw.dueTime ?? {};
+  return new Date(Date.UTC(d.year, (d.month ?? 1) - 1, d.day ?? 1, t.hours ?? 23, t.minutes ?? 59)).toISOString();
 }
 
 export default async function handler(req: any, res: any) {
@@ -321,6 +379,131 @@ export default async function handler(req: any, res: any) {
     }
 
     return res.status(200).json({ courses: result });
+  }
+
+  // ── sync ──────────────────────────────────────────────────────────────────
+  // Full Google Classroom sync: persists courses + assignments (with due dates)
+  // and auto-ingests every attached file. This is the PRD-shaped sync; ?action=list
+  // + ?action=fetch remain as the manual file picker.
+  if (action === "sync" && req.method === "POST") {
+    const { userId } = req.body ?? {};
+    if (!userId) return res.status(400).json({ error: "userId required" });
+
+    let accessToken: string;
+    try { accessToken = await getAccessToken(userId); }
+    catch (e: any) { return res.status(401).json({ error: e.message }); }
+
+    const summary = { courses: 0, assignments: 0, filesFound: 0, ingested: 0, skipped: 0, errors: [] as string[] };
+    const FILE_BUDGET = 40; // cap inline ingests/call so we stay under maxDuration; re-run to continue
+
+    const coursesRes = await fetch(
+      "https://classroom.googleapis.com/v1/courses?courseStates=ACTIVE&pageSize=50",
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    if (!coursesRes.ok) {
+      const detail = await coursesRes.text().catch(() => "");
+      return res.status(502).json({ error: `Classroom (${coursesRes.status})${detail.includes("disabled") ? " — Classroom API not enabled" : ""}` });
+    }
+    const { courses: rawCourses = [] } = await coursesRes.json();
+
+    for (const course of rawCourses) {
+      // 1. Upsert the course (gc_ prefix keeps Classroom ids from colliding with numeric Canvas ids).
+      let courseId: string | null = null;
+      try {
+        const { data: cRow } = await sb().from("courses").upsert({
+          user_id:          userId,
+          canvas_course_id: `gc_${course.id}`,
+          name:             course.name ?? "Untitled course",
+          course_code:      course.section ?? course.name ?? null,
+          source:           "google_classroom",
+        }, { onConflict: "user_id,canvas_course_id" }).select("id").maybeSingle();
+        courseId = cRow?.id ?? null;
+        summary.courses++;
+      } catch (e: any) { summary.errors.push(`course ${course.name}: ${e.message}`); }
+
+      const driveFiles: any[] = [];
+      const linkRows: any[] = [];
+      const seenDrive = new Set<string>();
+      const collect = (materials: any[]) => {
+        for (const m of (materials ?? [])) {
+          if (m.driveFile?.driveFile?.id) {
+            const df = m.driveFile.driveFile;
+            if (!seenDrive.has(df.id)) { seenDrive.add(df.id); driveFiles.push({ id: df.id, name: df.title ?? "Untitled", mimeType: df.mimeType ?? null }); }
+          } else if (m.link?.url) {
+            linkRows.push({ url: m.link.url, title: m.link.title ?? m.link.url, yt: false });
+          } else if (m.youtubeVideo?.id) {
+            linkRows.push({ url: `https://youtu.be/${m.youtubeVideo.id}`, title: m.youtubeVideo.title ?? "YouTube video", yt: true });
+          }
+        }
+      };
+
+      // 2. courseWork = assignments. Upsert each; collect its attachments.
+      const cwRes = await fetch(
+        `https://classroom.googleapis.com/v1/courses/${course.id}/courseWork?courseWorkStates=PUBLISHED&pageSize=100`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      ).catch(() => null);
+      if (cwRes?.ok) {
+        const { courseWork = [] } = await cwRes.json();
+        for (const cw of courseWork) {
+          try {
+            await sb().from("assignments").upsert({
+              user_id:              userId,
+              course_id:            courseId,
+              canvas_assignment_id: `gc_${cw.id}`,
+              title:                cw.title ?? "Untitled",
+              description:          cw.description ?? null,
+              due_at:               classroomDueAt(cw),
+              points_possible:      cw.maxPoints ?? null,
+              source:               "google_classroom",
+            }, { onConflict: "user_id,canvas_assignment_id" });
+            summary.assignments++;
+          } catch (e: any) { summary.errors.push(`assignment ${cw.title}: ${e.message}`); }
+          collect(cw.materials);
+        }
+      }
+
+      // 3. courseWorkMaterials = teacher reference materials (no assignment).
+      const matRes = await fetch(
+        `https://classroom.googleapis.com/v1/courses/${course.id}/courseWorkMaterials?courseWorkMaterialStates=PUBLISHED&pageSize=100`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      ).catch(() => null);
+      if (matRes?.ok) {
+        const { courseWorkMaterial = [] } = await matRes.json();
+        for (const mat of courseWorkMaterial) collect(mat.materials);
+      }
+
+      summary.filesFound += driveFiles.length + linkRows.length;
+
+      // 4. Record link/YouTube attachments as file rows (can't extract, but they show up + connect).
+      for (const l of linkRows) {
+        try {
+          await sb().from("files").upsert({
+            user_id:     userId,
+            course_id:   courseId,
+            lms_file_id: "gc_link_" + Math.abs(hashStr(l.url)).toString(36),
+            name:        l.title,
+            file_type:   l.yt ? "youtube" : "link",
+            source_url:  l.url,
+            provider:    "google",
+          }, { onConflict: "user_id,lms_file_id" });
+        } catch { /* non-fatal */ }
+      }
+
+      // 5. Auto-ingest Drive files (download → export → extract → embed), budgeted.
+      for (const df of driveFiles) {
+        if (summary.ingested + summary.skipped >= FILE_BUDGET) {
+          summary.errors.push("file budget reached — run sync again to ingest the rest");
+          break;
+        }
+        try {
+          const { bytes, finalMime, sourceUrl } = await fetchDriveBytes(accessToken, df.id, df.mimeType);
+          const r = await ingestBytes(userId, courseId, df.name, finalMime, bytes, sourceUrl);
+          if (r.skipped) summary.skipped++; else summary.ingested++;
+        } catch (e: any) { summary.errors.push(`${df.name}: ${e.message}`); }
+      }
+    }
+
+    return res.status(200).json(summary);
   }
 
   // ── fetch ─────────────────────────────────────────────────────────────────
