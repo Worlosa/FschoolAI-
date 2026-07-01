@@ -275,10 +275,19 @@ export default function StudyRooms() {
 // Lobby
 // ─────────────────────────────────────────────────────────────────────────────
 function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvites = [], onDismissInvite }) {
-  const { userId, userData, courses } = useApp();
+  const { userId, userData, courses, studyConfig, setStudyConfig } = useApp();
   const [rooms,       setRooms]       = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [showCreate,  setShowCreate]  = useState(false);
+  const [createInitCourse, setCreateInitCourse] = useState("");
+
+  useEffect(() => {
+    if (studyConfig?.action === "create") {
+      setCreateInitCourse(studyConfig.course ?? "");
+      setShowCreate(true);
+      setStudyConfig(null);
+    }
+  }, []); // eslint-disable-line
   const [joiningId,    setJoiningId]    = useState(null);
   const [pendingReqs,  setPendingReqs]  = useState({});
   const [codeInput,    setCodeInput]    = useState("");
@@ -713,6 +722,7 @@ function Lobby({ onJoin, totalOnline, roomCounts, globalState = {}, pendingInvit
           courses={courses}
           onCreate={handleCreate}
           onClose={() => setShowCreate(false)}
+          initialCourseId={createInitCourse}
         />
       )}
     </div>
@@ -830,9 +840,9 @@ function RoomCard({ room, liveCount, joining, pendingStatus, courseLabel, onJoin
 // ─────────────────────────────────────────────────────────────────────────────
 // CreateRoomModal
 // ─────────────────────────────────────────────────────────────────────────────
-function CreateRoomModal({ courses, onCreate, onClose }) {
+function CreateRoomModal({ courses, onCreate, onClose, initialCourseId = "" }) {
   const [name,     setName]     = useState("");
-  const [courseId, setCourseId] = useState("");
+  const [courseId, setCourseId] = useState(initialCourseId);
   const [roomType, setRoomType] = useState("public");
   const [accessFilters, setAccessFilters] = useState<AccessFilters>({});
   const [saving,   setSaving]   = useState(false);

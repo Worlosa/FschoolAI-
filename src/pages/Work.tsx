@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useApp } from "../context/AppContext";
 import { Flame } from "lucide-react";
 import { coursesToGpa } from "../lib/gpa";
+import DailyBriefing from "../components/DailyBriefing";
 
 
 function formatDue(dateStr) {
@@ -444,6 +445,11 @@ export default function Work() {
               }}
             />
           </div>
+        </div>
+
+        {/* ── Daily briefing ── */}
+        <div style={{ maxWidth: "1400px", width: "100%", boxSizing: "border-box" as const, marginBottom: isMobile ? "20px" : "28px", animation: "workRise 0.6s ease both", animationDelay: "120ms" }}>
+          <DailyBriefing isMobile={isMobile} />
         </div>
 
         {/* ── Dashboard grid ── */}
