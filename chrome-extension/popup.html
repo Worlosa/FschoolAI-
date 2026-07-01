@@ -72,6 +72,22 @@
     }
 
     .empty { color: rgba(255,255,255,0.3); font-size: 12px; text-align: center; padding: 12px 0; }
+
+    .input {
+      display: block; width: 100%;
+      padding: 10px 12px; margin-bottom: 10px;
+      border-radius: 10px; border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.04); color: #f0f0f0;
+      font-size: 13px; font-family: inherit; outline: none;
+    }
+    .input:focus { border-color: #4285F4; }
+    .switch { font-size: 12px; color: rgba(255,255,255,0.4); text-align: center; margin-top: 10px; }
+    .switch a { color: #4285F4; cursor: pointer; text-decoration: none; }
+    .auth-error {
+      background: rgba(255,69,58,0.12); color: #ff6961;
+      border: 1px solid rgba(255,69,58,0.2); border-radius: 8px;
+      padding: 8px 10px; font-size: 12px; margin-bottom: 10px;
+    }
   </style>
 </head>
 <body>
@@ -96,10 +112,24 @@
 
   <!-- Signed out -->
   <div id="signed-out-section" style="display:none">
-    <div style="color:rgba(255,255,255,0.45); font-size:13px; margin-bottom:16px; line-height:1.6">
-      Sign in to FschoolAI to start importing LMS files into your AI tutor.
+    <div id="auth-error" class="auth-error" style="display:none"></div>
+
+    <!-- Login -->
+    <div id="login-form">
+      <input id="login-email"    class="input" type="email"    placeholder="Email"    autocomplete="username" />
+      <input id="login-password" class="input" type="password" placeholder="Password" autocomplete="current-password" />
+      <button class="btn btn-primary" id="btn-login">Log in</button>
+      <div class="switch">No account? <a id="show-signup">Create one</a></div>
     </div>
-    <button class="btn btn-primary" id="btn-sign-in">Sign in to FschoolAI</button>
+
+    <!-- Sign up -->
+    <div id="signup-form" style="display:none">
+      <input id="signup-name"     class="input" type="text"     placeholder="Full name" />
+      <input id="signup-email"    class="input" type="email"    placeholder="Email" autocomplete="username" />
+      <input id="signup-password" class="input" type="password" placeholder="Password (min 6 chars)" autocomplete="new-password" />
+      <button class="btn btn-primary" id="btn-signup">Create account</button>
+      <div class="switch">Have an account? <a id="show-login">Log in</a></div>
+    </div>
   </div>
 
   <!-- Pending downloads (Mode B) -->
