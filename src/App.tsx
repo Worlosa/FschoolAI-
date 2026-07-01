@@ -34,8 +34,10 @@ const Identity    = lazy(() => import("./pages/Identity"));
 const Leaderboard = lazy(() => import("./pages/Leaderboard"));
 const Files       = lazy(() => import("./pages/Files"));
 const StudyRooms  = lazy(() => import("./pages/StudyRooms"));
-const Onboarding  = lazy(() => import("./pages/Onboarding"));
-const Spaces      = lazy(() => import("./pages/Spaces"));
+const Onboarding   = lazy(() => import("./pages/Onboarding"));
+const Spaces       = lazy(() => import("./pages/Spaces"));
+const Connections  = lazy(() => import("./pages/Connections"));
+const StudyAssistant = lazy(() => import("./pages/StudyAssistant"));
 
 const PAGES = {
   work:        Work,
@@ -48,6 +50,8 @@ const PAGES = {
   files:       Files,
   rooms:       StudyRooms,
   spaces:      Spaces,
+  connections: Connections,
+  studyAssistant: StudyAssistant,
 };
 
 const LOGGED_IN_KEY = "fschool_logged_in";
@@ -187,6 +191,12 @@ export default function App() {
     return params.get("discord") || null;
   });
 
+  // ── LMS connect banner state (Google / Microsoft OAuth callback) ───────────
+  const [lmsBanner, setLmsBanner] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("lms") || null;
+  });
+
   // ── Password reset state ────────────────────────────────────────────────────
   const [resetMode, setResetMode] = useState(() => {
     const params = new URLSearchParams(window.location.search);
@@ -264,6 +274,20 @@ export default function App() {
     return () => clearTimeout(t);
   }, [discordBanner]);
 
+  // Clear ?lms= param + navigate to connections page on successful OAuth
+  useEffect(() => {
+    if (!lmsBanner) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("lms");
+    url.searchParams.delete("reason");
+    window.history.replaceState({}, "", url.toString());
+    if (lmsBanner === "google_connected" || lmsBanner === "microsoft_connected") {
+      setTimeout(() => navigate("connections"), 400);
+    }
+    const t = setTimeout(() => setLmsBanner(null), 6000);
+    return () => clearTimeout(t);
+  }, [lmsBanner]); // eslint-disable-line
+
   // If user verifies email in another tab, show banner in this tab too
   useEffect(() => {
     function onStorage(e) {
@@ -275,6 +299,40 @@ export default function App() {
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
+
+  // Chrome extension sign-in handshake: /?ext=signin&extId=<extensionId>
+  // The extension popup opens this URL; we message the extension back with the user's session.
+  useEffect(() => {
+    if (!isLoggedIn || !userId) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("ext") !== "signin") return;
+    const extId = params.get("extId");
+    if (!extId) return;
+
+    const cr = (window as any).chrome?.runtime;
+    if (!cr) return;
+
+    // Clean the URL immediately
+    const clean = new URL(window.location.href);
+    clean.searchParams.delete("ext");
+    clean.searchParams.delete("extId");
+    window.history.replaceState({}, "", clean.toString());
+
+    cr.sendMessage(extId, {
+      type: "SIGN_IN",
+      payload: {
+        userId,
+        token:     "ext-session",
+        expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+      },
+    }, (response) => {
+      if (cr.lastError) {
+        console.warn("[ext-signin] sendMessage error:", cr.lastError.message);
+      } else {
+        console.log("[ext-signin] signed in to extension:", response);
+      }
+    });
+  }, [isLoggedIn, userId]); // eslint-disable-line
 
   const fadingRef = useRef(false);
 
@@ -451,6 +509,40 @@ export default function App() {
               {discordBanner === "connected"       && "Welcome to the beta community \u2014 +5 points. Use /feedback in Discord any time."}
               {discordBanner === "connected_nojoin" && "Linked! We couldn't auto-add you to the server \u2014 join it manually from the invite."}
               {discordBanner === "error"           && "Something went wrong \u2014 you can try again from your profile."}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LMS OAuth banner (Google / Microsoft connected or error) */}
+      {lmsBanner && (
+        <div style={{
+          position:"fixed", top:"env(safe-area-inset-top, 0px)", left:"50%",
+          transform:"translateX(-50%)", zIndex:999, marginTop:"16px",
+          width:"calc(100% - 40px)", maxWidth:"420px", padding:"14px 18px",
+          borderRadius:"16px", display:"flex", alignItems:"center", gap:"12px",
+          background: lmsBanner?.includes("error") ? "rgba(30,10,10,0.88)" : "rgba(10,24,16,0.88)",
+          border: lmsBanner?.includes("error") ? "1px solid rgba(255,80,70,0.25)" : "1px solid rgba(52,199,89,0.22)",
+          backdropFilter:"blur(20px)", WebkitBackdropFilter:"blur(20px)",
+          boxShadow: lmsBanner?.includes("error")
+            ? "0 8px 32px rgba(255,59,48,0.18), 0 0 0 1px rgba(255,80,70,0.1)"
+            : "0 8px 32px rgba(52,199,89,0.18), 0 0 0 1px rgba(52,199,89,0.1)",
+          animation:"fsBannerIn 0.4s cubic-bezier(0.34,1.56,0.64,1) both",
+        }}>
+          <div style={{ position:"relative", flexShrink:0, width:"10px", height:"10px" }}>
+            <div style={{ position:"absolute", inset:0, borderRadius:"50%", background: lmsBanner?.includes("error") ? "#ff453a" : "#30d158", animation:"fsPulseRing 1.4s ease-out infinite" }}/>
+            <div style={{ position:"absolute", inset:0, borderRadius:"50%", background: lmsBanner?.includes("error") ? "#ff453a" : "#30d158" }}/>
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:"13px", fontWeight:"600", color: lmsBanner?.includes("error") ? "#ff6961" : "#30d158", letterSpacing:"-0.1px", marginBottom:"2px" }}>
+              {lmsBanner === "google_connected"    && "Google connected"}
+              {lmsBanner === "microsoft_connected" && "Microsoft connected"}
+              {lmsBanner?.includes("error")        && "Connection failed"}
+            </div>
+            <div style={{ fontSize:"12px", color:"rgba(255,255,255,0.4)" }}>
+              {lmsBanner === "google_connected"    && "Your Classroom files are ready to import."}
+              {lmsBanner === "microsoft_connected" && "Your Teams files are ready to import."}
+              {lmsBanner?.includes("error")        && "Something went wrong — try connecting again."}
             </div>
           </div>
         </div>
