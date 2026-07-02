@@ -595,6 +595,11 @@ function handlerProxy(route, importer, envKeys = HANDLER_ENV) {
   };
 }
 
+const LMS_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_KEY", "SUPABASE_ANON_KEY",
+  "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI",
+  "MICROSOFT_CLIENT_ID", "MICROSOFT_CLIENT_SECRET", "MICROSOFT_REDIRECT_URI", "MICROSOFT_TENANT_ID",
+  "EXTENSION_AUTH_SECRET"];
+
 export default defineConfig({
   plugins: [react(), canvasProxyPlugin, groqProxyPlugin, claudeProxyPlugin, ttsProxyPlugin, itunesProxyPlugin, tutorContextProxyPlugin, extractProxyPlugin, fileUrlProxyPlugin, authMigrateProxyPlugin, ragProxyPlugin, tokenEngineProxyPlugin, nudgeProxyPlugin, flashcardsProxyPlugin, transcribeProxyPlugin, dailyRoomProxyPlugin, summarizeProxyPlugin,
     handlerProxy("/api/tutor-impression", () => import("./api/tutor-impression.js")),
@@ -602,7 +607,11 @@ export default defineConfig({
     handlerProxy("/api/brain-person-link",() => import("./api/brain-person-link.js")),
     handlerProxy("/api/leaderboard",      () => import("./api/leaderboard.js")),
     handlerProxy("/api/content-connector",() => import("./api/content-connector.js")),
-    handlerProxy("/api/writing-tracker",  () => import("./api/writing-tracker.js"))],
+    handlerProxy("/api/writing-tracker",  () => import("./api/writing-tracker.js")),
+    handlerProxy("/api/lms-ingest",       () => import("./api/lms-ingest.js"),    [...HANDLER_ENV, "ANTHROPIC_MODEL_OCR"]),
+    handlerProxy("/api/drive-auth",       () => import("./api/drive-auth.js"),    LMS_ENV),
+    handlerProxy("/api/lms-microsoft",    () => import("./api/lms-microsoft.js"), LMS_ENV),
+    handlerProxy("/api/lms-proxy",        () => import("./api/lms-proxy.js"),     [...HANDLER_ENV, "EXTENSION_AUTH_SECRET"])],
   server:  { port: 5173, host: "0.0.0.0", allowedHosts: true },
   build: {
     // The default 500 kB threshold assumes no compression. Our heaviest chunk (the
